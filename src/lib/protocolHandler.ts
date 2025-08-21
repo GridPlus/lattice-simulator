@@ -15,27 +15,67 @@ import {
 import { LatticeSimulator } from './simulator'
 import { createDeviceResponse, getRequestTypeName } from '../utils'
 
+/**
+ * Secure request structure for encrypted protocol messages
+ */
 export interface SecureRequest {
+  /** Type of the encrypted request */
   type: LatticeSecureEncryptedRequestType
+  /** Encrypted request data */
   data: Buffer
+  /** Optional ephemeral ID for session tracking */
   ephemeralId?: number
 }
 
+/**
+ * Secure response structure for protocol messages
+ */
 export interface SecureResponse {
+  /** Response code indicating success or error type */
   code: LatticeResponseCode
+  /** Optional response data */
   data?: Buffer
+  /** Optional error message */
   error?: string
 }
 
+/**
+ * Protocol Request Handler for Lattice1 Device Simulator
+ * 
+ * Handles parsing, routing, and processing of encrypted secure requests
+ * according to the Lattice1 protocol specification. Manages request
+ * deserialization and response serialization.
+ * 
+ * @example
+ * ```typescript
+ * const handler = new ProtocolHandler(simulator);
+ * const response = await handler.handleSecureRequest({
+ *   type: LatticeSecureEncryptedRequestType.getAddresses,
+ *   data: requestBuffer
+ * });
+ * ```
+ */
 export class ProtocolHandler {
+  /** Reference to the device simulator instance */
   private simulator: LatticeSimulator
 
+  /**
+   * Creates a new ProtocolHandler instance
+   * 
+   * @param simulator - The LatticeSimulator instance to handle requests for
+   */
   constructor(simulator: LatticeSimulator) {
     this.simulator = simulator
   }
 
   /**
-   * Handle a secure encrypted request
+   * Handles a secure encrypted request
+   * 
+   * Routes the request to the appropriate handler based on request type
+   * and processes it through the simulator.
+   * 
+   * @param request - The secure request to process
+   * @returns Promise resolving to secure response with data or error
    */
   async handleSecureRequest(request: SecureRequest): Promise<SecureResponse> {
     try {
@@ -85,7 +125,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle connect request (not encrypted)
+   * Handles connect request (not encrypted)
+   * 
+   * Processes initial connection handshake requests which are not
+   * encrypted and establish the session.
+   * 
+   * @param data - Raw connection request data
+   * @returns Promise resolving to connection response
    */
   async handleConnectRequest(data: Buffer): Promise<SecureResponse> {
     try {
@@ -106,7 +152,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle finalize pairing request
+   * Handles finalize pairing request
+   * 
+   * Processes pairing finalization after initial connection.
+   * 
+   * @param data - Encrypted pairing request data
+   * @returns Promise resolving to pairing response
+   * @private
    */
   private async handlePairRequest(data: Buffer): Promise<SecureResponse> {
     const request = this.parsePairRequest(data)
@@ -120,7 +172,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle get addresses request
+   * Handles address derivation request
+   * 
+   * Processes requests for deriving cryptocurrency addresses.
+   * 
+   * @param data - Encrypted address request data
+   * @returns Promise resolving to address response
+   * @private
    */
   private async handleGetAddressesRequest(data: Buffer): Promise<SecureResponse> {
     const request = this.parseGetAddressesRequest(data)
@@ -134,7 +192,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle signing request
+   * Handles transaction signing request
+   * 
+   * Processes requests for signing transactions or messages.
+   * 
+   * @param data - Encrypted signing request data
+   * @returns Promise resolving to signature response
+   * @private
    */
   private async handleSignRequest(data: Buffer): Promise<SecureResponse> {
     const request = this.parseSignRequest(data)
@@ -148,7 +212,12 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle get wallets request
+   * Handles wallet information request
+   * 
+   * Processes requests for active wallet information.
+   * 
+   * @returns Promise resolving to wallet response
+   * @private
    */
   private async handleGetWalletsRequest(): Promise<SecureResponse> {
     const response = await this.simulator.getWallets()
@@ -161,7 +230,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle get KV records request
+   * Handles key-value record retrieval request
+   * 
+   * Processes requests for retrieving stored key-value pairs.
+   * 
+   * @param data - Encrypted KV request data
+   * @returns Promise resolving to records response
+   * @private
    */
   private async handleGetKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
     const keys = this.parseGetKvRecordsRequest(data)
@@ -175,7 +250,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle add KV records request
+   * Handles key-value record addition request
+   * 
+   * Processes requests for storing new key-value pairs.
+   * 
+   * @param data - Encrypted KV addition request data
+   * @returns Promise resolving to addition response
+   * @private
    */
   private async handleAddKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
     const records = this.parseAddKvRecordsRequest(data)
@@ -189,7 +270,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle remove KV records request
+   * Handles key-value record removal request
+   * 
+   * Processes requests for removing stored key-value pairs.
+   * 
+   * @param data - Encrypted KV removal request data
+   * @returns Promise resolving to removal response
+   * @private
    */
   private async handleRemoveKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
     const keys = this.parseRemoveKvRecordsRequest(data)
@@ -203,7 +290,14 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle fetch encrypted data request
+   * Handles encrypted data fetch request
+   * 
+   * Processes requests for fetching encrypted data from device.
+   * Currently not implemented in simulator.
+   * 
+   * @param data - Encrypted fetch request data
+   * @returns Promise resolving to fetch response
+   * @private
    */
   private async handleFetchEncryptedDataRequest(data: Buffer): Promise<SecureResponse> {
     // Mock implementation - not yet supported
@@ -214,7 +308,13 @@ export class ProtocolHandler {
   }
 
   /**
-   * Handle test request
+   * Handles test request
+   * 
+   * Processes test requests that echo back the provided data.
+   * 
+   * @param data - Test request data
+   * @returns Promise resolving to echo response
+   * @private
    */
   private async handleTestRequest(data: Buffer): Promise<SecureResponse> {
     // Echo back the test data

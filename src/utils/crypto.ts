@@ -6,14 +6,24 @@ import { createHash, randomBytes } from 'crypto'
 import { HARDENED_OFFSET } from '../lib/constants'
 
 /**
- * Generate a random device ID
+ * Generates a random device ID
+ * 
+ * Creates a unique 16-byte hexadecimal device identifier
+ * for simulator instances.
+ * 
+ * @returns Random device ID string
  */
 export function generateDeviceId(): string {
   return randomBytes(16).toString('hex')
 }
 
 /**
- * Generate a random key pair (mock implementation)
+ * Generates a random key pair (mock implementation)
+ * 
+ * Creates a mock public/private key pair for simulation purposes.
+ * In production, this would use proper elliptic curve cryptography.
+ * 
+ * @returns Object containing public and private key buffers
  */
 export function generateKeyPair(): { publicKey: Buffer; privateKey: Buffer } {
   const privateKey = randomBytes(32)
@@ -24,7 +34,14 @@ export function generateKeyPair(): { publicKey: Buffer; privateKey: Buffer } {
 }
 
 /**
- * Parse a derivation path string into an array of numbers
+ * Parses a derivation path string into an array of numbers
+ * 
+ * Converts BIP-32 path notation (e.g., "m/44'/60'/0'/0/0") into
+ * numeric array with hardened offset applied.
+ * 
+ * @param path - BIP-32 derivation path string starting with "m/"
+ * @returns Array of path segment numbers with hardened offset
+ * @throws {Error} When path format is invalid
  */
 export function parseDerivationPath(path: string): number[] {
   if (!path.startsWith('m/')) {
@@ -47,7 +64,13 @@ export function parseDerivationPath(path: string): number[] {
 }
 
 /**
- * Format a derivation path array as a string
+ * Formats a derivation path array as a string
+ * 
+ * Converts numeric path array back to BIP-32 notation with
+ * proper hardened notation (').
+ * 
+ * @param path - Array of path segment numbers
+ * @returns BIP-32 formatted path string
  */
 export function formatDerivationPath(path: number[]): string {
   return 'm/' + path.map(segment => {
@@ -59,28 +82,51 @@ export function formatDerivationPath(path: number[]): string {
 }
 
 /**
- * Check if a path segment is hardened
+ * Checks if a path segment is hardened
+ * 
+ * Determines if a path segment uses hardened derivation based
+ * on the hardened offset value.
+ * 
+ * @param segment - Path segment number
+ * @returns True if segment is hardened
  */
 export function isHardened(segment: number): boolean {
   return segment >= HARDENED_OFFSET
 }
 
 /**
- * Get the unhardened value of a path segment
+ * Gets the unhardened value of a path segment
+ * 
+ * Removes the hardened offset to get the base segment value.
+ * 
+ * @param segment - Path segment number (possibly hardened)
+ * @returns Unhardened segment value
  */
 export function getUnhardenedValue(segment: number): number {
   return segment >= HARDENED_OFFSET ? segment - HARDENED_OFFSET : segment
 }
 
 /**
- * Validate an Ethereum address
+ * Validates an Ethereum address
+ * 
+ * Checks if the provided string is a valid Ethereum address
+ * in hexadecimal format with 0x prefix.
+ * 
+ * @param address - Address string to validate
+ * @returns True if address format is valid
  */
 export function isValidEthereumAddress(address: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(address)
 }
 
 /**
- * Validate a Bitcoin address (simple check)
+ * Validates a Bitcoin address (simple check)
+ * 
+ * Performs basic format validation for Bitcoin addresses.
+ * Supports legacy, P2SH, and bech32 formats.
+ * 
+ * @param address - Address string to validate
+ * @returns True if address format is valid
  */
 export function isValidBitcoinAddress(address: string): boolean {
   // Simplified validation - in real implementation use proper address validation
@@ -90,7 +136,13 @@ export function isValidBitcoinAddress(address: string): boolean {
 }
 
 /**
- * Generate a mock Ethereum address from a public key
+ * Generates a mock Ethereum address from a public key
+ * 
+ * Creates a simulated Ethereum address by hashing the public key.
+ * This is a simplified implementation for simulation purposes.
+ * 
+ * @param publicKey - Public key buffer
+ * @returns Ethereum address with 0x prefix
  */
 export function generateEthereumAddress(publicKey: Buffer): string {
   const hash = createHash('keccak256').update(publicKey.slice(1)).digest()
@@ -98,7 +150,15 @@ export function generateEthereumAddress(publicKey: Buffer): string {
 }
 
 /**
- * Generate a mock Bitcoin address from a public key
+ * Generates a mock Bitcoin address from a public key
+ * 
+ * Creates a simulated Bitcoin address in the specified format.
+ * This is a simplified implementation for simulation purposes.
+ * 
+ * @param publicKey - Public key buffer
+ * @param type - Address type (legacy, segwit, or wrapped-segwit)
+ * @returns Bitcoin address string
+ * @throws {Error} When address type is unknown
  */
 export function generateBitcoinAddress(publicKey: Buffer, type: 'legacy' | 'segwit' | 'wrapped-segwit' = 'segwit'): string {
   const hash = createHash('sha256').update(publicKey).digest()
@@ -117,7 +177,13 @@ export function generateBitcoinAddress(publicKey: Buffer, type: 'legacy' | 'segw
 }
 
 /**
- * Generate a mock Solana address from a public key
+ * Generates a mock Solana address from a public key
+ * 
+ * Creates a simulated Solana address from the public key.
+ * This is a simplified implementation for simulation purposes.
+ * 
+ * @param publicKey - Public key buffer
+ * @returns Base64-encoded Solana address
  */
 export function generateSolanaAddress(publicKey: Buffer): string {
   // Solana addresses are base58-encoded public keys
@@ -126,7 +192,15 @@ export function generateSolanaAddress(publicKey: Buffer): string {
 }
 
 /**
- * Mock HD key derivation (simplified for simulation)
+ * Performs mock HD key derivation (simplified for simulation)
+ * 
+ * Derives a child key and chain code from parent values.
+ * This is a simplified implementation for simulation purposes.
+ * 
+ * @param parentKey - Parent private key
+ * @param parentChainCode - Parent chain code
+ * @param index - Child key index
+ * @returns Object with derived key and chain code
  */
 export function deriveChild(
   parentKey: Buffer,
@@ -149,7 +223,14 @@ export function deriveChild(
 }
 
 /**
- * Mock signature generation
+ * Generates mock signature
+ * 
+ * Creates a deterministic signature for simulation purposes.
+ * This is not cryptographically secure and should only be used for testing.
+ * 
+ * @param data - Data to sign
+ * @param privateKey - Private key for signing
+ * @returns 64-byte signature buffer (32 bytes r + 32 bytes s)
  */
 export function mockSign(data: Buffer, privateKey: Buffer): Buffer {
   // Simplified mock signature - in real implementation use proper ECDSA
@@ -160,7 +241,13 @@ export function mockSign(data: Buffer, privateKey: Buffer): Buffer {
 }
 
 /**
- * Generate a deterministic seed from a mnemonic phrase
+ * Generates a deterministic seed from a mnemonic phrase
+ * 
+ * Creates a seed from a BIP-39 mnemonic phrase for HD wallet derivation.
+ * This is a simplified implementation for simulation purposes.
+ * 
+ * @param mnemonic - BIP-39 mnemonic phrase
+ * @returns 64-byte seed buffer
  */
 export function generateSeedFromMnemonic(mnemonic: string): Buffer {
   // Simplified seed generation - in real implementation use proper BIP39
@@ -168,7 +255,13 @@ export function generateSeedFromMnemonic(mnemonic: string): Buffer {
 }
 
 /**
- * Validate a mnemonic phrase (basic check)
+ * Validates a mnemonic phrase (basic check)
+ * 
+ * Performs basic validation of BIP-39 mnemonic phrase format.
+ * Checks word count and divisibility by 3.
+ * 
+ * @param mnemonic - Mnemonic phrase to validate
+ * @returns True if mnemonic format appears valid
  */
 export function validateMnemonic(mnemonic: string): boolean {
   const words = mnemonic.trim().split(/\s+/)

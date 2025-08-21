@@ -20,7 +20,11 @@ import {
 import { DERIVATION_PATHS, SIMULATOR_CONSTANTS } from '../lib/constants'
 
 /**
- * Generate a unique request ID
+ * Generates a unique request ID
+ * 
+ * Creates a random 8-byte hexadecimal identifier for tracking requests.
+ * 
+ * @returns Unique request ID string
  */
 export function generateRequestId(): string {
   return randomBytes(8).toString('hex')
@@ -44,7 +48,12 @@ export function createDeviceResponse<T = any>(
 }
 
 /**
- * Get error message for response code
+ * Gets error message for response code
+ * 
+ * Maps Lattice response codes to human-readable error messages.
+ * 
+ * @param code - The Lattice response code
+ * @returns Human-readable error message
  */
 export function getErrorMessage(code: LatticeResponseCode): string {
   const messages = {
@@ -70,14 +79,24 @@ export function getErrorMessage(code: LatticeResponseCode): string {
 }
 
 /**
- * Validate request type
+ * Validates request type
+ * 
+ * Checks if the provided number is a valid Lattice request type.
+ * 
+ * @param type - Request type number to validate
+ * @returns True if request type is valid
  */
 export function isValidRequestType(type: number): boolean {
   return Object.values(LatticeSecureEncryptedRequestType).includes(type)
 }
 
 /**
- * Get request type name
+ * Gets request type name
+ * 
+ * Converts request type enum value to human-readable string.
+ * 
+ * @param type - The request type enum value
+ * @returns Human-readable request type name
  */
 export function getRequestTypeName(type: LatticeSecureEncryptedRequestType): string {
   const names = {
@@ -96,7 +115,13 @@ export function getRequestTypeName(type: LatticeSecureEncryptedRequestType): str
 }
 
 /**
- * Simulate delay for realistic device behavior
+ * Simulates delay for realistic device behavior
+ * 
+ * Adds random delay to simulate real hardware response times.
+ * 
+ * @param baseMs - Base delay in milliseconds
+ * @param variationMs - Random variation range in milliseconds
+ * @returns Promise that resolves after the delay
  */
 export async function simulateDelay(baseMs: number = 500, variationMs: number = 200): Promise<void> {
   const delay = baseMs + Math.random() * variationMs
@@ -104,7 +129,13 @@ export async function simulateDelay(baseMs: number = 500, variationMs: number = 
 }
 
 /**
- * Check if a firmware version supports a feature
+ * Checks if a firmware version supports a feature
+ * 
+ * Compares firmware version against minimum required version for a feature.
+ * 
+ * @param firmwareVersion - Current firmware version buffer
+ * @param featureVersion - Minimum required version [major, minor, patch]
+ * @returns True if firmware supports the feature
  */
 export function supportsFeature(
   firmwareVersion: Buffer,
@@ -130,7 +161,16 @@ export function supportsFeature(
 }
 
 /**
- * Generate mock addresses for a given derivation path
+ * Generates mock addresses for a given derivation path
+ * 
+ * Creates cryptocurrency addresses using HD wallet derivation.
+ * Supports Ethereum, Bitcoin, and Solana address generation.
+ * 
+ * @param startPath - Starting derivation path
+ * @param count - Number of addresses to generate
+ * @param coinType - Cryptocurrency type ('ETH', 'BTC', 'SOL')
+ * @param seed - Optional seed for deterministic generation
+ * @returns Array of address information objects
  */
 export function generateMockAddresses(
   startPath: WalletPath,
@@ -188,7 +228,13 @@ export function generateMockAddresses(
 }
 
 /**
- * Detect coin type from derivation path
+ * Detects coin type from derivation path
+ * 
+ * Analyzes the coin type field in a derivation path to determine
+ * the target cryptocurrency.
+ * 
+ * @param path - HD wallet derivation path
+ * @returns Detected coin type or 'UNKNOWN'
  */
 export function detectCoinTypeFromPath(path: WalletPath): 'ETH' | 'BTC' | 'SOL' | 'UNKNOWN' {
   if (path.length < 2) return 'UNKNOWN'
@@ -204,7 +250,15 @@ export function detectCoinTypeFromPath(path: WalletPath): 'ETH' | 'BTC' | 'SOL' 
 }
 
 /**
- * Get standard derivation path for a coin type
+ * Gets standard derivation path for a coin type
+ * 
+ * Returns the standard BIP-44 derivation path for the specified
+ * cryptocurrency type.
+ * 
+ * @param coinType - Target cryptocurrency type
+ * @param account - Account index (default: 0)
+ * @returns Standard derivation path array
+ * @throws {Error} When coin type is unsupported
  */
 export function getStandardPath(coinType: 'ETH' | 'BTC' | 'SOL', account: number = 0): WalletPath {
   switch (coinType) {
@@ -268,3 +322,4 @@ export function formatBytes(bytes: number): string {
   
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
+

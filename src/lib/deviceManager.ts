@@ -15,11 +15,42 @@ import {
 import { LatticeSimulator } from './simulator'
 import { RequestProcessor, createRequestProcessor, requiresUserApproval } from './requestProcessor'
 
+/**
+ * Device Manager for Lattice1 Device Simulator
+ * 
+ * Central orchestrator for device instances and user interactions.
+ * Provides a high-level API for device operations and coordinates
+ * between the simulator, request processor, and state management.
+ * 
+ * @example
+ * ```typescript
+ * const manager = new DeviceManager('test-device-001');
+ * 
+ * await manager.connect();
+ * await manager.pair('secret123');
+ * 
+ * const addresses = await manager.getAddresses([44, 60, 0, 0, 0], 5);
+ * const signature = await manager.sign(dataBuffer, [44, 60, 0, 0, 0]);
+ * ```
+ */
 export class DeviceManager {
+  /** The core device simulator instance */
   private simulator: LatticeSimulator
+  
+  /** Request processor for handling user interactions */
   private requestProcessor: RequestProcessor
+  
+  /** Whether the manager has been initialized */
   private isInitialized: boolean = false
 
+  /**
+   * Creates a new DeviceManager instance
+   * 
+   * Initializes the simulator and request processor with configuration
+   * from the global store.
+   * 
+   * @param deviceId - Optional device ID (generates random if not provided)
+   */
   constructor(deviceId?: string) {
     // Initialize simulator
     const config = useDeviceStore.getState().config
@@ -41,7 +72,13 @@ export class DeviceManager {
   }
 
   /**
-   * Connect to the device
+   * Connects to the device
+   * 
+   * Establishes a connection with the simulated device and updates
+   * the global state with connection information.
+   * 
+   * @param deviceId - Optional device ID to connect to
+   * @returns Promise resolving to connection success status
    */
   async connect(deviceId?: string): Promise<DeviceResponse<boolean>> {
     if (!this.isInitialized) {
@@ -81,7 +118,13 @@ export class DeviceManager {
   }
 
   /**
-   * Pair with the device
+   * Pairs with the device
+   * 
+   * Establishes a trusted pairing with the device using an optional
+   * pairing secret. Requires user approval unless auto-approve is enabled.
+   * 
+   * @param pairingSecret - Optional secret for secure pairing
+   * @returns Promise resolving to pairing success status
    */
   async pair(pairingSecret?: string): Promise<DeviceResponse<boolean>> {
     const request: PairRequest = {
@@ -106,7 +149,15 @@ export class DeviceManager {
   }
 
   /**
-   * Get addresses from the device
+   * Gets addresses from the device
+   * 
+   * Derives cryptocurrency addresses using HD wallet derivation paths.
+   * Supports multiple cryptocurrencies based on the path structure.
+   * 
+   * @param startPath - HD derivation path array
+   * @param count - Number of addresses to derive (default: 1)
+   * @param flag - Optional address format flag
+   * @returns Promise resolving to array of derived addresses
    */
   async getAddresses(
     startPath: number[],
@@ -134,7 +185,18 @@ export class DeviceManager {
   }
 
   /**
-   * Sign data with the device
+   * Signs data with the device
+   * 
+   * Signs transaction data or messages using the private key derived
+   * from the specified path. Requires user approval unless auto-approve is enabled.
+   * 
+   * @param data - Data to sign
+   * @param path - HD derivation path for the signing key
+   * @param schema - Signing schema (default: 5 for generic)
+   * @param curve - Cryptographic curve (default: 0 for secp256k1)
+   * @param encoding - Data encoding (default: 1 for none)
+   * @param hashType - Hash type (default: 0 for none)
+   * @returns Promise resolving to signature buffer
    */
   async sign(
     data: Buffer,
@@ -168,7 +230,12 @@ export class DeviceManager {
   }
 
   /**
-   * Get active wallets
+   * Gets active wallet information
+   * 
+   * Retrieves information about the currently active internal
+   * and external wallets.
+   * 
+   * @returns Promise resolving to active wallet data
    */
   async getWallets() {
     return await this.requestProcessor.processRequest(
@@ -179,7 +246,13 @@ export class DeviceManager {
   }
 
   /**
-   * Get key-value records (address tags)
+   * Gets key-value records (address tags)
+   * 
+   * Retrieves stored key-value pairs from the device, typically
+   * used for address name tags.
+   * 
+   * @param keys - Array of keys to retrieve
+   * @returns Promise resolving to record data
    */
   async getKvRecords(keys: string[]) {
     return await this.requestProcessor.processRequest(
@@ -190,7 +263,13 @@ export class DeviceManager {
   }
 
   /**
-   * Add key-value records (address tags)
+   * Adds key-value records (address tags)
+   * 
+   * Stores new key-value pairs on the device and updates the global state.
+   * Requires user approval unless auto-approve is enabled.
+   * 
+   * @param records - Map of key-value pairs to store
+   * @returns Promise resolving to addition success status
    */
   async addKvRecords(records: Record<string, string>) {
     const response = await this.requestProcessor.processRequest(
@@ -210,7 +289,13 @@ export class DeviceManager {
   }
 
   /**
-   * Remove key-value records
+   * Removes key-value records
+   * 
+   * Removes stored key-value pairs from the device and updates the global state.
+   * Requires user approval unless auto-approve is enabled.
+   * 
+   * @param keys - Array of keys to remove
+   * @returns Promise resolving to removal success status
    */
   async removeKvRecords(keys: string[]) {
     const response = await this.requestProcessor.processRequest(
@@ -230,14 +315,22 @@ export class DeviceManager {
   }
 
   /**
-   * Approve the current pending request
+   * Approves the current pending request
+   * 
+   * Manually approves the request currently awaiting user approval.
+   * 
+   * @returns True if a request was approved, false if none pending
    */
   approveCurrentRequest(): boolean {
     return this.requestProcessor.approveCurrentRequest()
   }
 
   /**
-   * Decline the current pending request
+   * Declines the current pending request
+   * 
+   * Manually declines the request currently awaiting user approval.
+   * 
+   * @returns True if a request was declined, false if none pending
    */
   declineCurrentRequest(): boolean {
     return this.requestProcessor.declineCurrentRequest()
@@ -343,7 +436,13 @@ export class DeviceManager {
 let globalDeviceManager: DeviceManager | null = null
 
 /**
- * Get or create the global device manager instance
+ * Gets or creates the global device manager instance
+ * 
+ * Provides a singleton pattern for accessing the device manager.
+ * Creates a new instance if none exists.
+ * 
+ * @param deviceId - Optional device ID for new instances
+ * @returns The global DeviceManager instance
  */
 export function getDeviceManager(deviceId?: string): DeviceManager {
   if (!globalDeviceManager) {
@@ -353,7 +452,10 @@ export function getDeviceManager(deviceId?: string): DeviceManager {
 }
 
 /**
- * Reset the global device manager
+ * Resets the global device manager
+ * 
+ * Clears the global device manager instance, forcing creation
+ * of a new instance on next access.
  */
 export function resetDeviceManager(): void {
   globalDeviceManager = null

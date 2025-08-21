@@ -14,18 +14,60 @@ import { generateRequestId, getRequestTypeName, simulateDelay } from '../utils'
 import { LatticeSimulator } from './simulator'
 import { ProtocolHandler } from './protocolHandler'
 
+/**
+ * Configuration options for the request processor
+ */
 export interface RequestProcessorConfig {
+  /** Whether to automatically approve all requests without user interaction */
   autoApproveRequests: boolean
+  /** Maximum time to wait for user approval in milliseconds */
   userApprovalTimeoutMs: number
+  /** Whether user interaction is enabled */
   enableUserInteraction: boolean
 }
 
+/**
+ * Request Processing Engine for Lattice1 Device Simulator
+ * 
+ * Manages request queuing, processing, and user interaction flows.
+ * Coordinates between the protocol handler and user approval systems
+ * to simulate realistic device behavior.
+ * 
+ * @example
+ * ```typescript
+ * const processor = new RequestProcessor(simulator, handler, {
+ *   autoApproveRequests: false,
+ *   userApprovalTimeoutMs: 300000,
+ *   enableUserInteraction: true
+ * });
+ * 
+ * const response = await processor.processRequest(
+ *   LatticeSecureEncryptedRequestType.sign,
+ *   signRequest,
+ *   true
+ * );
+ * ```
+ */
 export class RequestProcessor {
+  /** Reference to the device simulator */
   private simulator: LatticeSimulator
+  
+  /** Reference to the protocol handler */
   private handler: ProtocolHandler
+  
+  /** Processor configuration */
   private config: RequestProcessorConfig
+  
+  /** Map of currently processing requests */
   private processingQueue: Map<string, Promise<any>> = new Map()
 
+  /**
+   * Creates a new RequestProcessor instance
+   * 
+   * @param simulator - The device simulator to process requests for
+   * @param handler - The protocol handler for request processing
+   * @param config - Configuration for request processing behavior
+   */
   constructor(
     simulator: LatticeSimulator,
     handler: ProtocolHandler,
@@ -37,7 +79,16 @@ export class RequestProcessor {
   }
 
   /**
-   * Process a new request with user interaction handling
+   * Processes a new request with user interaction handling
+   * 
+   * Manages the complete request lifecycle including queueing,
+   * user approval, and execution. Handles timeouts and errors.
+   * 
+   * @param type - The type of request to process
+   * @param data - The request data
+   * @param requiresApproval - Whether user approval is required
+   * @returns Promise resolving to device response
+   * @template T - The expected response data type
    */
   async processRequest<T>(
     type: LatticeSecureEncryptedRequestType,
@@ -92,7 +143,16 @@ export class RequestProcessor {
   }
 
   /**
-   * Execute a request without user interaction
+   * Executes a request without user interaction
+   * 
+   * Directly processes the request through the protocol handler
+   * without any approval flows.
+   * 
+   * @param type - The type of request to execute
+   * @param data - The request data
+   * @returns Promise resolving to device response
+   * @template T - The expected response data type
+   * @private
    */
   private async executeRequest<T>(
     type: LatticeSecureEncryptedRequestType,
@@ -114,7 +174,14 @@ export class RequestProcessor {
   }
 
   /**
-   * Wait for user approval with timeout
+   * Waits for user approval with timeout
+   * 
+   * Monitors the store for request approval or timeout.
+   * Uses Zustand subscription to detect state changes.
+   * 
+   * @param requestId - ID of the request awaiting approval
+   * @returns Promise resolving to approval status
+   * @private
    */
   private async waitForUserApproval(requestId: string): Promise<boolean> {
     return new Promise((resolve) => {
@@ -143,7 +210,11 @@ export class RequestProcessor {
   }
 
   /**
-   * Approve the current pending request
+   * Approves the current pending request
+   * 
+   * Removes the current request from the queue and marks it approved.
+   * 
+   * @returns True if a request was approved, false if none pending
    */
   approveCurrentRequest(): boolean {
     const state = useDeviceStore.getState()
@@ -155,7 +226,11 @@ export class RequestProcessor {
   }
 
   /**
-   * Decline the current pending request
+   * Declines the current pending request
+   * 
+   * Removes the current request from the queue and marks it declined.
+   * 
+   * @returns True if a request was declined, false if none pending
    */
   declineCurrentRequest(): boolean {
     const state = useDeviceStore.getState()
@@ -167,28 +242,36 @@ export class RequestProcessor {
   }
 
   /**
-   * Get pending requests
+   * Gets all pending requests
+   * 
+   * @returns Array of requests awaiting user approval
    */
   getPendingRequests(): PendingRequest[] {
     return useDeviceStore.getState().pendingRequests
   }
 
   /**
-   * Get current request requiring approval
+   * Gets the current request requiring approval
+   * 
+   * @returns The request currently awaiting approval, or undefined
    */
   getCurrentRequest(): PendingRequest | undefined {
     return useDeviceStore.getState().currentRequest
   }
 
   /**
-   * Update processor configuration
+   * Updates processor configuration
+   * 
+   * @param config - Partial configuration to merge with existing settings
    */
   updateConfig(config: Partial<RequestProcessorConfig>): void {
     Object.assign(this.config, config)
   }
 
   /**
-   * Clear all pending requests
+   * Clears all pending requests
+   * 
+   * Removes all requests from the approval queue.
    */
   clearPendingRequests(): void {
     const state = useDeviceStore.getState()
@@ -201,7 +284,14 @@ export class RequestProcessor {
 }
 
 /**
- * Factory function to create a request processor
+ * Creates a request processor with default configuration
+ * 
+ * Factory function that creates a RequestProcessor instance with
+ * sensible defaults and optional configuration overrides.
+ * 
+ * @param simulator - The device simulator instance
+ * @param config - Optional configuration overrides
+ * @returns Configured RequestProcessor instance
  */
 export function createRequestProcessor(
   simulator: LatticeSimulator,
@@ -220,7 +310,13 @@ export function createRequestProcessor(
 }
 
 /**
- * Request type classification for approval requirements
+ * Determines if a request type requires user approval
+ * 
+ * Classifies request types based on their security implications
+ * and whether they should require explicit user consent.
+ * 
+ * @param type - The request type to check
+ * @returns True if the request requires user approval
  */
 export function requiresUserApproval(type: LatticeSecureEncryptedRequestType): boolean {
   switch (type) {
@@ -243,7 +339,14 @@ export function requiresUserApproval(type: LatticeSecureEncryptedRequestType): b
 }
 
 /**
- * Get user-friendly description for request types
+ * Gets user-friendly description for request types
+ * 
+ * Provides human-readable descriptions of request types for
+ * display in user interfaces.
+ * 
+ * @param type - The request type
+ * @param data - Optional request data for context
+ * @returns Human-readable description of the request
  */
 export function getRequestDescription(type: LatticeSecureEncryptedRequestType, data?: any): string {
   switch (type) {

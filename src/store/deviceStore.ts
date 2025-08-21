@@ -77,14 +77,24 @@ const INITIAL_STATE: DeviceState = {
   kvRecords: {},
 }
 
+/**
+ * Zustand store interface for device state management
+ * 
+ * Extends the base DeviceState with configuration and action methods
+ * for managing the simulated device state.
+ */
 interface DeviceStore extends DeviceState {
-  // Configuration
+  /** Simulator configuration settings */
   config: SimulatorConfig
   
-  // Actions
+  // Connection and pairing actions
+  /** Connects to a device with the specified ID */
   connect: (deviceId: string) => Promise<DeviceResponse<boolean>>
+  /** Disconnects from the current device */
   disconnect: () => void
+  /** Pairs with the device using optional pairing secret */
   pair: (pairingSecret?: string) => Promise<DeviceResponse<boolean>>
+  /** Unpairs from the current device */
   unpair: () => void
   
   // Device Management
@@ -114,6 +124,21 @@ interface DeviceStore extends DeviceState {
   reset: () => void
 }
 
+/**
+ * Main Zustand store for device state management
+ * 
+ * Provides state management for the Lattice1 device simulator including
+ * connection status, device configuration, pending requests, and user interactions.
+ * Uses immer for immutable state updates and supports subscriptions.
+ * 
+ * @example
+ * ```typescript
+ * const store = useDeviceStore();
+ * await store.connect('device-123');
+ * await store.pair('secret');
+ * store.setLocked(true);
+ * ```
+ */
 export const useDeviceStore = create<DeviceStore>()(
   subscribeWithSelector(
     immer((set, get) => ({
@@ -318,6 +343,11 @@ export const useDeviceStore = create<DeviceStore>()(
 )
 
 // Selectors for commonly used state slices
+/**
+ * Selector hook for device connection state
+ * 
+ * @returns Object with connection status and device ID
+ */
 export const useDeviceConnection = () => 
   useDeviceStore(state => ({
     isConnected: state.isConnected,
@@ -326,6 +356,11 @@ export const useDeviceConnection = () =>
     deviceId: state.deviceInfo.deviceId,
   }))
 
+/**
+ * Selector hook for device status information
+ * 
+ * @returns Object with lock status, busy state, and firmware info
+ */
 export const useDeviceStatus = () =>
   useDeviceStore(state => ({
     isLocked: state.isLocked,
@@ -334,6 +369,11 @@ export const useDeviceStatus = () =>
     name: state.deviceInfo.name,
   }))
 
+/**
+ * Selector hook for pending request information
+ * 
+ * @returns Object with pending requests and current approval state
+ */
 export const usePendingRequests = () =>
   useDeviceStore(state => ({
     pendingRequests: state.pendingRequests,
@@ -341,9 +381,19 @@ export const usePendingRequests = () =>
     userApprovalRequired: state.userApprovalRequired,
   }))
 
+/**
+ * Selector hook for active wallet information
+ * 
+ * @returns Current active wallet data
+ */
 export const useActiveWallets = () =>
   useDeviceStore(state => state.activeWallets)
 
+/**
+ * Selector hook for simulator configuration
+ * 
+ * @returns Current simulator configuration settings
+ */
 export const useSimulatorConfig = () =>
   useDeviceStore(state => state.config)
 
