@@ -346,3 +346,4 @@ export const useActiveWallets = () =>
 
 export const useSimulatorConfig = () =>
   useDeviceStore(state => state.config)
+

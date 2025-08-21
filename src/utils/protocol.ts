@@ -29,7 +29,7 @@ export function generateRequestId(): string {
 /**
  * Create a device response object
  */
-export function createDeviceResponse<T>(
+export function createDeviceResponse<T = any>(
   success: boolean,
   code: LatticeResponseCode,
   data?: T,
@@ -40,7 +40,7 @@ export function createDeviceResponse<T>(
     code,
     data,
     error: error || (success ? undefined : getErrorMessage(code)),
-  }
+  } as DeviceResponse<T>
 }
 
 /**
