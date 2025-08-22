@@ -95,11 +95,12 @@ function ConnectionControls() {
   const { connect, disconnect, pair } = useDeviceStore()
   const [isConnecting, setIsConnecting] = useState(false)
   const [isPairing, setIsPairing] = useState(false)
+  const [deviceIdInput, setDeviceIdInput] = useState('A00001')
 
   const handleConnect = async () => {
     setIsConnecting(true)
     try {
-      await connect('simulator-device-001')
+      await connect(deviceIdInput)
     } catch (error) {
       console.error('Connection failed:', error)
     } finally {
@@ -173,9 +174,25 @@ function ConnectionControls() {
  * Connection settings component
  */
 function ConnectionSettings() {
+  const { deviceId } = useDeviceConnection()
+  const { setDeviceInfo } = useDeviceStore()
   const [autoConnect, setAutoConnect] = useState(false)
   const [autoPair, setAutoPair] = useState(false)
   const [connectionTimeout, setConnectionTimeout] = useState(30)
+  const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'simulator-device-001')
+  const [isSaving, setIsSaving] = useState(false)
+
+  const handleSaveDeviceId = async () => {
+    setIsSaving(true)
+    try {
+      setDeviceInfo({ deviceId: deviceIdInput })
+      // You could also save to localStorage or make an API call here
+    } catch (error) {
+      console.error('Failed to save device ID:', error)
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -184,6 +201,31 @@ function ConnectionSettings() {
       </h3>
 
       <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Device ID
+          </label>
+          <div className="flex space-x-2">
+            <input
+              type="text"
+              value={deviceIdInput}
+              onChange={(e) => setDeviceIdInput(e.target.value)}
+              placeholder="Enter device ID"
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+            <button
+              onClick={handleSaveDeviceId}
+              disabled={isSaving || deviceIdInput === deviceId}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isSaving ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            Unique identifier for this device simulator
+          </p>
+        </div>
+
         <div className="flex items-center justify-between">
           <div>
             <p className="font-medium text-gray-900 dark:text-white">Auto-connect</p>
