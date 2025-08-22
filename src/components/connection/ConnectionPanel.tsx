@@ -1,0 +1,264 @@
+'use client'
+
+import React, { useState } from 'react'
+import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/store'
+import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings } from 'lucide-react'
+
+/**
+ * Connection status indicator component
+ */
+function ConnectionStatus() {
+  const { isConnected, isPaired } = useDeviceConnection()
+  const { name, firmwareVersion } = useDeviceStatus()
+
+  const formatFirmwareVersion = (version: Buffer) => {
+    if (version.length < 3) return 'Unknown'
+    return `${version[2]}.${version[1]}.${version[0]}`
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+          Connection Status
+        </h3>
+        <div className="flex items-center space-x-2">
+          <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {isConnected ? 'Connected' : 'Disconnected'}
+          </span>
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div className="flex items-center space-x-3">
+            {isConnected ? (
+              <Wifi className="w-5 h-5 text-green-500" />
+            ) : (
+              <WifiOff className="w-5 h-5 text-red-500" />
+            )}
+            <div>
+              <p className="font-medium text-gray-900 dark:text-white">
+                {isConnected ? 'Device Connected' : 'No Device Connected'}
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                {isConnected ? name : 'Connect to a Lattice1 device'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {isConnected && (
+          <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <div className="flex items-center space-x-3">
+              {isPaired ? (
+                <ShieldCheck className="w-5 h-5 text-blue-500" />
+              ) : (
+                <Shield className="w-5 h-5 text-yellow-500" />
+              )}
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {isPaired ? 'Device Paired' : 'Device Not Paired'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {isPaired ? 'Secure communication established' : 'Pairing required for secure communication'}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isConnected && (
+          <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <Settings className="w-5 h-5 text-gray-500" />
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">Firmware Version</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  v{formatFirmwareVersion(firmwareVersion)}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Connection controls component
+ */
+function ConnectionControls() {
+  const { isConnected, isPaired } = useDeviceConnection()
+  const { connect, disconnect, pair } = useDeviceStore()
+  const [isConnecting, setIsConnecting] = useState(false)
+  const [isPairing, setIsPairing] = useState(false)
+
+  const handleConnect = async () => {
+    setIsConnecting(true)
+    try {
+      await connect('simulator-device-001')
+    } catch (error) {
+      console.error('Connection failed:', error)
+    } finally {
+      setIsConnecting(false)
+    }
+  }
+
+  const handlePair = async () => {
+    setIsPairing(true)
+    try {
+      await pair()
+    } catch (error) {
+      console.error('Pairing failed:', error)
+    } finally {
+      setIsPairing(false)
+    }
+  }
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+        Connection Controls
+      </h3>
+
+      <div className="space-y-3">
+        {!isConnected ? (
+          <button
+            onClick={handleConnect}
+            disabled={isConnecting}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {isConnecting ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <Wifi className="w-4 h-4" />
+            )}
+            <span>{isConnecting ? 'Connecting...' : 'Connect Device'}</span>
+          </button>
+        ) : (
+          <div className="space-y-3">
+            {!isPaired && (
+              <button
+                onClick={handlePair}
+                disabled={isPairing}
+                className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isPairing ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Shield className="w-4 h-4" />
+                )}
+                <span>{isPairing ? 'Pairing...' : 'Pair Device'}</span>
+              </button>
+            )}
+
+            <button
+              onClick={disconnect}
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              <WifiOff className="w-4 h-4" />
+              <span>Disconnect</span>
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Connection settings component
+ */
+function ConnectionSettings() {
+  const [autoConnect, setAutoConnect] = useState(false)
+  const [autoPair, setAutoPair] = useState(false)
+  const [connectionTimeout, setConnectionTimeout] = useState(30)
+
+  return (
+    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+        Connection Settings
+      </h3>
+
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900 dark:text-white">Auto-connect</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Automatically connect when device is available
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoConnect}
+              onChange={(e) => setAutoConnect(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+          </label>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="font-medium text-gray-900 dark:text-white">Auto-pair</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Automatically pair after connection
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoPair}
+              onChange={(e) => setAutoPair(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
+          </label>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Connection Timeout (seconds)
+          </label>
+          <input
+            type="number"
+            min="5"
+            max="120"
+            value={connectionTimeout}
+            onChange={(e) => setConnectionTimeout(Number(e.target.value))}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Main Connection Panel component
+ */
+export function ConnectionPanel() {
+  return (
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+          Device Connection
+        </h2>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="space-y-6">
+          <ConnectionStatus />
+          <ConnectionControls />
+        </div>
+        <div>
+          <ConnectionSettings />
+        </div>
+      </div>
+    </div>
+  )
+}
