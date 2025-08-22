@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Lattice1 Device Simulator - A software simulator for GridPlus Lattice1 hardware wallet",
   "private": true,
-  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -23,6 +22,7 @@
     "@radix-ui/react-tooltip": "^1.0.7",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
+    "immer": "^10.1.1",
     "lucide-react": "^0.294.0",
     "next": "^14.0.0",
     "react": "^18.2.0",

@@ -32,6 +32,9 @@ importers:
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
+      immer:
+        specifier: ^10.1.1
+        version: 10.1.1
       lucide-react:
         specifier: ^0.294.0
         version: 0.294.0(react@18.3.1)
@@ -49,7 +52,7 @@ importers:
         version: 2.6.0
       zustand:
         specifier: ^4.4.0
-        version: 4.5.7(@types/react@18.3.23)(react@18.3.1)
+        version: 4.5.7(@types/react@18.3.23)(immer@10.1.1)(react@18.3.1)
     devDependencies:
       '@testing-library/jest-dom':
         specifier: ^6.8.0
@@ -2018,6 +2021,9 @@ packages:
   ignore@5.3.2:
     resolution: {integrity: sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g==}
     engines: {node: '>= 4'}
+
+  immer@10.1.1:
+    resolution: {integrity: sha512-s2MPrmjovJcoMaHtx6K11Ra7oD05NT97w1IC5zpMkT6Atjr7H8LjaDd81iIxUYpMKSRRNMJE703M1Fhr/TctHw==}
 
   import-fresh@3.3.1:
     resolution: {integrity: sha512-TR3KfrTZTYLPB6jUjfx6MF9WcWrHL9su5TObK4ZkYgBdWKPOFoSoQIdEuTuR82pmtxH2spWG9h6etwfr1pLBqQ==}
@@ -5335,6 +5341,8 @@ snapshots:
 
   ignore@5.3.2: {}
 
+  immer@10.1.1: {}
+
   import-fresh@3.3.1:
     dependencies:
       parent-module: 1.0.1
@@ -6676,9 +6684,10 @@ snapshots:
 
   yocto-queue@1.2.1: {}
 
-  zustand@4.5.7(@types/react@18.3.23)(react@18.3.1):
+  zustand@4.5.7(@types/react@18.3.23)(immer@10.1.1)(react@18.3.1):
     dependencies:
       use-sync-external-store: 1.5.0(react@18.3.1)
     optionalDependencies:
       '@types/react': 18.3.23
+      immer: 10.1.1
       react: 18.3.1
