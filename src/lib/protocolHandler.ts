@@ -499,10 +499,15 @@ export class ProtocolHandler {
       firmwareVersionType: typeof data.firmwareVersion,
     })
     
-    // Connect response should be exactly 214 bytes (215 - 1 for responseCode)
-    // Breakdown: pairing status (1) + ephemeral pub (65) + firmware version (4) + encrypted wallet data (144) = 214
-    const response = Buffer.alloc(214)
+    // Connect response should be 215 bytes total: response code (1) + data (214)
+    // Structure: response code (1) + pairing status (1) + ephemeral pub (65) + firmware version (4) + encrypted wallet data (144) = 215
+    // SDK will remove response code and expect 214 bytes of data
+    const response = Buffer.alloc(215)
     let offset = 0
+    
+    // Response code (1 byte) - success
+    response.writeUInt8(0, offset)
+    offset += 1
     
     // Pairing status (1 byte)
     response.writeUInt8(data.isPaired ? 1 : 0, offset)
@@ -512,7 +517,6 @@ export class ProtocolHandler {
     if (!Buffer.isBuffer(data.ephemeralPub)) {
       throw new Error(`Expected ephemeralPub to be Buffer, got ${typeof data.ephemeralPub}`)
     }
-    console.log(`[ProtocolHandler] Ephemeral pub length: ${data.ephemeralPub.length}, expected: 65`)
     if (data.ephemeralPub.length !== 65) {
       throw new Error(`Expected ephemeralPub to be 65 bytes, got ${data.ephemeralPub.length}`)
     }
@@ -523,18 +527,26 @@ export class ProtocolHandler {
     if (!Buffer.isBuffer(data.firmwareVersion)) {
       throw new Error(`Expected firmwareVersion to be Buffer, got ${typeof data.firmwareVersion}`)
     }
-    console.log(`[ProtocolHandler] Firmware version length: ${data.firmwareVersion.length}, expected: 4`)
     if (data.firmwareVersion.length !== 4) {
       throw new Error(`Expected firmwareVersion to be 4 bytes, got ${data.firmwareVersion.length}`)
     }
     data.firmwareVersion.copy(response, offset)
     offset += 4
     
-    // Encrypted wallet data (144 bytes) - filled with zeros for simulation
-    // In real implementation, this would contain encrypted wallet information
-    response.fill(0, offset, offset + 144)
+    // Encrypted wallet data (144 bytes) - always present  
+    // For paired devices: would contain actual encrypted wallet data
+    // For unpaired devices: filled with zeros
+    if (data.isPaired && data.activeWallets) {
+      // TODO: Implement proper wallet data encryption
+      // For now, fill with zeros even for paired devices
+      response.fill(0, offset, offset + 144)
+    } else {
+      // Unpaired or no wallet data - fill with zeros
+      response.fill(0, offset, offset + 144)
+    }
     offset += 144
     
+    console.log(`[ProtocolHandler] Built connect response: ${response.length} bytes`)
     return response
   }
 

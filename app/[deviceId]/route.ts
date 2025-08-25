@@ -18,10 +18,10 @@ function buildLattice1Response(payload: Buffer, messageId?: Buffer): string {
   const version = 0x01 // Protocol version
   const type = 0x00    // Response type
   const id = messageId || randomBytes(4)
-  const len = 214 // Fixed payload length for connect response
+  const len = payload.length // Use actual payload length
   
   // Build the message buffer
-  const messageBuffer = Buffer.alloc(8 + len + 4) // header(8) + payload(214) + checksum(4)
+  const messageBuffer = Buffer.alloc(8 + len + 4) // header(8) + payload + checksum(4)
   let offset = 0
   
   // Write header
@@ -34,10 +34,8 @@ function buildLattice1Response(payload: Buffer, messageId?: Buffer): string {
   messageBuffer.writeUInt16BE(len, offset)
   offset += 2
   
-  // Write payload (ensure it's exactly 214 bytes)
-  if (payload.length !== 214) {
-    throw new Error(`Expected payload to be 214 bytes, got ${payload.length}`)
-  }
+  // Write payload (should be 215 bytes for connect response: response code + 214 bytes data)
+  console.log(`Building protocol message with payload length: ${payload.length}`)
   payload.copy(messageBuffer, offset)
   offset += len
   
@@ -246,6 +244,11 @@ export async function POST(
         console.log('Connect request payload length:', parsedMessage.payload.length)
         console.log('Connect request payload (hex):', parsedMessage.payload.toString('hex'))
         console.log('response:', response)
+        
+        if (response.data) {
+          console.log('Response data length:', response.data.length)
+          console.log('Response data (hex):', response.data.toString('hex'))
+        }
         if (response.code !== 0) { // 0 = success
           // Build error response payload: [responseCode (1)]
           const errorPayload = Buffer.from([response.code])
@@ -262,7 +265,7 @@ export async function POST(
           throw new Error('Protocol handler returned no response data')
         }
         
-        console.log('Response data length:', response.data.length)
+        console.log('Response data length-1:', response.data.length)
         console.log('Response data (hex):', response.data.toString('hex'))
         
         // The protocol handler already returns the complete response data (including response code)
@@ -311,7 +314,13 @@ export async function POST(
         const responseData = response.data || Buffer.alloc(0)
         const payload = Buffer.concat([Buffer.from([responseCode]), responseData])
         
+        console.log('Final payload length:', payload.length)
+        console.log('Final payload (hex):', payload.toString('hex'))
+        
         const latticeResponse = buildLattice1Response(payload, parsedMessage.messageId)
+        
+        console.log('Full protocol message length:', Buffer.from(latticeResponse, 'hex').length)
+        console.log('Full protocol message (hex):', latticeResponse)
         
         return NextResponse.json({
           status: 200,
