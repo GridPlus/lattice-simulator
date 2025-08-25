@@ -1,4 +1,85 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getDeviceManager } from '@/lib/deviceManager'
+import { useDeviceStore } from '@/store'
+import { ProtocolHandler } from '@/lib/protocolHandler'
+
+/**
+ * Protocol message structure for parsing incoming requests
+ */
+interface ParsedProtocolMessage {
+  isConnectRequest: boolean
+  requestType?: number
+  messageId?: Buffer
+  payload?: Buffer
+  ephemeralId?: number
+}
+
+/**
+ * Parse incoming protocol message to determine request type and extract payload
+ * 
+ * Based on GridPlus Lattice1 protocol specification:
+ * - Connect requests are unencrypted with specific structure
+ * - Other requests are encrypted secure messages
+ * 
+ * @param buffer - Raw message buffer from client
+ * @returns Parsed message information
+ */
+function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
+  if (buffer.length < 8) {
+    throw new Error('Invalid message: too short')
+  }
+
+  let offset = 0
+  
+  // Read protocol version (1 byte)
+  const protocolVersion = buffer.readUInt8(offset)
+  offset += 1
+  
+  // Read message type (1 byte)
+  const messageType = buffer.readUInt8(offset)
+  offset += 1
+  
+  // Read message ID (4 bytes)
+  const messageId = buffer.slice(offset, offset + 4)
+  offset += 4
+  
+  // Read payload length (2 bytes)
+  const payloadLength = buffer.readUInt16BE(offset)
+  offset += 2
+  
+  console.log(`Protocol version: ${protocolVersion}, Message type: ${messageType}, Payload length: ${payloadLength}`)
+  
+  // Check if this is a connect request (message type 0x01)
+  if (messageType === 0x01) {
+    // This is an unencrypted connect request
+    const payload = buffer.slice(offset, offset + payloadLength)
+    
+    return {
+      isConnectRequest: true,
+      messageId,
+      payload
+    }
+  } else if (messageType === 0x02) {
+    // This is an encrypted secure request
+    const payload = buffer.slice(offset, offset + payloadLength)
+    
+    // For encrypted requests, the first byte of payload is the request type
+    const requestType = payload.length > 0 ? payload.readUInt8(0) : undefined
+    
+    // Next 4 bytes might be ephemeral ID (if present)
+    const ephemeralId = payload.length >= 5 ? payload.readUInt32BE(1) : undefined
+    
+    return {
+      isConnectRequest: false,
+      requestType,
+      messageId,
+      payload,
+      ephemeralId
+    }
+  } else {
+    throw new Error(`Unsupported message type: ${messageType}`)
+  }
+}
 
 /**
  * POST handler for device connection requests
@@ -18,34 +99,107 @@ export async function POST(
     // Get the deviceId from route parameters
     const { deviceId } = params
 
-    // Get the request body as ArrayBuffer (Buffer data)
-    const arrayBuffer = await request.arrayBuffer()
-    const buffer = Buffer.from(arrayBuffer)
+    // Get the request body as JSON with Buffer data
+    const requestBody = await request.json()
+    
+    console.log(`Received request for device: ${deviceId}`)
+    console.log(`Request body:`, requestBody)
+    
+    // Extract Buffer data from the request body
+    let buffer: Buffer
+    if (requestBody.data && requestBody.data.type === 'Buffer' && Array.isArray(requestBody.data.data)) {
+      // Convert the Buffer data array to an actual Buffer
+      buffer = Buffer.from(requestBody.data.data)
+    } else if (requestBody.data && typeof requestBody.data === 'string') {
+      // If data is a hex string, convert it to Buffer
+      buffer = Buffer.from(requestBody.data, 'hex')
+    } else {
+      throw new Error('Invalid request body format. Expected {data: {type: "Buffer", data: number[]}} or {data: string}')
+    }
 
-    // TODO: Decode the buffer data according to the protocol specification
-    // This will be implemented based on the Lattice1 protocol requirements
-    console.log(`Received connection request for device: ${deviceId}`)
     console.log(`Buffer data length: ${buffer.length} bytes`)
     console.log(`Buffer data: ${buffer.toString('hex')}`)
 
-    // For now, simulate the connection logic
-    // In a real implementation, this would:
-    // 1. Decode the buffer according to the protocol
-    // 2. Validate the connection request
-    // 3. Check if the device is paired
-    // 4. Return the appropriate response
+    // Get or create device manager for this deviceId
+    const deviceManager = getDeviceManager(deviceId)
 
-    // Simulate checking if device is paired
-    // This should be replaced with actual device state checking
-    const isPaired = false // TODO: Get from device store
+    try {
+      // Parse the protocol message
+      const parsedMessage = parseProtocolMessage(buffer)
+      
+      // Create protocol handler for this device
+      const protocolHandler = new ProtocolHandler(deviceManager.getSimulator())
+      
+      if (parsedMessage.isConnectRequest) {
+        // Handle unencrypted connect request
+        console.log('Processing connect request')
+        
+        if (!parsedMessage.payload) {
+          throw new Error('Connect request missing payload')
+        }
+        
+        const response = await protocolHandler.handleConnectRequest(parsedMessage.payload)
+        
+        if (response.code !== 0) { // 0 = success
+          return NextResponse.json({
+            success: false,
+            isPaired: false,
+            deviceId,
+            error: response.error,
+            message: 'Connection failed'
+          }, { status: 400 })
+        }
 
-    // Return the pairing status
-    return NextResponse.json({
-      success: true,
-      isPaired,
-      deviceId,
-      message: isPaired ? 'Device is paired' : 'Device is not paired'
-    })
+        // Check if device is paired after connection
+        const isPaired = deviceManager.getIsPaired()
+
+        // Return the pairing status as boolean (as requested)
+        return NextResponse.json(isPaired)
+        
+      } else {
+        // Handle encrypted secure request
+        console.log(`Processing encrypted request type: ${parsedMessage.requestType}`)
+        
+        if (!parsedMessage.payload) {
+          throw new Error('Encrypted request missing payload')
+        }
+        
+        const secureRequest = {
+          type: parsedMessage.requestType!,
+          data: parsedMessage.payload,
+          ephemeralId: parsedMessage.ephemeralId
+        }
+        
+        const response = await protocolHandler.handleSecureRequest(secureRequest)
+        
+        if (response.code !== 0) {
+          return NextResponse.json({
+            success: false,
+            error: response.error,
+            message: 'Request processing failed'
+          }, { status: 400 })
+        }
+        
+        // For secure requests, we need to return the encrypted response
+        // TODO: Implement proper response encryption and formatting
+        return NextResponse.json({
+          success: true,
+          data: response.data?.toString('hex'),
+          message: 'Request processed successfully'
+        })
+      }
+
+    } catch (managerError) {
+      console.error('DeviceManager error:', managerError)
+      
+      return NextResponse.json({
+        success: false,
+        isPaired: false,
+        deviceId,
+        error: 'Device manager operation failed',
+        details: managerError instanceof Error ? managerError.message : 'Unknown error'
+      }, { status: 500 })
+    }
 
   } catch (error) {
     console.error('Error processing device connection request:', error)
@@ -77,15 +231,20 @@ export async function GET(
   try {
     const { deviceId } = params
 
-    // TODO: Get actual device status from store
-    // This should check the device store for the specified deviceId
+    // Get or create device manager for this deviceId
+    const deviceManager = getDeviceManager(deviceId)
+    
+    // Get connection status from store
+    const storeState = useDeviceStore.getState()
     
     const deviceStatus = {
-      deviceId,
-      isConnected: false,
-      isPaired: false,
-      firmwareVersion: '0.15.0',
-      name: 'Lattice1 Simulator'
+      deviceId: deviceManager.getDeviceId(),
+      isConnected: storeState.isConnected,
+      isPaired: deviceManager.getIsPaired(),
+      isLocked: deviceManager.getIsLocked(),
+      firmwareVersion: Array.from(deviceManager.getFirmwareVersion()).join('.'),
+      name: 'Lattice1 Simulator',
+      userApprovalRequired: deviceManager.getUserApprovalRequired()
     }
 
     return NextResponse.json({

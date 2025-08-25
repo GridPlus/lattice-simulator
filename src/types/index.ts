@@ -13,9 +13,12 @@ export type {
   DeviceResponse,
   ActiveWallets,
   WalletPath,
+} from './device'
+
+export type {
   AddressInfo,
   DerivationPath,
-} from './device'
+} from './crypto'
 
 export {
   LatticeResponseCode,

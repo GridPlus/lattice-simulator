@@ -11,6 +11,7 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
+    "test:ts": "tsx src/test.ts",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,8 +21,10 @@
     "@radix-ui/react-switch": "^1.0.3",
     "@radix-ui/react-tabs": "^1.0.4",
     "@radix-ui/react-tooltip": "^1.0.7",
+    "aes-js": "^3.1.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
+    "elliptic": "6.5.7",
     "immer": "^10.1.1",
     "lucide-react": "^0.294.0",
     "next": "^14.0.0",
@@ -33,6 +36,8 @@
   "devDependencies": {
     "@testing-library/jest-dom": "^6.8.0",
     "@testing-library/react": "^16.3.0",
+    "@types/aes-js": "^3.1.4",
+    "@types/elliptic": "^6.4.18",
     "@types/node": "^20.0.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
@@ -47,6 +52,8 @@
     "jsdom": "^23.0.0",
     "postcss": "^8.4.0",
     "tailwindcss": "^3.3.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.4",
     "typescript": "^5.0.0",
     "vite": "^5.0.0",
     "vitest": "^1.0.0"

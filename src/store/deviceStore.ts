@@ -156,19 +156,26 @@ export const useDeviceStore = create<DeviceStore>()(
           }
         }
         
-        // Simulate connection delay
-        await new Promise(resolve => setTimeout(resolve, 500))
+        // Import DeviceManager here to avoid circular dependency
+        const { getDeviceManager } = await import('../lib/deviceManager')
         
-        set((draft) => {
-          draft.isConnected = true
-          draft.deviceInfo.deviceId = deviceId
-          draft.isPairingMode = !draft.isPaired
-        })
-        
-        return {
-          success: true,
-          code: LatticeResponseCode.success,
-          data: state.isPaired,
+        try {
+          // Use DeviceManager for actual connection logic
+          const deviceManager = getDeviceManager(deviceId)
+          const result = await deviceManager.connect(deviceId)
+          
+          return {
+            success: result.success,
+            code: result.code,
+            data: result.data,
+            error: result.error,
+          }
+        } catch (error) {
+          return {
+            success: false,
+            code: LatticeResponseCode.internalError,
+            error: error instanceof Error ? error.message : 'Connection failed',
+          }
         }
       },
       
@@ -203,28 +210,26 @@ export const useDeviceStore = create<DeviceStore>()(
           }
         }
         
-        if (!state.isPairingMode) {
+        // Import DeviceManager here to avoid circular dependency
+        const { getDeviceManager } = await import('../lib/deviceManager')
+        
+        try {
+          // Use DeviceManager for actual pairing logic
+          const deviceManager = getDeviceManager(state.deviceInfo.deviceId)
+          const result = await deviceManager.pair(pairingSecret)
+          
+          return {
+            success: result.success,
+            code: result.code,
+            data: result.data,
+            error: result.error,
+          }
+        } catch (error) {
           return {
             success: false,
-            code: LatticeResponseCode.pairDisabled,
-            error: 'Pairing mode not active',
+            code: LatticeResponseCode.pairFailed,
+            error: error instanceof Error ? error.message : 'Pairing failed',
           }
-        }
-        
-        // Simulate pairing process
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        
-        set((draft) => {
-          draft.isPaired = true
-          draft.isPairingMode = false
-          draft.pairingSecret = pairingSecret
-          draft.deviceInfo.isPaired = true
-        })
-        
-        return {
-          success: true,
-          code: LatticeResponseCode.success,
-          data: true,
         }
       },
       

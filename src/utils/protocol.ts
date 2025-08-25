@@ -188,8 +188,8 @@ export function generateMockAddresses(
   // Derive to the start path
   for (const segment of startPath.slice(0, -1)) {
     const derived = deriveChild(currentKey, currentChainCode, segment)
-    currentKey = derived.key
-    currentChainCode = derived.chainCode
+    currentKey = Buffer.from(derived.key)
+    currentChainCode = Buffer.from(derived.chainCode)
   }
   
   // Generate addresses

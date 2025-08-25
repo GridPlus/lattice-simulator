@@ -430,6 +430,15 @@ export class DeviceManager {
   getCurrentRequest() {
     return this.requestProcessor.getCurrentRequest()
   }
+
+  /**
+   * Gets the internal simulator instance
+   * 
+   * @returns The LatticeSimulator instance
+   */
+  getSimulator(): LatticeSimulator {
+    return this.simulator
+  }
 }
 
 // Global device manager instance
