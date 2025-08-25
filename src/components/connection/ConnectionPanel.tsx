@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/store'
 import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings } from 'lucide-react'
 
@@ -8,13 +8,39 @@ import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings } from 'lucide-
  * Connection status indicator component
  */
 function ConnectionStatus() {
-  const { isConnected, isPaired } = useDeviceConnection()
+  const { isConnected, isPaired, isPairingMode } = useDeviceConnection()
   const { name, firmwareVersion } = useDeviceStatus()
+  const { pairingCode, pairingStartTime, pairingTimeoutMs } = useDeviceStore()
+  const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
 
   const formatFirmwareVersion = (version: Buffer) => {
     if (version.length < 3) return 'Unknown'
     return `${version[2]}.${version[1]}.${version[0]}`
   }
+
+  const getPairingTimeRemaining = () => {
+    if (!isPairingMode || !pairingStartTime) return 0
+    const elapsed = Date.now() - pairingStartTime
+    const remaining = Math.max(0, pairingTimeoutMs - elapsed)
+    return Math.ceil(remaining / 1000) // Return seconds
+  }
+
+  // Update pairing timer every second
+  useEffect(() => {
+    if (!isPairingMode) {
+      setPairingTimeRemaining(0)
+      return
+    }
+
+    const updateTimer = () => {
+      setPairingTimeRemaining(getPairingTimeRemaining())
+    }
+
+    updateTimer() // Initial update
+    const interval = setInterval(updateTimer, 1000)
+
+    return () => clearInterval(interval)
+  }, [isPairingMode, pairingStartTime, pairingTimeoutMs])
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -64,6 +90,27 @@ function ConnectionStatus() {
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   {isPaired ? 'Secure communication established' : 'Pairing required for secure communication'}
                 </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isPairingMode && pairingCode && (
+          <div className="p-4 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg">
+            <div className="text-center">
+              <h4 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-2">
+                Pairing Mode Active
+              </h4>
+              <div className="mb-3">
+                <div className="text-3xl font-mono font-bold text-blue-800 dark:text-blue-200 tracking-wider">
+                  {pairingCode}
+                </div>
+                <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
+                  Enter this code in your application
+                </p>
+              </div>
+              <div className="text-sm text-blue-600 dark:text-blue-400">
+                Time remaining: {pairingTimeRemaining}s
               </div>
             </div>
           </div>
@@ -179,7 +226,7 @@ function ConnectionSettings() {
   const [autoConnect, setAutoConnect] = useState(false)
   const [autoPair, setAutoPair] = useState(false)
   const [connectionTimeout, setConnectionTimeout] = useState(30)
-  const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'simulator-device-001')
+  const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'SD0001')
   const [isSaving, setIsSaving] = useState(false)
 
   const handleSaveDeviceId = async () => {

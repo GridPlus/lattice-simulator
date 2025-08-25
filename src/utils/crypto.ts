@@ -3,6 +3,7 @@
  */
 
 import { createHash, randomBytes } from 'crypto'
+import { ec as EC } from 'elliptic'
 import { HARDENED_OFFSET } from '../lib/constants'
 
 /**
@@ -18,26 +19,24 @@ export function generateDeviceId(): string {
 }
 
 /**
- * Generates a random key pair (mock implementation)
+ * Generates a proper secp256k1 key pair
  * 
- * Creates a mock public/private key pair for simulation purposes.
- * In production, this would use proper elliptic curve cryptography.
+ * Creates a real secp256k1 private key and derives the corresponding 
+ * public key using elliptic curve cryptography.
  * 
  * @returns Object containing public and private key buffers
  */
 export function generateKeyPair(): { publicKey: Buffer; privateKey: Buffer } {
-  const privateKey = randomBytes(32)
+  const ec = new EC('secp256k1')
   
-  // Create a proper 65-byte uncompressed SECP256k1 public key
-  // Format: 04 + X (32 bytes) + Y (32 bytes)
-  const publicKey = Buffer.alloc(65)
-  publicKey[0] = 0x04 // Uncompressed format indicator
+  // Generate a proper secp256k1 keypair
+  const keyPair = ec.genKeyPair()
   
-  // For simulation, we'll create a deterministic but random-looking public key
-  // In a real implementation, this would use proper EC point multiplication
-  const hash = createHash('sha256').update(privateKey).digest()
-  hash.copy(publicKey, 1, 0, 32) // Copy first 32 bytes as X coordinate
-  hash.copy(publicKey, 33, 0, 32) // Copy first 32 bytes as Y coordinate
+  // Get the private key as a 32-byte buffer
+  const privateKey = Buffer.from(keyPair.getPrivate().toArray('be', 32))
+  
+  // Get the uncompressed public key as a 65-byte buffer (04 + X + Y)
+  const publicKey = Buffer.from(keyPair.getPublic().encode('hex', false), 'hex')
   
   return { privateKey, publicKey }
 }

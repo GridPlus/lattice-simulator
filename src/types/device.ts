@@ -51,6 +51,9 @@ export interface DeviceState {
   isLocked: boolean
   isBusy: boolean
   isPairingMode: boolean
+  pairingCode?: string
+  pairingTimeoutMs: number
+  pairingStartTime?: number
   
   // Pending Requests
   pendingRequests: PendingRequest[]

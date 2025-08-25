@@ -64,6 +64,9 @@ const INITIAL_STATE: DeviceState = {
   isLocked: false,
   isBusy: false,
   isPairingMode: false,
+  pairingCode: undefined,
+  pairingTimeoutMs: 60000, // 60 seconds
+  pairingStartTime: undefined,
   
   // Pending Requests
   pendingRequests: [],
@@ -96,6 +99,12 @@ interface DeviceStore extends DeviceState {
   pair: (pairingSecret?: string) => Promise<DeviceResponse<boolean>>
   /** Unpairs from the current device */
   unpair: () => void
+  /** Enters pairing mode with a 6-digit code for 60 seconds */
+  enterPairingMode: () => void
+  /** Exits pairing mode */
+  exitPairingMode: () => void
+  /** Validates a pairing code */
+  validatePairingCode: (code: string) => boolean
   
   // Device Management
   setDeviceInfo: (info: Partial<DeviceInfo>) => void
@@ -243,7 +252,51 @@ export const useDeviceStore = create<DeviceStore>()(
           draft.pendingRequests = []
           draft.currentRequest = undefined
           draft.userApprovalRequired = false
+          draft.isPairingMode = false
+          draft.pairingCode = undefined
+          draft.pairingStartTime = undefined
         })
+      },
+      
+      enterPairingMode: () => {
+        set((draft) => {
+          // Generate a static 6-digit pairing code (for demo purposes)
+          draft.pairingCode = '12345678'
+          draft.isPairingMode = true
+          draft.pairingStartTime = Date.now()
+        })
+        
+        console.log('[DeviceStore] Entered pairing mode with code:', get().pairingCode)
+        console.log('[DeviceStore] Pairing mode will timeout in 60 seconds')
+        
+        // Set up timeout to exit pairing mode after 60 seconds
+        setTimeout(() => {
+          const currentState = get()
+          if (currentState.isPairingMode && currentState.pairingStartTime) {
+            const elapsed = Date.now() - currentState.pairingStartTime
+            if (elapsed >= currentState.pairingTimeoutMs) {
+              console.log('[DeviceStore] Pairing mode timed out after 60 seconds')
+              get().exitPairingMode()
+            }
+          }
+        }, get().pairingTimeoutMs)
+      },
+      
+      exitPairingMode: () => {
+        const state = get()
+        if (state.isPairingMode) {
+          console.log('[DeviceStore] Exiting pairing mode')
+        }
+        set((draft) => {
+          draft.isPairingMode = false
+          draft.pairingCode = undefined
+          draft.pairingStartTime = undefined
+        })
+      },
+      
+      validatePairingCode: (code: string) => {
+        const state = get()
+        return state.isPairingMode && state.pairingCode === code
       },
       
       setDeviceInfo: (info: Partial<DeviceInfo>) => {

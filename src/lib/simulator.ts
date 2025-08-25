@@ -141,6 +141,23 @@ export class LatticeSimulator {
     // Generate ephemeral key pair for this session
     this.ephemeralKeyPair = generateKeyPair()
     
+    // If device is not paired, enter pairing mode for 60 seconds
+    if (!this.isPaired) {
+      console.log('[Simulator] Device not paired, entering pairing mode...')
+      try {
+        // Import device store to trigger pairing mode
+        const { useDeviceStore } = await import('../store/deviceStore')
+        const deviceStore = useDeviceStore.getState()
+        console.log('[Simulator] Current pairing mode state before:', deviceStore.isPairingMode)
+        deviceStore.enterPairingMode()
+        console.log('[Simulator] Pairing mode triggered successfully')
+        console.log('[Simulator] New pairing mode state:', useDeviceStore.getState().isPairingMode)
+        console.log('[Simulator] Pairing code:', useDeviceStore.getState().pairingCode)
+      } catch (error) {
+        console.error('[Simulator] Error entering pairing mode:', error)
+      }
+    }
+    
     const response: ConnectResponse = {
       isPaired: this.isPaired,
       firmwareVersion: this.firmwareVersion,
@@ -176,16 +193,35 @@ export class LatticeSimulator {
       return createDeviceResponse<boolean>(false, LatticeResponseCode.pairFailed, undefined, 'No connection established')
     }
     
-    // Simulate user approval for pairing
-    if (!this.autoApprove) {
+    // Check if device is in pairing mode and validate pairing code
+    const { useDeviceStore } = await import('../store/deviceStore')
+    const deviceStore = useDeviceStore.getState()
+    
+    if (!deviceStore.isPairingMode) {
+      return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'Device not in pairing mode')
+    }
+    
+    // Validate pairing code if provided in the request
+    if (request.pairingSecret && !deviceStore.validatePairingCode(request.pairingSecret)) {
+      return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'Invalid pairing code')
+    }
+    
+    // Simulate user approval for pairing (optional, since code validation is the main check)
+    if (!this.autoApprove && !request.pairingSecret) {
       const approved = await this.simulateUserApproval('pairing', 60000)
       if (!approved) {
         return createDeviceResponse(false, LatticeResponseCode.userDeclined)
       }
     }
     
+    // Successful pairing
     this.isPaired = true
     this.pairingSecret = request.pairingSecret
+    
+    // Exit pairing mode
+    deviceStore.exitPairingMode()
+    
+    console.log('[Simulator] Device successfully paired!')
     
     return createDeviceResponse(true, LatticeResponseCode.success, true)
   }
