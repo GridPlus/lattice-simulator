@@ -12,30 +12,31 @@ interface ParsedProtocolMessage {
   messageId?: Buffer
   payload?: Buffer
   ephemeralId?: number
+  checksum?: number
 }
 
 /**
  * Parse incoming protocol message to determine request type and extract payload
  * 
- * Based on GridPlus Lattice1 protocol specification:
- * - Connect requests are unencrypted with specific structure
- * - Other requests are encrypted secure messages
+ * Based on GridPlus Lattice1 protocol specification from SDK:
+ * Message format: [Header (8 bytes)] | [requestType (1 byte)] | [payloadData] | [checksum (4 bytes)]
+ * Header format: [version (1 byte)] | [type (1 byte)] | [id (4 bytes)] | [len (2 bytes)]
  * 
  * @param buffer - Raw message buffer from client
  * @returns Parsed message information
  */
 function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
-  if (buffer.length < 8) {
+  if (buffer.length < 13) { // Minimum: header(8) + requestType(1) + checksum(4)
     throw new Error('Invalid message: too short')
   }
 
   let offset = 0
   
-  // Read protocol version (1 byte)
+  // Read protocol version (1 byte) - should be 0x01
   const protocolVersion = buffer.readUInt8(offset)
   offset += 1
   
-  // Read message type (1 byte)
+  // Read message type (1 byte) - should be 0x02 for secure messages
   const messageType = buffer.readUInt8(offset)
   offset += 1
   
@@ -49,35 +50,69 @@ function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
   
   console.log(`Protocol version: ${protocolVersion}, Message type: ${messageType}, Payload length: ${payloadLength}`)
   
-  // Check if this is a connect request (message type 0x01)
-  if (messageType === 0x01) {
+  // Validate protocol version
+  if (protocolVersion !== 0x01) {
+    throw new Error(`Unsupported protocol version: ${protocolVersion}`)
+  }
+  
+  // Validate message type
+  if (messageType !== 0x02) {
+    throw new Error(`Unsupported message type: ${messageType}`)
+  }
+  
+  // Read request type (1 byte)
+  const requestType = buffer.readUInt8(offset)
+  offset += 1
+  
+  // Read payload data
+  const payload = buffer.slice(offset, offset + payloadLength - 1) // -1 because requestType is included in payloadLength
+  offset += payloadLength - 1
+  
+  // Read checksum (4 bytes)
+  const checksum = buffer.readUInt32BE(offset)
+  offset += 4
+  
+  // Validate message size
+  if (offset !== buffer.length) {
+    throw new Error(`Message size mismatch: expected ${buffer.length}, parsed ${offset}`)
+  }
+  
+  // Check if this is a connect request (request type 0x01)
+  if (requestType === 0x01) {
     // This is an unencrypted connect request
-    const payload = buffer.slice(offset, offset + payloadLength)
+    // Payload should contain the client's public key (65 bytes)
+    if (payload.length !== 65) {
+      throw new Error(`Invalid connect request payload size: ${payload.length}, expected 65`)
+    }
     
     return {
       isConnectRequest: true,
+      requestType,
       messageId,
-      payload
+      payload,
+      checksum
     }
-  } else if (messageType === 0x02) {
+  } else {
     // This is an encrypted secure request
-    const payload = buffer.slice(offset, offset + payloadLength)
+    // For encrypted requests, the payload contains: [ephemeralId (4 bytes)] | [encryptedData (1728 bytes)]
+    if (payload.length !== 1732) { // 4 + 1728
+      throw new Error(`Invalid encrypted request payload size: ${payload.length}, expected 1732`)
+    }
     
-    // For encrypted requests, the first byte of payload is the request type
-    const requestType = payload.length > 0 ? payload.readUInt8(0) : undefined
+    // Extract ephemeral ID (first 4 bytes)
+    const ephemeralId = payload.readUInt32LE(0)
     
-    // Next 4 bytes might be ephemeral ID (if present)
-    const ephemeralId = payload.length >= 5 ? payload.readUInt32BE(1) : undefined
+    // Extract encrypted data (remaining bytes)
+    const encryptedData = payload.slice(4)
     
     return {
       isConnectRequest: false,
       requestType,
       messageId,
-      payload,
-      ephemeralId
+      payload: encryptedData, // Return only the encrypted data part
+      ephemeralId,
+      checksum
     }
-  } else {
-    throw new Error(`Unsupported message type: ${messageType}`)
   }
 }
 
@@ -126,6 +161,8 @@ export async function POST(
     try {
       // Parse the protocol message
       const parsedMessage = parseProtocolMessage(buffer)
+
+      console.log(`Parsed message:`, JSON.stringify(parsedMessage, null, 2))
       
       // Create protocol handler for this device
       const protocolHandler = new ProtocolHandler(deviceManager.getSimulator())
@@ -153,6 +190,7 @@ export async function POST(
         // Check if device is paired after connection
         const isPaired = deviceManager.getIsPaired()
 
+        console.log('isPaired:', isPaired)
         // Return the pairing status as boolean (as requested)
         return NextResponse.json(isPaired)
         
@@ -167,7 +205,8 @@ export async function POST(
         const secureRequest = {
           type: parsedMessage.requestType!,
           data: parsedMessage.payload,
-          ephemeralId: parsedMessage.ephemeralId
+          ephemeralId: parsedMessage.ephemeralId,
+          checksum: parsedMessage.checksum
         }
         
         const response = await protocolHandler.handleSecureRequest(secureRequest)
