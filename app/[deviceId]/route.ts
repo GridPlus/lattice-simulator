@@ -116,6 +116,8 @@ function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
   }
 }
 
+
+
 /**
  * POST handler for device connection requests
  * 
@@ -176,14 +178,14 @@ export async function POST(
         }
         
         const response = await protocolHandler.handleConnectRequest(parsedMessage.payload)
-        
+        console.log('response:', response)
         if (response.code !== 0) { // 0 = success
           return NextResponse.json({
-            success: false,
-            isPaired: false,
-            deviceId,
-            error: response.error,
-            message: 'Connection failed'
+            status: 400,
+            message: {
+              errorMessage: response.error || 'Connection failed',
+              responseCode: response.code
+            }
           }, { status: 400 })
         }
 
@@ -191,8 +193,13 @@ export async function POST(
         const isPaired = deviceManager.getIsPaired()
 
         console.log('isPaired:', isPaired)
-        // Return the pairing status as boolean (as requested)
-        return NextResponse.json(isPaired)
+        // Return the pairing status in the expected format
+        return NextResponse.json({
+          status: 200,
+          message: {
+            data: Buffer.from([isPaired ? 1 : 0]) // Convert boolean to Buffer
+          }
+        })
         
       } else {
         // Handle encrypted secure request
@@ -213,18 +220,20 @@ export async function POST(
         
         if (response.code !== 0) {
           return NextResponse.json({
-            success: false,
-            error: response.error,
-            message: 'Request processing failed'
+            status: 400,
+            message: {
+              errorMessage: response.error || 'Request processing failed',
+              responseCode: response.code
+            }
           }, { status: 400 })
         }
         
-        // For secure requests, we need to return the encrypted response
-        // TODO: Implement proper response encryption and formatting
+        // For secure requests, return the response in expected format
         return NextResponse.json({
-          success: true,
-          data: response.data?.toString('hex'),
-          message: 'Request processed successfully'
+          status: 200,
+          message: {
+            data: response.data || Buffer.alloc(0)
+          }
         })
       }
 
@@ -232,11 +241,11 @@ export async function POST(
       console.error('DeviceManager error:', managerError)
       
       return NextResponse.json({
-        success: false,
-        isPaired: false,
-        deviceId,
-        error: 'Device manager operation failed',
-        details: managerError instanceof Error ? managerError.message : 'Unknown error'
+        status: 500,
+        message: {
+          errorMessage: 'Device manager operation failed',
+          responseCode: 0x88 // internalError
+        }
       }, { status: 500 })
     }
 
@@ -245,9 +254,11 @@ export async function POST(
     
     return NextResponse.json(
       {
-        success: false,
-        error: 'Failed to process device connection request',
-        details: error instanceof Error ? error.message : 'Unknown error'
+        status: 500,
+        message: {
+          errorMessage: 'Failed to process device connection request',
+          responseCode: 0x88 // internalError
+        }
       },
       { status: 500 }
     )
