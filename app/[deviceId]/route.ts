@@ -2,6 +2,65 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDeviceManager } from '@/lib/deviceManager'
 import { useDeviceStore } from '@/store'
 import { ProtocolHandler } from '@/lib/protocolHandler'
+import { randomBytes } from 'crypto'
+import crc32 from 'crc-32'
+
+/**
+ * Build a Lattice1 protocol response message
+ * 
+ * Format: [version (1)] | [type (1)] | [id (4)] | [len (2)] | [payload] | [checksum (4)]
+ * 
+ * @param payload - The response payload data
+ * @param messageId - Optional message ID (generates random if not provided)
+ * @returns Hex string representing the Lattice1 response
+ */
+function buildLattice1Response(payload: Buffer, messageId?: Buffer): string {
+  const version = 0x01 // Protocol version
+  const type = 0x00    // Response type
+  const id = messageId || randomBytes(4)
+  const len = 214 // Fixed payload length for connect response
+  
+  // Build the message buffer
+  const messageBuffer = Buffer.alloc(8 + len + 4) // header(8) + payload(214) + checksum(4)
+  let offset = 0
+  
+  // Write header
+  messageBuffer.writeUInt8(version, offset)
+  offset += 1
+  messageBuffer.writeUInt8(type, offset)
+  offset += 1
+  id.copy(messageBuffer, offset)
+  offset += 4
+  messageBuffer.writeUInt16BE(len, offset)
+  offset += 2
+  
+  // Write payload (ensure it's exactly 214 bytes)
+  if (payload.length !== 214) {
+    throw new Error(`Expected payload to be 214 bytes, got ${payload.length}`)
+  }
+  payload.copy(messageBuffer, offset)
+  offset += len
+  
+  // Calculate and write checksum
+  const checksum = calculateChecksum(messageBuffer.slice(0, offset))
+  messageBuffer.writeUInt32BE(checksum, offset)
+  
+  return messageBuffer.toString('hex')
+}
+
+/**
+ * Calculate checksum for Lattice1 protocol messages
+ * 
+ * Uses CRC32 with the same implementation as GridPlus SDK
+ * 
+ * @param buffer - Buffer to calculate checksum for
+ * @returns 32-bit checksum
+ */
+function calculateChecksum(buffer: Buffer): number {
+  // crc32 returns a signed integer - need to cast it to unsigned
+  // Note that this uses the default 0xedb88320 polynomial
+  return crc32.buf(buffer) >>> 0; // Need this to be a uint, hence the bit shift
+}
 
 /**
  * Protocol message structure for parsing incoming requests
@@ -64,9 +123,11 @@ function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
   const requestType = buffer.readUInt8(offset)
   offset += 1
   
-  // Read payload data
-  const payload = buffer.slice(offset, offset + payloadLength - 1) // -1 because requestType is included in payloadLength
-  offset += payloadLength - 1
+  // Read payload data - ensure we don't read beyond buffer bounds
+  const availablePayloadLength = Math.min(payloadLength, buffer.length - offset - 4) // -4 for checksum
+  console.log(`[parseProtocolMessage] Header payload length: ${payloadLength}, available: ${availablePayloadLength}, buffer remaining: ${buffer.length - offset}`)
+  const payload = buffer.slice(offset, offset + availablePayloadLength)
+  offset += availablePayloadLength
   
   // Read checksum (4 bytes)
   const checksum = buffer.readUInt32BE(offset)
@@ -85,25 +146,29 @@ function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
       throw new Error(`Invalid connect request payload size: ${payload.length}, expected 65`)
     }
     
+    console.log(`[parseProtocolMessage] Connect request - payload length: ${payload.length}`)
+    console.log(`[parseProtocolMessage] Public key (hex): ${payload.toString('hex')}`)
+    
     return {
       isConnectRequest: true,
       requestType,
       messageId,
-      payload,
+      payload, // Return the public key directly
       checksum
     }
   } else {
     // This is an encrypted secure request
     // For encrypted requests, the payload contains: [ephemeralId (4 bytes)] | [encryptedData (1728 bytes)]
-    if (payload.length !== 1732) { // 4 + 1728
-      throw new Error(`Invalid encrypted request payload size: ${payload.length}, expected 1732`)
+    // But we'll accept the actual payload size and extract what we can
+    if (payload.length < 5) {
+      throw new Error(`Invalid encrypted request payload size: ${payload.length}, need at least 5 bytes`)
     }
     
-    // Extract ephemeral ID (first 4 bytes)
-    const ephemeralId = payload.readUInt32LE(0)
+    // Extract ephemeral ID (first 4 bytes after requestType)
+    const ephemeralId = payload.readUInt32LE(1)
     
-    // Extract encrypted data (remaining bytes)
-    const encryptedData = payload.slice(4)
+    // Extract encrypted data (remaining bytes after requestType and ephemeralId)
+    const encryptedData = payload.slice(5)
     
     return {
       isConnectRequest: false,
@@ -178,27 +243,39 @@ export async function POST(
         }
         
         const response = await protocolHandler.handleConnectRequest(parsedMessage.payload)
+        console.log('Connect request payload length:', parsedMessage.payload.length)
+        console.log('Connect request payload (hex):', parsedMessage.payload.toString('hex'))
         console.log('response:', response)
         if (response.code !== 0) { // 0 = success
+          // Build error response payload: [responseCode (1)]
+          const errorPayload = Buffer.from([response.code])
+          const latticeResponse = buildLattice1Response(errorPayload, parsedMessage.messageId)
+          
           return NextResponse.json({
             status: 400,
-            message: {
-              errorMessage: response.error || 'Connection failed',
-              responseCode: response.code
-            }
+            message: latticeResponse
           }, { status: 400 })
         }
 
-        // Check if device is paired after connection
-        const isPaired = deviceManager.getIsPaired()
-
-        console.log('isPaired:', isPaired)
-        // Return the pairing status in the expected format
+        // Use the response data from the protocol handler
+        if (!response.data) {
+          throw new Error('Protocol handler returned no response data')
+        }
+        
+        console.log('Response data length:', response.data.length)
+        console.log('Response data (hex):', response.data.toString('hex'))
+        
+        // The protocol handler already returns the complete response data (including response code)
+        // So we don't need to add another response code
+        const payload = response.data
+        
+        // Build the Lattice1 protocol response
+        const latticeResponse = buildLattice1Response(payload, parsedMessage.messageId)
+        
+        // Return the response in the format expected by the SDK
         return NextResponse.json({
           status: 200,
-          message: {
-            data: Buffer.from([isPaired ? 1 : 0]) // Convert boolean to Buffer
-          }
+          message: latticeResponse
         })
         
       } else {
@@ -219,46 +296,53 @@ export async function POST(
         const response = await protocolHandler.handleSecureRequest(secureRequest)
         
         if (response.code !== 0) {
+          // Build error response payload: [responseCode (1)]
+          const errorPayload = Buffer.from([response.code])
+          const latticeResponse = buildLattice1Response(errorPayload, parsedMessage.messageId)
+          
           return NextResponse.json({
             status: 400,
-            message: {
-              errorMessage: response.error || 'Request processing failed',
-              responseCode: response.code
-            }
+            message: latticeResponse
           }, { status: 400 })
         }
         
-        // For secure requests, return the response in expected format
+        // For secure requests, build the Lattice1 protocol response
+        const responseCode = 0 // success
+        const responseData = response.data || Buffer.alloc(0)
+        const payload = Buffer.concat([Buffer.from([responseCode]), responseData])
+        
+        const latticeResponse = buildLattice1Response(payload, parsedMessage.messageId)
+        
         return NextResponse.json({
           status: 200,
-          message: {
-            data: response.data || Buffer.alloc(0)
-          }
+          message: latticeResponse
         })
       }
 
     } catch (managerError) {
       console.error('DeviceManager error:', managerError)
       
+      // Build error response payload: [responseCode (1)]
+      const errorPayload = Buffer.from([0x88]) // internalError
+      const latticeResponse = buildLattice1Response(errorPayload)
+      
       return NextResponse.json({
         status: 500,
-        message: {
-          errorMessage: 'Device manager operation failed',
-          responseCode: 0x88 // internalError
-        }
+        message: latticeResponse
       }, { status: 500 })
     }
 
   } catch (error) {
     console.error('Error processing device connection request:', error)
     
+    // Build error response payload: [responseCode (1)]
+    const errorPayload = Buffer.from([0x88]) // internalError
+    const latticeResponse = buildLattice1Response(errorPayload)
+    
     return NextResponse.json(
       {
         status: 500,
-        message: {
-          errorMessage: 'Failed to process device connection request',
-          responseCode: 0x88 // internalError
-        }
+        message: latticeResponse
       },
       { status: 500 }
     )
@@ -315,4 +399,5 @@ export async function GET(
     )
   }
 }
+
 

@@ -135,8 +135,14 @@ export class ProtocolHandler {
    */
   async handleConnectRequest(data: Buffer): Promise<SecureResponse> {
     try {
+      console.log('[ProtocolHandler] Connect request data length:', data.length)
+      console.log('[ProtocolHandler] Connect request data (hex):', data.toString('hex'))
+      
       const request = this.parseConnectRequest(data)
+      console.log('[ProtocolHandler] Parsed connect request:', request)
+      
       const response = await this.simulator.connect(request)
+      console.log('[ProtocolHandler] Simulator connect response:', response)
       
       return {
         code: response.code,
@@ -144,6 +150,7 @@ export class ProtocolHandler {
         error: response.error,
       }
     } catch (error) {
+      console.error('[ProtocolHandler] Connect request error:', error)
       return {
         code: LatticeResponseCode.invalidMsg,
         error: error instanceof Error ? error.message : 'Failed to parse connect request',
@@ -484,23 +491,51 @@ export class ProtocolHandler {
 
   // Response serialization methods (simplified for simulation)
   private serializeConnectResponse(data: any): Buffer {
-    // Simplified serialization - in real implementation would follow exact protocol
-    const response = Buffer.alloc(300)
+    console.log('[ProtocolHandler] Serializing connect response data:', {
+      isPaired: data.isPaired,
+      ephemeralPubLength: data.ephemeralPub?.length,
+      ephemeralPubType: typeof data.ephemeralPub,
+      firmwareVersionLength: data.firmwareVersion?.length,
+      firmwareVersionType: typeof data.firmwareVersion,
+    })
+    
+    // Connect response should be exactly 214 bytes (215 - 1 for responseCode)
+    // Breakdown: pairing status (1) + ephemeral pub (65) + firmware version (4) + encrypted wallet data (144) = 214
+    const response = Buffer.alloc(214)
     let offset = 0
     
-    // Pairing status
+    // Pairing status (1 byte)
     response.writeUInt8(data.isPaired ? 1 : 0, offset)
     offset += 1
     
-    // Ephemeral public key
+    // Ephemeral public key (65 bytes)
+    if (!Buffer.isBuffer(data.ephemeralPub)) {
+      throw new Error(`Expected ephemeralPub to be Buffer, got ${typeof data.ephemeralPub}`)
+    }
+    console.log(`[ProtocolHandler] Ephemeral pub length: ${data.ephemeralPub.length}, expected: 65`)
+    if (data.ephemeralPub.length !== 65) {
+      throw new Error(`Expected ephemeralPub to be 65 bytes, got ${data.ephemeralPub.length}`)
+    }
     data.ephemeralPub.copy(response, offset)
     offset += 65
     
-    // Firmware version
+    // Firmware version (4 bytes)
+    if (!Buffer.isBuffer(data.firmwareVersion)) {
+      throw new Error(`Expected firmwareVersion to be Buffer, got ${typeof data.firmwareVersion}`)
+    }
+    console.log(`[ProtocolHandler] Firmware version length: ${data.firmwareVersion.length}, expected: 4`)
+    if (data.firmwareVersion.length !== 4) {
+      throw new Error(`Expected firmwareVersion to be 4 bytes, got ${data.firmwareVersion.length}`)
+    }
     data.firmwareVersion.copy(response, offset)
     offset += 4
     
-    return response.slice(0, offset)
+    // Encrypted wallet data (144 bytes) - filled with zeros for simulation
+    // In real implementation, this would contain encrypted wallet information
+    response.fill(0, offset, offset + 144)
+    offset += 144
+    
+    return response
   }
 
   private serializeGetAddressesResponse(data: any): Buffer {

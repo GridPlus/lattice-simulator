@@ -27,8 +27,17 @@ export function generateDeviceId(): string {
  */
 export function generateKeyPair(): { publicKey: Buffer; privateKey: Buffer } {
   const privateKey = randomBytes(32)
-  // Mock public key derivation (in real implementation, use proper EC)
-  const publicKey = createHash('sha256').update(privateKey).digest()
+  
+  // Create a proper 65-byte uncompressed SECP256k1 public key
+  // Format: 04 + X (32 bytes) + Y (32 bytes)
+  const publicKey = Buffer.alloc(65)
+  publicKey[0] = 0x04 // Uncompressed format indicator
+  
+  // For simulation, we'll create a deterministic but random-looking public key
+  // In a real implementation, this would use proper EC point multiplication
+  const hash = createHash('sha256').update(privateKey).digest()
+  hash.copy(publicKey, 1, 0, 32) // Copy first 32 bytes as X coordinate
+  hash.copy(publicKey, 33, 0, 32) // Copy first 32 bytes as Y coordinate
   
   return { privateKey, publicKey }
 }
