@@ -6,14 +6,14 @@
 import {
   LatticeSecureEncryptedRequestType,
   LatticeResponseCode,
-  DeviceResponse,
   ConnectRequest,
   PairRequest,
   GetAddressesRequest,
   SignRequest,
 } from '../types'
 import { LatticeSimulator } from './simulator'
-import { createDeviceResponse, getRequestTypeName } from '../utils'
+import { aes256_decrypt, aes256_encrypt } from '../utils/crypto'
+import crc32  from 'crc-32'
 
 /**
  * Secure request structure for encrypted protocol messages
@@ -71,50 +71,86 @@ export class ProtocolHandler {
   /**
    * Handles a secure encrypted request
    * 
-   * Routes the request to the appropriate handler based on request type
-   * and processes it through the simulator.
+   * First decrypts the request data using the shared secret, then routes 
+   * the request to the appropriate handler based on request type.
    * 
-   * @param request - The secure request to process
+   * @param request - The secure request to process (contains encrypted data)
    * @returns Promise resolving to secure response with data or error
    */
   async handleSecureRequest(request: SecureRequest): Promise<SecureResponse> {
     try {
-      console.log(`[ProtocolHandler] Processing ${getRequestTypeName(request.type)} request`)
+      console.log(`[ProtocolHandler] Processing request type(1:connect, 2:encrypted): ${request.type}`)
+      console.log(`[ProtocolHandler] Encrypted data length: ${request.data.length}`)
       
-      switch (request.type) {
+      // Decrypt the request data using the shared secret
+      const decryptionResult = await this.decryptRequestData(request.data)
+      if (!decryptionResult) {
+        return {
+          code: LatticeResponseCode.pairFailed,
+          error: 'Failed to decrypt request data - no shared secret available',
+        }
+      }
+      
+      const { requestType, decryptedData } = decryptionResult
+      console.log(`[ProtocolHandler] Decrypted data length: ${decryptedData.length}`)
+      console.log(`[ProtocolHandler] Decrypted data (hex): ${decryptedData.toString('hex')}`)
+      
+      let response: SecureResponse
+      
+      switch (requestType) {
         case LatticeSecureEncryptedRequestType.finalizePairing:
-          return await this.handlePairRequest(request.data)
+          response = await this.handlePairRequest(decryptedData)
+          break
           
         case LatticeSecureEncryptedRequestType.getAddresses:
-          return await this.handleGetAddressesRequest(request.data)
+          response = await this.handleGetAddressesRequest(decryptedData)
+          break
           
         case LatticeSecureEncryptedRequestType.sign:
-          return await this.handleSignRequest(request.data)
+          response = await this.handleSignRequest(decryptedData)
+          break
           
         case LatticeSecureEncryptedRequestType.getWallets:
-          return await this.handleGetWalletsRequest()
+          response = await this.handleGetWalletsRequest()
+          break
           
         case LatticeSecureEncryptedRequestType.getKvRecords:
-          return await this.handleGetKvRecordsRequest(request.data)
+          response = await this.handleGetKvRecordsRequest(decryptedData)
+          break
           
         case LatticeSecureEncryptedRequestType.addKvRecords:
-          return await this.handleAddKvRecordsRequest(request.data)
+          response = await this.handleAddKvRecordsRequest(decryptedData)
+          break
           
         case LatticeSecureEncryptedRequestType.removeKvRecords:
-          return await this.handleRemoveKvRecordsRequest(request.data)
+          response = await this.handleRemoveKvRecordsRequest(decryptedData)
+          break
           
         case LatticeSecureEncryptedRequestType.fetchEncryptedData:
-          return await this.handleFetchEncryptedDataRequest(request.data)
+          response = await this.handleFetchEncryptedDataRequest(decryptedData)
+          break
           
         case LatticeSecureEncryptedRequestType.test:
-          return await this.handleTestRequest(request.data)
+          response = await this.handleTestRequest(decryptedData)
+          break
           
         default:
-          return {
+          response = {
             code: LatticeResponseCode.invalidMsg,
             error: `Unsupported request type: ${request.type}`,
           }
       }
+      
+      // If the response was successful and has data, encrypt it
+      if (response.code === LatticeResponseCode.success && response.data) {
+        const encryptedData = await this.encryptResponseData(response.data, request.type)
+        return {
+          ...response,
+          data: encryptedData
+        }
+      }
+      
+      return response
     } catch (error) {
       console.error('[ProtocolHandler] Request processing error:', error)
       return {
@@ -122,6 +158,129 @@ export class ProtocolHandler {
         error: error instanceof Error ? error.message : 'Unknown error',
       }
     }
+  }
+
+  /**
+   * Decrypts and deserializes encrypted request data using the shared secret
+   * 
+   * The decrypted data has the structure: [requestType (1 byte)] | [data] | [checksum (4 bytes)]
+   * This method extracts the actual request data and validates the checksum.
+   * 
+   * @param encryptedData - The encrypted request payload
+   * @returns Decrypted and deserialized request data, or null if no shared secret available
+   * @private
+   */
+  private async decryptRequestData(encryptedData: Buffer): Promise< { requestType: number; decryptedData: Buffer } | null> {
+    // Get the shared secret from the simulator
+    const sharedSecret = this.simulator.getSharedSecret()
+    if (!sharedSecret) {
+      console.error('[ProtocolHandler] No shared secret available for decryption')
+      return null
+    }
+    
+    console.log('[ProtocolHandler] Shared secret length:', sharedSecret.length)
+    console.log('[ProtocolHandler] Shared secret (hex):', sharedSecret.toString('hex'))
+    
+    try {
+      // Decrypt the data using AES-256-CBC
+      const decryptedData = aes256_decrypt(encryptedData, sharedSecret)
+      
+      console.log('[ProtocolHandler] Decrypted data length:', decryptedData.length)
+      console.log('[ProtocolHandler] Decrypted data (hex):', decryptedData.toString('hex'))
+      
+      // The decrypted data has structure: [requestType (1)] | [data] | [checksum (4)]
+      if (decryptedData.length < 5) {
+        throw new Error('Decrypted data too short (need at least 5 bytes)')
+      }
+      
+      // Extract request type (first byte)
+      const requestType = decryptedData.readUInt8(0)
+      console.log('[ProtocolHandler] Extracted request type:', requestType)
+      
+      // Extract checksum (last 4 bytes)
+      const checksum = decryptedData.readUInt32LE(decryptedData.length - 4)
+      console.log('[ProtocolHandler] Extracted checksum:', checksum.toString(16))
+      
+      // Extract actual request data (everything between requestType and checksum)
+      const requestData = decryptedData.slice(1, decryptedData.length - 4)
+      console.log('[ProtocolHandler] Extracted request data length:', requestData.length)
+      console.log('[ProtocolHandler] Extracted request data (hex):', requestData.toString('hex'))
+      
+      // Validate checksum
+      const expectedChecksum = this.calculateChecksum(decryptedData.slice(0, decryptedData.length - 4))
+      if (checksum !== expectedChecksum) {
+        throw new Error(`Checksum mismatch: expected ${expectedChecksum.toString(16)}, got ${checksum.toString(16)}`)
+      }
+      
+      console.log('[ProtocolHandler] Checksum validation passed')
+      return { requestType, decryptedData }
+    } catch (error) {
+      console.error('[ProtocolHandler] Decryption/deserialization failed:', error)
+      return null
+    }
+  }
+
+  /**
+   * Encrypts response data for secure requests
+   * 
+   * Creates an encrypted response payload that matches the format expected
+   * by the GridPlus SDK: [newEphemeralPub (65 bytes)] | [responseData] | [checksum (4 bytes)]
+   * 
+   * @param responseData - The unencrypted response data
+   * @param requestType - The type of request this is responding to
+   * @returns Encrypted response data
+   * @private
+   */
+  private async encryptResponseData(responseData: Buffer, requestType: LatticeSecureEncryptedRequestType): Promise<Buffer> {
+    // Get the shared secret for encryption
+    const sharedSecret = this.simulator.getSharedSecret()
+    if (!sharedSecret) {
+      throw new Error('No shared secret available for response encryption')
+    }
+    
+    // Generate a new ephemeral key pair for the next request
+    const { generateKeyPair } = await import('../utils/crypto')
+    const newEphemeralKeyPair = generateKeyPair()
+    
+    // Build the response payload: [newEphemeralPub (65)] | [responseData] | [checksum (4)]
+    const newEphemeralPub = newEphemeralKeyPair.publicKey
+    const checksum = this.calculateChecksum(Buffer.concat([newEphemeralPub, responseData]))
+    
+    const checksumBuffer = Buffer.alloc(4)
+    checksumBuffer.writeUInt32BE(checksum, 0)
+    
+    const responsePayload = Buffer.concat([
+      newEphemeralPub,           // 65 bytes
+      responseData,              // variable size
+      checksumBuffer             // 4 bytes checksum
+    ])
+    
+    console.log('[ProtocolHandler] Response payload length:', responsePayload.length)
+    console.log('[ProtocolHandler] New ephemeral pub length:', newEphemeralPub.length)
+    console.log('[ProtocolHandler] Response data length:', responseData.length)
+    console.log('[ProtocolHandler] Checksum:', checksum.toString(16))
+    
+    // Encrypt the response payload
+    const encryptedPayload = aes256_encrypt(responsePayload, sharedSecret)
+    
+    // Update the simulator's ephemeral key pair for future requests
+    this.simulator.updateEphemeralKeyPair(newEphemeralKeyPair)
+    
+    console.log('[ProtocolHandler] Encrypted response length:', encryptedPayload.length)
+    return encryptedPayload
+  }
+
+  /**
+   * Calculates CRC32 checksum for response data
+   * 
+   * Uses the same CRC32 implementation as the GridPlus SDK.
+   * 
+   * @param data - Data to calculate checksum for
+   * @returns 32-bit checksum
+   * @private
+   */
+  private calculateChecksum(data: Buffer): number {
+    return crc32.buf(data) >>> 0 // Convert to unsigned 32-bit
   }
 
   /**
@@ -168,6 +327,7 @@ export class ProtocolHandler {
    * @private
    */
   private async handlePairRequest(data: Buffer): Promise<SecureResponse> {
+    console.log(`handlePairRequest, data: ${data.toString('hex')}`)
     const request = this.parsePairRequest(data)
     const response = await this.simulator.pair(request)
     
@@ -344,33 +504,46 @@ export class ProtocolHandler {
   }
 
   private parsePairRequest(data: Buffer): PairRequest {
-    // Simplified parsing - in real implementation would parse name, signature, etc.
+    console.log('[ProtocolHandler] Parsing finalizePairing request, data length:', data.length)
+    console.log('[ProtocolHandler] Pairing request data:', data.toString('hex'))
+    
+    // According to SDK encodePairRequest, the payload contains:
+    // - App name buffer (25 bytes, null-terminated)
+    // - DER signature (74 bytes, padded)
+    // Total expected length: 99 bytes
+    
+    if (data.length < 99) {
+      throw new Error(`Invalid finalizePairing payload size: ${data.length}, expected 99 bytes`)
+    }
+    
     let offset = 0
     
-    // Skip version and other metadata
-    offset += 4
+    // Parse app name (25 bytes, null-terminated)
+    const nameBuf = data.slice(offset, offset + 25)
+    offset += 25
     
-    // Parse app name length and name
-    const nameLen = data.readUInt8(offset)
-    offset += 1
+    // Extract app name by finding null terminator
+    const nullIndex = nameBuf.indexOf(0)
+    const appName = nullIndex >= 0 
+      ? nameBuf.slice(0, nullIndex).toString('utf8')
+      : nameBuf.toString('utf8').replace(/\0+$/g, '') // Remove trailing nulls
     
-    const appName = data.slice(offset, offset + nameLen).toString('utf8')
-    offset += nameLen
+    // Parse DER signature (74 bytes, padded)
+    const derSignature = data.slice(offset, offset + 74)
+    offset += 74
     
-    // Parse pairing secret if present
-    let pairingSecret: string | undefined
-    if (offset < data.length) {
-      const secretLen = data.readUInt8(offset)
-      offset += 1
-      if (secretLen > 0) {
-        pairingSecret = data.slice(offset, offset + secretLen).toString('utf8')
-      }
-    }
+    console.log('[ProtocolHandler] Parsed app name:', JSON.stringify(appName))
+    console.log('[ProtocolHandler] DER signature length:', derSignature.length)
+    console.log('[ProtocolHandler] DER signature:', derSignature.toString('hex'))
+    
+    // The pairing secret is not directly in the payload - it's used to create the signature
+    // We'll need to validate the signature against known pairing codes
     
     return {
       appName,
-      pairingSecret,
-      publicKey: Buffer.alloc(65), // Mock
+      pairingSecret: undefined, // Will be validated during signature verification
+      publicKey: Buffer.alloc(65), // Will be extracted from signature verification
+      derSignature, // Add this for signature verification
     }
   }
 

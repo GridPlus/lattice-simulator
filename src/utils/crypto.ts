@@ -4,6 +4,7 @@
 
 import { createHash, randomBytes } from 'crypto'
 import { ec as EC } from 'elliptic'
+import aes from 'aes-js'
 import { HARDENED_OFFSET } from '../lib/constants'
 
 /**
@@ -275,4 +276,40 @@ export function generateSeedFromMnemonic(mnemonic: string): Buffer {
 export function validateMnemonic(mnemonic: string): boolean {
   const words = mnemonic.trim().split(/\s+/)
   return words.length >= 12 && words.length <= 24 && words.length % 3 === 0
+}
+
+/**
+ * AES-256-CBC decryption function
+ * 
+ * Decrypts data using AES-256 in CBC mode with the standard IV used by GridPlus.
+ * This matches the decryption used in the GridPlus SDK.
+ * 
+ * @param data - Encrypted data buffer to decrypt
+ * @param key - 32-byte AES key (shared secret)
+ * @returns Decrypted data buffer
+ */
+export function aes256_decrypt(data: Buffer, key: Buffer): Buffer {
+  // Use the same IV as GridPlus SDK: 16 bytes of zeros
+  const iv = Buffer.alloc(16, 0)
+  const aesCbc = new aes.ModeOfOperation.cbc(key, iv)
+  return Buffer.from(aesCbc.decrypt(data))
+}
+
+/**
+ * AES-256-CBC encryption function
+ * 
+ * Encrypts data using AES-256 in CBC mode with the standard IV used by GridPlus.
+ * This matches the encryption used in the GridPlus SDK.
+ * 
+ * @param data - Data buffer to encrypt
+ * @param key - 32-byte AES key (shared secret)
+ * @returns Encrypted data buffer
+ */
+export function aes256_encrypt(data: Buffer, key: Buffer): Buffer {
+  // Use the same IV as GridPlus SDK: 16 bytes of zeros
+  const iv = Buffer.alloc(16, 0)
+  const aesCbc = new aes.ModeOfOperation.cbc(key, iv)
+  // Pad data to 16-byte boundary if needed
+  const paddedData = data.length % 16 === 0 ? data : aes.padding.pkcs7.pad(data)
+  return Buffer.from(aesCbc.encrypt(paddedData))
 }

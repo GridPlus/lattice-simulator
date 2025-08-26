@@ -137,7 +137,7 @@ function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
   if (offset !== buffer.length) {
     throw new Error(`Message size mismatch: expected ${buffer.length}, parsed ${offset}`)
   }
-  console.log(`[parseProtocolMessage] Request type: ${requestType}`)
+  console.log(`[parseProtocolMessage] Request type(1:connect, 2:encrypted): ${requestType}`)
   // Check if this is a connect request (request type 0x01)
   if (requestType === 0x01) {
     // This is an unencrypted connect request
@@ -158,18 +158,19 @@ function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
     }
   } else {
     // This is an encrypted secure request
-    // For encrypted requests, the payload contains: [ephemeralId (4 bytes)] | [encryptedData (1728 bytes)]
-    // But we'll accept the actual payload size and extract what we can
-    if (payload.length < 5) {
-      throw new Error(`Invalid encrypted request payload size: ${payload.length}, need at least 5 bytes`)
+    // For encrypted requests, the payload contains: [ephemeralId (4 bytes)] | [encryptedData]
+    // Note: requestType was already extracted above, so payload starts with ephemeralId
+    if (payload.length < 4) {
+      throw new Error(`Invalid encrypted request payload size: ${payload.length}, need at least 4 bytes for ephemeralId`)
     }
     
-    // Extract ephemeral ID (first 4 bytes after requestType)
-    const ephemeralId = payload.readUInt32LE(1)
+    // Extract ephemeral ID (first 4 bytes of payload)
+    const ephemeralId = payload.readUInt32LE(0)
     
-    // Extract encrypted data (remaining bytes after requestType and ephemeralId)
-    const encryptedData = payload.slice(5)
+    // Extract encrypted data (remaining bytes after ephemeralId)
+    const encryptedData = payload.slice(4)
 
+    console.log(`[parseProtocolMessage] Ephemeral ID: ${ephemeralId}`)
     console.log(`[parseProtocolMessage] Encrypted data length: ${encryptedData.length}`)
     console.log(`[parseProtocolMessage] Encrypted data (hex): ${encryptedData.toString('hex')}`)
     
@@ -283,9 +284,7 @@ export async function POST(
         })
         
       } else {
-        // Handle encrypted secure request
-        console.log(`Processing encrypted request type: ${parsedMessage.requestType}`)
-        
+        // Handle encrypted secure request        
         if (!parsedMessage.payload) {
           throw new Error('Encrypted request missing payload')
         }
@@ -296,7 +295,6 @@ export async function POST(
           ephemeralId: parsedMessage.ephemeralId,
           checksum: parsedMessage.checksum
         }
-        
         const response = await protocolHandler.handleSecureRequest(secureRequest)
         
         if (response.code !== 0) {
