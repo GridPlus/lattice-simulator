@@ -19,23 +19,24 @@ export function generateDeviceId(): string {
 }
 
 /**
- * Generates a proper secp256k1 key pair
+ * Generates a proper p256 key pair
  * 
- * Creates a real secp256k1 private key and derives the corresponding 
+ * Creates a real p256 private key and derives the corresponding 
  * public key using elliptic curve cryptography.
  * 
  * @returns Object containing public and private key buffers
  */
 export function generateKeyPair(): { publicKey: Buffer; privateKey: Buffer } {
-  const ec = new EC('secp256k1')
+  const ec = new EC('p256')
   
-  // Generate a proper secp256k1 keypair
+  // Generate a proper p256 keypair
   const keyPair = ec.genKeyPair()
   
   // Get the private key as a 32-byte buffer
   const privateKey = Buffer.from(keyPair.getPrivate().toArray('be', 32))
   
   // Get the uncompressed public key as a 65-byte buffer (04 + X + Y)
+  // Note: false = uncompressed format (65 bytes), true = compressed format (33 bytes)
   const publicKey = Buffer.from(keyPair.getPublic().encode('hex', false), 'hex')
   
   return { privateKey, publicKey }

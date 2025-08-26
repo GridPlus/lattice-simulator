@@ -250,10 +250,6 @@ export async function POST(
         console.log('Connect request payload (hex):', parsedMessage.payload.toString('hex'))
         console.log('response:', response)
         
-        if (response.data) {
-          console.log('Response data length:', response.data.length)
-          console.log('Response data (hex):', response.data.toString('hex'))
-        }
         if (response.code !== 0) { // 0 = success
           // Build error response payload: [responseCode (1)]
           const errorPayload = Buffer.from([response.code])
@@ -270,7 +266,7 @@ export async function POST(
           throw new Error('Protocol handler returned no response data')
         }
         
-        console.log('Response data length-1:', response.data.length)
+        console.log('Response data length:', response.data.length)
         console.log('Response data (hex):', response.data.toString('hex'))
         
         // The protocol handler already returns the complete response data (including response code)
