@@ -107,11 +107,17 @@ export class LatticeSimulator {
     const [major, minor, patch] = options?.firmwareVersion || [0, 15, 0]
     this.firmwareVersion = Buffer.from([patch, minor, major, 0])
     
-    // Initialize with empty wallets
-    const emptyUid = Buffer.alloc(32)
+    // Initialize with mock wallets
+    // Generate a non-zero UID for internal wallet to simulate a real device
+    const internalUid = Buffer.alloc(32)
+    internalUid.writeUInt32BE(0x12345678, 0) // Set some non-zero bytes
+    internalUid.writeUInt32BE(0x9abcdef0, 4)
+    
+    const emptyUid = Buffer.alloc(32) // External wallet starts empty (no SafeCard)
+    
     this.activeWallets = {
       internal: {
-        uid: emptyUid,
+        uid: internalUid,
         external: false,
         name: Buffer.from('Internal Wallet'),
         capabilities: 0,

@@ -752,25 +752,49 @@ export class ProtocolHandler {
   }
 
   private serializeGetWalletsResponse(data: any): Buffer {
-    // Simplified wallet serialization
-    const response = Buffer.alloc(200)
+    // Match the SDK's expected format from decodeFetchActiveWalletResponse
+    // Each wallet descriptor is 71 bytes: uid (32) + capabilities (4) + name (35)
+    const walletDescriptorLen = 71
+    const response = Buffer.alloc(walletDescriptorLen * 2) // Internal + External
     let offset = 0
     
-    // Internal wallet
+    // Internal wallet first (71 bytes)
     data.internal.uid.copy(response, offset)
     offset += 32
     
-    response.writeUInt8(data.internal.external ? 1 : 0, offset)
-    offset += 1
+    response.writeUInt32BE(data.internal.capabilities || 0, offset)
+    offset += 4
     
-    // External wallet
-    data.external.uid.copy(response, offset + 32)
+    // Name field: 35 bytes total
+    const internalNameBuf = Buffer.alloc(35)
+    if (data.internal.name && Buffer.isBuffer(data.internal.name)) {
+      // Copy up to 35 bytes of the name, pad with zeros
+      data.internal.name.copy(internalNameBuf, 0, 0, Math.min(35, data.internal.name.length))
+    }
+    internalNameBuf.copy(response, offset)
+    offset += 35
+    
+    // External wallet second (71 bytes)  
+    data.external.uid.copy(response, offset)
     offset += 32
     
-    response.writeUInt8(data.external.external ? 1 : 0, offset)
-    offset += 1
+    response.writeUInt32BE(data.external.capabilities || 0, offset)
+    offset += 4
     
-    return response.slice(0, offset)
+    // Name field: 35 bytes total
+    const externalNameBuf = Buffer.alloc(35)
+    if (data.external.name && Buffer.isBuffer(data.external.name) && data.external.name.length > 0) {
+      // Copy up to 35 bytes of the name, pad with zeros
+      data.external.name.copy(externalNameBuf, 0, 0, Math.min(35, data.external.name.length))
+    }
+    externalNameBuf.copy(response, offset)
+    offset += 35
+    
+    console.log('[ProtocolHandler] Serialized wallet response length:', response.length)
+    console.log('[ProtocolHandler] Internal wallet UID:', data.internal.uid.toString('hex'))
+    console.log('[ProtocolHandler] External wallet UID:', data.external.uid.toString('hex'))
+    
+    return response
   }
 
   private serializeKvRecordsResponse(data: Record<string, string>): Buffer {
