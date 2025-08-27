@@ -11,14 +11,13 @@ import type {
   ActiveWallets,
   PendingRequest,
   SimulatorConfig,
-  DeviceResponse,
 } from '../types'
-import { LatticeResponseCode } from '../types'
+import { emitPairingModeStarted, emitPairingModeEnded } from '../lib/deviceEvents'
 
 const EMPTY_WALLET_UID = Buffer.alloc(32)
 
 const DEFAULT_DEVICE_INFO: DeviceInfo = {
-  deviceId: '',
+  deviceId: 'SD0001',
   name: 'Lattice1 Simulator',
   firmwareVersion: Buffer.from([0, 0, 15, 0]), // v0.15.0
   isPaired: false,
@@ -91,12 +90,8 @@ interface DeviceStore extends DeviceState {
   config: SimulatorConfig
   
   // Connection and pairing actions
-  /** Connects to a device with the specified ID */
-  connect: (deviceId: string) => Promise<DeviceResponse<boolean>>
   /** Disconnects from the current device */
   disconnect: () => void
-  /** Pairs with the device using optional pairing secret */
-  pair: (pairingSecret?: string) => Promise<DeviceResponse<boolean>>
   /** Unpairs from the current device */
   unpair: () => void
   /** Enters pairing mode with a 6-digit code for 60 seconds */
@@ -155,40 +150,6 @@ export const useDeviceStore = create<DeviceStore>()(
       ...INITIAL_STATE,
       config: DEFAULT_SIMULATOR_CONFIG,
       
-      connect: async (deviceId: string) => {
-        const state = get()
-        
-        if (state.isConnected) {
-          return {
-            success: false,
-            code: LatticeResponseCode.deviceBusy,
-            error: 'Device already connected',
-          }
-        }
-        
-        // Import DeviceManager here to avoid circular dependency
-        const { getDeviceManager } = await import('../lib/deviceManager')
-        
-        try {
-          // Use DeviceManager for actual connection logic
-          // DeviceManager will handle updating the store state via syncStateToStore
-          const deviceManager = getDeviceManager(deviceId)
-          const result = await deviceManager.connect(deviceId)
-          
-          return {
-            success: result.success,
-            code: result.code,
-            data: result.data,
-            error: result.error,
-          }
-        } catch (error) {
-          return {
-            success: false,
-            code: LatticeResponseCode.internalError,
-            error: error instanceof Error ? error.message : 'Connection failed',
-          }
-        }
-      },
       
       disconnect: () => {
         set((draft) => {
@@ -202,62 +163,6 @@ export const useDeviceStore = create<DeviceStore>()(
         })
       },
       
-      pair: async (pairingSecret?: string) => {
-        const state = get()
-        
-        if (!state.isConnected) {
-          return {
-            success: false,
-            code: LatticeResponseCode.pairFailed,
-            error: 'Device not connected',
-          }
-        }
-        
-        if (state.isPaired) {
-          return {
-            success: false,
-            code: LatticeResponseCode.already,
-            error: 'Device already paired',
-          }
-        }
-        
-        // Import DeviceManager here to avoid circular dependency
-        const { getDeviceManager } = await import('../lib/deviceManager')
-        
-        try {
-          // Use DeviceManager for actual pairing logic
-          const deviceManager = getDeviceManager(state.deviceInfo.deviceId)
-          const result = await deviceManager.pair(pairingSecret)
-          
-          // If pairing was successful, update the store state and exit pairing mode
-          if (result.success) {
-            const simulator = deviceManager.getSimulator()
-            
-            set((draft) => {
-              draft.isPaired = true
-              draft.deviceInfo.isPaired = true
-              draft.activeWallets = simulator.getActiveWallets()
-            })
-            
-            // Exit pairing mode since pairing was successful
-            get().exitPairingMode()
-            console.log('[DeviceStore] Device successfully paired!')
-          }
-          
-          return {
-            success: result.success,
-            code: result.code,
-            data: result.data,
-            error: result.error,
-          }
-        } catch (error) {
-          return {
-            success: false,
-            code: LatticeResponseCode.pairFailed,
-            error: error instanceof Error ? error.message : 'Pairing failed',
-          }
-        }
-      },
       
       unpair: () => {
         set((draft) => {
@@ -286,6 +191,16 @@ export const useDeviceStore = create<DeviceStore>()(
         console.log('[DeviceStore] Entered pairing mode with code:', get().pairingCode)
         console.log('[DeviceStore] Pairing mode will timeout in 60 seconds')
         
+        // Emit device event for SSE clients
+        const currentState = get()
+        if (currentState.isPairingMode && currentState.pairingCode) {
+          try {
+            emitPairingModeStarted(currentState.deviceInfo.deviceId, currentState.pairingCode, currentState.pairingTimeoutMs)
+          } catch (error) {
+            console.error('[DeviceStore] Failed to emit pairing mode started event:', error)
+          }
+        }
+        
         // Set up timeout to exit pairing mode after 60 seconds
         setTimeout(() => {
           const currentState = get()
@@ -303,6 +218,13 @@ export const useDeviceStore = create<DeviceStore>()(
         const state = get()
         if (state.isPairingMode) {
           console.log('[DeviceStore] Exiting pairing mode')
+          
+          // Emit device event for SSE clients
+          try {
+            emitPairingModeEnded(state.deviceInfo.deviceId)
+          } catch (error) {
+            console.error('[DeviceStore] Failed to emit pairing mode ended event:', error)
+          }
         }
         set((draft) => {
           draft.isPairingMode = false

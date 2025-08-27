@@ -3,21 +3,26 @@
 import React, { useState, useEffect } from 'react'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/store'
 import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings } from 'lucide-react'
+import { useDeviceEvents } from '@/hooks/useDeviceEvents'
 
 /**
  * Connection status indicator component
  */
 function ConnectionStatus() {
-  const { isConnected, isPaired, isPairingMode } = useDeviceConnection()
+  const { isConnected, isPaired, isPairingMode, deviceId } = useDeviceConnection()
   const { name, firmwareVersion } = useDeviceStatus()
   const { pairingCode, pairingStartTime, pairingTimeoutMs } = useDeviceStore()
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
+  
+  // Enable SSE connection for real-time updates from server
+  // Connect to SSE when we have a device ID, regardless of connection status
+  useDeviceEvents(deviceId || 'SD0001', true)
 
   const formatFirmwareVersion = (version: Buffer) => {
     if (version.length < 3) return 'Unknown'
     return `${version[2]}.${version[1]}.${version[0]}`
   }
-  console.log(`isPairingMode: ${isPairingMode}, pairingCode: ${pairingCode}, pairingStartTime: ${pairingStartTime}, pairingTimeoutMs: ${pairingTimeoutMs}`)
+  console.log(`hereis ConnectionStatus: isPairingMode: ${isPairingMode}, pairingCode: ${pairingCode}, pairingStartTime: ${pairingStartTime}, pairingTimeoutMs: ${pairingTimeoutMs}`)
 
   const getPairingTimeRemaining = () => {
     if (!isPairingMode || !pairingStartTime) return 0
@@ -139,11 +144,18 @@ function ConnectionStatus() {
  * Connection controls component
  */
 function ConnectionControls() {
-  const { isConnected, isPaired } = useDeviceConnection()
-  const { connect, disconnect, pair } = useDeviceStore()
+  const { isConnected, isPaired, deviceId } = useDeviceConnection()
+  const { disconnect, setDeviceInfo } = useDeviceStore()
   const [isConnecting, setIsConnecting] = useState(false)
   const [isPairing, setIsPairing] = useState(false)
-  const [deviceIdInput, setDeviceIdInput] = useState('A00001')
+  const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'SD0001')
+
+  // Update the store whenever device ID input changes
+  useEffect(() => {
+    if (deviceIdInput && deviceIdInput !== deviceId) {
+      setDeviceInfo({ deviceId: deviceIdInput })
+    }
+  }, [deviceIdInput, deviceId, setDeviceInfo])
 
   const handleConnect = async () => {
     setIsConnecting(true)
@@ -175,18 +187,32 @@ function ConnectionControls() {
 
       <div className="space-y-3">
         {!isConnected ? (
-          <button
-            onClick={handleConnect}
-            disabled={isConnecting}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {isConnecting ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : (
-              <Wifi className="w-4 h-4" />
-            )}
-            <span>{isConnecting ? 'Connecting...' : 'Connect Device'}</span>
-          </button>
+          <>
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Device ID
+              </label>
+              <input
+                type="text"
+                value={deviceIdInput}
+                onChange={(e) => setDeviceIdInput(e.target.value)}
+                placeholder="Enter device ID"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              />
+            </div>
+            <button
+              onClick={handleConnect}
+              disabled={isConnecting}
+              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isConnecting ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <Wifi className="w-4 h-4" />
+              )}
+              <span>{isConnecting ? 'Connecting...' : 'Connect Device'}</span>
+            </button>
+          </>
         ) : (
           <div className="space-y-3">
             {!isPaired && (

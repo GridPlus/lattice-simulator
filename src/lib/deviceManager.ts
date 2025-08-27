@@ -460,31 +460,40 @@ export class DeviceManager {
   }
 }
 
-// Global device manager instance
-let globalDeviceManager: DeviceManager | null = null
+// Global device manager instances per device ID
+const deviceManagers: Map<string, DeviceManager> = new Map()
 
 /**
- * Gets or creates the global device manager instance
+ * Gets or creates a device manager instance for the specified device ID
  * 
- * Provides a singleton pattern for accessing the device manager.
- * Creates a new instance if none exists.
+ * Provides device-specific manager instances instead of a global singleton.
+ * Creates a new instance if none exists for the given device ID.
  * 
- * @param deviceId - Optional device ID for new instances
- * @returns The global DeviceManager instance
+ * @param deviceId - Device ID for the manager (defaults to 'SD0001')
+ * @returns The DeviceManager instance for the specified device
  */
 export function getDeviceManager(deviceId?: string): DeviceManager {
-  if (!globalDeviceManager) {
-    globalDeviceManager = new DeviceManager(deviceId)
+  const id = deviceId || 'SD0001'
+  
+  if (!deviceManagers.has(id)) {
+    deviceManagers.set(id, new DeviceManager(id))
   }
-  return globalDeviceManager
+  
+  return deviceManagers.get(id)!
 }
 
 /**
- * Resets the global device manager
+ * Resets device manager for a specific device ID
  * 
- * Clears the global device manager instance, forcing creation
- * of a new instance on next access.
+ * Clears the device manager instance for the specified device,
+ * forcing creation of a new instance on next access.
+ * 
+ * @param deviceId - Device ID to reset (resets all if not specified)
  */
-export function resetDeviceManager(): void {
-  globalDeviceManager = null
+export function resetDeviceManager(deviceId?: string): void {
+  if (deviceId) {
+    deviceManagers.delete(deviceId)
+  } else {
+    deviceManagers.clear()
+  }
 }

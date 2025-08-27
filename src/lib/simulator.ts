@@ -29,6 +29,8 @@ import {
   supportsFeature,
 } from '../utils'
 import { SIMULATOR_CONSTANTS, EXTERNAL } from './constants'
+import { emitPairingModeStarted, emitPairingModeEnded } from './deviceEvents'
+import { useDeviceStore } from '../store/deviceStore'
 import elliptic from 'elliptic';
 
 /**
@@ -159,14 +161,23 @@ export class LatticeSimulator {
     if (!this.isPaired) {
       console.log('[Simulator] Device not paired, entering pairing mode...')
       try {
-        // Import device store to trigger pairing mode
-        const { useDeviceStore } = await import('../store/deviceStore')
+        // Trigger pairing mode using the device store
         const deviceStore = useDeviceStore.getState()
         console.log('[Simulator] Current pairing mode state before:', deviceStore.isPairingMode)
         deviceStore.enterPairingMode()
         console.log('[Simulator] Pairing mode triggered successfully')
         console.log('[Simulator] New pairing mode state:', useDeviceStore.getState().isPairingMode)
         console.log('[Simulator] Pairing code:', useDeviceStore.getState().pairingCode)
+
+        // Emit device event for SSE clients
+        const newState = useDeviceStore.getState()
+        if (newState.isPairingMode && newState.pairingCode) {
+          try {
+            emitPairingModeStarted(this.deviceId, newState.pairingCode, newState.pairingTimeoutMs)
+          } catch (error) {
+            console.error('[Simulator] Failed to emit pairing mode started event:', error)
+          }
+        }
       } catch (error) {
         console.error('[Simulator] Error entering pairing mode:', error)
       }
@@ -210,7 +221,6 @@ export class LatticeSimulator {
     }
     
     // Check if device is in pairing mode
-    const { useDeviceStore } = await import('../store/deviceStore')
     const deviceStore = useDeviceStore.getState()
     
     if (!deviceStore.isPairingMode) {
@@ -268,6 +278,13 @@ export class LatticeSimulator {
     
     // Exit pairing mode
     deviceStore.exitPairingMode()
+    
+    // Emit pairing mode ended event
+    try {
+      emitPairingModeEnded(this.deviceId)
+    } catch (error) {
+      console.error('[Simulator] Error emitting pairing mode ended:', error)
+    }
     
     console.log('[Simulator] Device successfully paired!')
     
