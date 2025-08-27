@@ -110,6 +110,7 @@ interface DeviceStore extends DeviceState {
   setDeviceInfo: (info: Partial<DeviceInfo>) => void
   setLocked: (locked: boolean) => void
   setBusy: (busy: boolean) => void
+  setConnectionState: (isConnected: boolean, isPaired: boolean) => void
   
   // Request Management
   addPendingRequest: (request: PendingRequest) => void
@@ -170,6 +171,7 @@ export const useDeviceStore = create<DeviceStore>()(
         
         try {
           // Use DeviceManager for actual connection logic
+          // DeviceManager will handle updating the store state via syncStateToStore
           const deviceManager = getDeviceManager(deviceId)
           const result = await deviceManager.connect(deviceId)
           
@@ -226,6 +228,21 @@ export const useDeviceStore = create<DeviceStore>()(
           // Use DeviceManager for actual pairing logic
           const deviceManager = getDeviceManager(state.deviceInfo.deviceId)
           const result = await deviceManager.pair(pairingSecret)
+          
+          // If pairing was successful, update the store state and exit pairing mode
+          if (result.success) {
+            const simulator = deviceManager.getSimulator()
+            
+            set((draft) => {
+              draft.isPaired = true
+              draft.deviceInfo.isPaired = true
+              draft.activeWallets = simulator.getActiveWallets()
+            })
+            
+            // Exit pairing mode since pairing was successful
+            get().exitPairingMode()
+            console.log('[DeviceStore] Device successfully paired!')
+          }
           
           return {
             success: result.success,
@@ -318,6 +335,18 @@ export const useDeviceStore = create<DeviceStore>()(
         })
       },
       
+      setConnectionState: (isConnected: boolean, isPaired: boolean) => {
+        console.log('[DeviceStore] setConnectionState called:', { isConnected, isPaired })
+        set((draft) => {
+          draft.isConnected = isConnected
+          draft.isPaired = isPaired
+        })
+        console.log('[DeviceStore] setConnectionState completed. New state:', {
+          isConnected: get().isConnected,
+          isPaired: get().isPaired
+        })
+      },
+      
       addPendingRequest: (request: PendingRequest) => {
         set((draft) => {
           draft.pendingRequests.push(request)
@@ -406,13 +435,17 @@ export const useDeviceStore = create<DeviceStore>()(
  * 
  * @returns Object with connection status and device ID
  */
-export const useDeviceConnection = () => 
-  useDeviceStore(state => ({
+export const useDeviceConnection = () => {
+  const state = useDeviceStore(state => ({
     isConnected: state.isConnected,
     isPaired: state.isPaired,
     isPairingMode: state.isPairingMode,
     deviceId: state.deviceInfo.deviceId,
   }))
+  
+  console.log('[useDeviceConnection] State updated:', state)
+  return state
+}
 
 /**
  * Selector hook for device status information

@@ -98,12 +98,8 @@ export class DeviceManager {
       
       // Update store with connection state
       if (response.success) {
-        useDeviceStore.getState().connect(request.deviceId)
-        useDeviceStore.getState().setDeviceInfo({
-          deviceId: request.deviceId,
-          isPaired: this.simulator.getIsPaired(),
-          firmwareVersion: this.simulator.getFirmwareVersion(),
-        })
+        // Sync state to store after successful connection
+        this.syncStateToStore()
       }
 
       return {
@@ -390,16 +386,39 @@ export class DeviceManager {
    * Sync simulator state to Zustand store
    */
   private syncStateToStore(): void {
-    const state = useDeviceStore.getState()
+    const isPaired = this.simulator.getIsPaired()
     
-    state.setDeviceInfo({
+    console.log('[DeviceManager] Syncing state to store:', {
       deviceId: this.simulator.getDeviceId(),
-      isPaired: this.simulator.getIsPaired(),
+      isConnected: true,
+      isPaired: isPaired,
+      isLocked: this.simulator.getIsLocked()
+    })
+    
+    // Get the store and update state using its methods
+    const store = useDeviceStore.getState()
+    
+    // Update device info first
+    store.setDeviceInfo({
+      deviceId: this.simulator.getDeviceId(),
+      isPaired: isPaired,
       isLocked: this.simulator.getIsLocked(),
       firmwareVersion: this.simulator.getFirmwareVersion(),
     })
-
-    state.setActiveWallets(this.simulator.getActiveWallets())
+    
+    // Update active wallets
+    store.setActiveWallets(this.simulator.getActiveWallets())
+    
+    // Update connection and pairing state using store actions
+    store.setConnectionState(true, isPaired)
+    
+    // If device is not paired, automatically enter pairing mode
+    if (!isPaired) {
+      console.log('[DeviceManager] Device connected but not paired, entering pairing mode...')
+      store.enterPairingMode()
+    }
+    
+    console.log('[DeviceManager] State sync complete')
   }
 
   // Getters for accessing simulator state

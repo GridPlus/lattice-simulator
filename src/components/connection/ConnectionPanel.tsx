@@ -17,6 +17,7 @@ function ConnectionStatus() {
     if (version.length < 3) return 'Unknown'
     return `${version[2]}.${version[1]}.${version[0]}`
   }
+  console.log(`isPairingMode: ${isPairingMode}, pairingCode: ${pairingCode}, pairingStartTime: ${pairingStartTime}, pairingTimeoutMs: ${pairingTimeoutMs}`)
 
   const getPairingTimeRemaining = () => {
     if (!isPairingMode || !pairingStartTime) return 0
