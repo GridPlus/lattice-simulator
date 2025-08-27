@@ -131,6 +131,7 @@ function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
   
   // Read checksum (4 bytes)
   const checksum = buffer.readUInt32BE(offset)
+  console.log(`hereis checksum-1: ${checksum}`);
   offset += 4
   
   // Validate message size
@@ -288,6 +289,7 @@ export async function POST(
         if (!parsedMessage.payload) {
           throw new Error('Encrypted request missing payload')
         }
+        console.log(`hereis secure req`)
         
         const secureRequest = {
           type: parsedMessage.requestType!,
@@ -297,6 +299,7 @@ export async function POST(
         }
         const response = await protocolHandler.handleSecureRequest(secureRequest)
         
+        console.log(`hereis response: ${JSON.stringify(response)}`)
         if (response.code !== 0) {
           // Build error response payload: [responseCode (1)]
           const errorPayload = Buffer.from([response.code])
@@ -309,10 +312,28 @@ export async function POST(
         }
         
         // For secure requests, build the Lattice1 protocol response
+        // SDK expects: [responseCode (1)] | [encryptedData (1728)] | [empty (1728)]
         const responseCode = 0 // success
-        const responseData = response.data || Buffer.alloc(0)
-        const payload = Buffer.concat([Buffer.from([responseCode]), responseData])
+        const encryptedData = response.data || Buffer.alloc(0)
         
+        // Ensure encrypted data is exactly 1728 bytes
+        if (encryptedData.length !== 1728) {
+          console.error(`Encrypted data length mismatch: expected 1728, got ${encryptedData.length}`)
+          throw new Error('Encrypted response size mismatch')
+        }
+        
+        // Add empty 1728 bytes due to firmware bug (C struct instead of union)
+        const emptyData = Buffer.alloc(1728)
+        
+        const payload = Buffer.concat([
+          Buffer.from([responseCode]),  // 1 byte
+          encryptedData,                // 1728 bytes
+          emptyData                     // 1728 bytes
+        ])
+        
+        console.log('Response code:', responseCode)
+        console.log('Encrypted data length:', encryptedData.length)
+        console.log('Empty data length:', emptyData.length)
         console.log('Final payload length:', payload.length)
         console.log('Final payload (hex):', payload.toString('hex'))
         

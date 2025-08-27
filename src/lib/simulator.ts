@@ -29,6 +29,7 @@ import {
   supportsFeature,
 } from '../utils'
 import { SIMULATOR_CONSTANTS, EXTERNAL } from './constants'
+import elliptic from 'elliptic';
 
 /**
  * Core Lattice1 Device Simulator
@@ -64,6 +65,9 @@ export class LatticeSimulator {
   
   /** Ephemeral key pair for session encryption */
   private ephemeralKeyPair?: { publicKey: Buffer; privateKey: Buffer }
+  
+  /** Client's public key received during connect phase */
+  private clientPublicKey?: Buffer
   
   /** Simulated firmware version [patch, minor, major, reserved] */
   private firmwareVersion: Buffer
@@ -137,6 +141,10 @@ export class LatticeSimulator {
     if (this.isLocked) {
       return createDeviceResponse(false, LatticeResponseCode.deviceLocked)
     }
+    
+    // Store the client's public key for ECDH shared secret derivation
+    this.clientPublicKey = request.publicKey
+    console.log('[Simulator] Stored client public key:', this.clientPublicKey.toString('hex'))
     
     // Generate ephemeral key pair for this session
     this.ephemeralKeyPair = generateKeyPair()
@@ -548,22 +556,44 @@ export class LatticeSimulator {
    * 
    * @returns The 32-byte shared secret, or null if no connection established
    */
-  getSharedSecret(): Buffer | null {
-    if (!this.ephemeralKeyPair) {
+   getSharedSecret(): Buffer | null {
+    if (!this.ephemeralKeyPair || !this.clientPublicKey) {
       return null
     }
     
-    // For simulation purposes, we'll derive a mock shared secret
-    // In a real implementation, this would be the ECDH shared secret
-    // derived from our ephemeral private key and the client's public key
-    
-    // Use a deterministic approach based on the ephemeral public key
-    const hash = createHash('sha256')
-      .update(this.ephemeralKeyPair.publicKey)
-      .update(Buffer.from('lattice-simulator-shared-secret'))
-      .digest()
-    
-    return hash
+    try {
+      // Use proper ECDH: our_private_key.derive(client_public_key)
+      const ec = new elliptic.ec('p256')
+      
+      // Create KeyPair from our private key
+      const ourKeyPair = ec.keyFromPrivate(this.ephemeralKeyPair.privateKey)
+      console.log('[Simulator] Our private key (hex):', this.ephemeralKeyPair.privateKey.toString('hex'))
+      
+      // Create KeyPair from client's public key
+      const clientKeyPair = ec.keyFromPublic(this.clientPublicKey)
+      console.log('[Simulator] Client public key (hex):', this.clientPublicKey.toString('hex'))
+      
+      // Derive shared secret
+      const sharedSecret = ourKeyPair.derive(clientKeyPair.getPublic())
+      
+      // Convert to 32-byte buffer (big endian)
+      const sharedSecretBuffer = Buffer.from(sharedSecret.toArray('be', 32))
+      
+      console.log('[Simulator] Generated ECDH shared secret:', sharedSecretBuffer.toString('hex'))
+      return sharedSecretBuffer
+    } catch (error) {
+      console.error('[Simulator] ECDH shared secret generation failed:', error)
+      
+      // Fallback to deterministic approach for debugging
+      const hash = createHash('sha256')
+        .update(this.ephemeralKeyPair.publicKey)
+        .update(this.clientPublicKey)
+        .update(Buffer.from('lattice-simulator-shared-secret'))
+        .digest()
+      
+      console.log('[Simulator] Using fallback shared secret:', hash.toString('hex'))
+      return hash
+    }
   }
 
   /**

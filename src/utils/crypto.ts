@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'crypto'
 import { ec as EC } from 'elliptic'
 import aes from 'aes-js'
 import { HARDENED_OFFSET } from '../lib/constants'
+import { ProtocolConstants } from '@/types'
 
 /**
  * Generates a random device ID
@@ -289,10 +290,9 @@ export function validateMnemonic(mnemonic: string): boolean {
  * @returns Decrypted data buffer
  */
 export function aes256_decrypt(data: Buffer, key: Buffer): Buffer {
-  // Use the same IV as GridPlus SDK: 16 bytes of zeros
-  const iv = Buffer.alloc(16, 0)
-  const aesCbc = new aes.ModeOfOperation.cbc(key, iv)
-  return Buffer.from(aesCbc.decrypt(data))
+  const iv = Buffer.from(ProtocolConstants.aesIv);
+  const aesCbc = new aes.ModeOfOperation.cbc(key, iv);
+  return Buffer.from(aesCbc.decrypt(data));
 }
 
 /**
@@ -307,9 +307,9 @@ export function aes256_decrypt(data: Buffer, key: Buffer): Buffer {
  */
 export function aes256_encrypt(data: Buffer, key: Buffer): Buffer {
   // Use the same IV as GridPlus SDK: 16 bytes of zeros
-  const iv = Buffer.alloc(16, 0)
-  const aesCbc = new aes.ModeOfOperation.cbc(key, iv)
-  // Pad data to 16-byte boundary if needed
-  const paddedData = data.length % 16 === 0 ? data : aes.padding.pkcs7.pad(data)
-  return Buffer.from(aesCbc.encrypt(paddedData))
+  const iv = Buffer.from(ProtocolConstants.aesIv);
+  const aesCbc = new aes.ModeOfOperation.cbc(key, iv);
+  const paddedData =
+    data.length % 16 === 0 ? data : aes.padding.pkcs7.pad(data);
+  return Buffer.from(aesCbc.encrypt(paddedData));
 }
