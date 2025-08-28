@@ -141,103 +141,38 @@ function ConnectionStatus() {
 }
 
 /**
- * Connection controls component
+ * Connection info component - displays current connection status
+ * Connections and pairing are handled via API calls from lattice-manager
  */
-function ConnectionControls() {
+function ConnectionInfo() {
   const { isConnected, isPaired, deviceId } = useDeviceConnection()
-  const { disconnect, setDeviceInfo } = useDeviceStore()
-  const [isConnecting, setIsConnecting] = useState(false)
-  const [isPairing, setIsPairing] = useState(false)
-  const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'SD0001')
-
-  // Update the store whenever device ID input changes
-  useEffect(() => {
-    if (deviceIdInput && deviceIdInput !== deviceId) {
-      setDeviceInfo({ deviceId: deviceIdInput })
-    }
-  }, [deviceIdInput, deviceId, setDeviceInfo])
-
-  const handleConnect = async () => {
-    setIsConnecting(true)
-    try {
-      await connect(deviceIdInput)
-    } catch (error) {
-      console.error('Connection failed:', error)
-    } finally {
-      setIsConnecting(false)
-    }
-  }
-
-  const handlePair = async () => {
-    setIsPairing(true)
-    try {
-      await pair()
-    } catch (error) {
-      console.error('Pairing failed:', error)
-    } finally {
-      setIsPairing(false)
-    }
-  }
+  const { disconnect } = useDeviceStore()
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
       <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-        Connection Controls
+        Connection Info
       </h3>
 
       <div className="space-y-3">
-        {!isConnected ? (
-          <>
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Device ID
-              </label>
-              <input
-                type="text"
-                value={deviceIdInput}
-                onChange={(e) => setDeviceIdInput(e.target.value)}
-                placeholder="Enter device ID"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-              />
-            </div>
-            <button
-              onClick={handleConnect}
-              disabled={isConnecting}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isConnecting ? (
-                <RefreshCw className="w-4 h-4 animate-spin" />
-              ) : (
-                <Wifi className="w-4 h-4" />
-              )}
-              <span>{isConnecting ? 'Connecting...' : 'Connect Device'}</span>
-            </button>
-          </>
-        ) : (
-          <div className="space-y-3">
-            {!isPaired && (
-              <button
-                onClick={handlePair}
-                disabled={isPairing}
-                className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {isPairing ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Shield className="w-4 h-4" />
-                )}
-                <span>{isPairing ? 'Pairing...' : 'Pair Device'}</span>
-              </button>
-            )}
-
-            <button
-              onClick={disconnect}
-              className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-            >
-              <WifiOff className="w-4 h-4" />
-              <span>Disconnect</span>
-            </button>
+        <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Current Device ID:</span>
+            <span className="text-sm font-mono text-gray-900 dark:text-white">{deviceId}</span>
           </div>
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            Connections are initiated by lattice-manager via API calls
+          </p>
+        </div>
+        
+        {isConnected && (
+          <button
+            onClick={disconnect}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+          >
+            <WifiOff className="w-4 h-4" />
+            <span>Reset Connection State</span>
+          </button>
         )}
       </div>
     </div>
@@ -369,7 +304,7 @@ export function ConnectionPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-6">
           <ConnectionStatus />
-          <ConnectionControls />
+          <ConnectionInfo />
         </div>
         <div>
           <ConnectionSettings />

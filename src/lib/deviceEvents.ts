@@ -99,6 +99,7 @@ export const emitPairingModeEnded = (deviceId: string) => {
 }
 
 export const emitConnectionChanged = (deviceId: string, isConnected: boolean) => {
+  console.log(`[DeviceEvents] emitConnectionChanged for device: ${deviceId}, isConnected: ${isConnected}`)
   deviceEvents.emit(deviceId, 'connection_changed', {
     isConnected,
   })

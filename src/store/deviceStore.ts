@@ -12,7 +12,7 @@ import type {
   PendingRequest,
   SimulatorConfig,
 } from '../types'
-import { emitPairingModeStarted, emitPairingModeEnded } from '../lib/deviceEvents'
+import { emitPairingModeStarted, emitPairingModeEnded, emitConnectionChanged, emitPairingChanged } from '../lib/deviceEvents'
 
 const EMPTY_WALLET_UID = Buffer.alloc(32)
 
@@ -217,11 +217,13 @@ export const useDeviceStore = create<DeviceStore>()(
       exitPairingMode: () => {
         const state = get()
         if (state.isPairingMode) {
-          console.log('[DeviceStore] Exiting pairing mode')
+          console.log('[DeviceStore] Exiting pairing mode, isPaired: ', state.isPaired, 'isConnected: ', state.isConnected)
           
           // Emit device event for SSE clients
           try {
             emitPairingModeEnded(state.deviceInfo.deviceId)
+            emitPairingChanged(state.deviceInfo.deviceId, state.isPaired)
+            emitConnectionChanged(state.deviceInfo.deviceId, state.isConnected)
           } catch (error) {
             console.error('[DeviceStore] Failed to emit pairing mode ended event:', error)
           }

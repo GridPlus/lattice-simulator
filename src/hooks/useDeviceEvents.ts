@@ -160,6 +160,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
     // Handle connection changes
     eventSource.addEventListener('connection_changed', (event) => {
       try {
+        console.log('[useDeviceEvents] Connection changed event received, event: ', event)
         const data: ConnectionChangedData = JSON.parse(event.data)
         console.log('[useDeviceEvents] Connection changed:', data.isConnected)
         
@@ -173,6 +174,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
     // Handle pairing changes
     eventSource.addEventListener('pairing_changed', (event) => {
       try {
+        console.log('[useDeviceEvents] Pairing changed event received, event: ', event)
         const data: PairingChangedData = JSON.parse(event.data)
         console.log('[useDeviceEvents] Pairing changed:', data.isPaired)
         

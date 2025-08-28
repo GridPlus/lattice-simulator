@@ -134,10 +134,12 @@ export class DeviceManager {
       request,
       requiresUserApproval(LatticeSecureEncryptedRequestType.finalizePairing)
     )
-
+    console.log('[DeviceManager] Pairing response:', response)
     if (response.success) {
-      // Update store state
-      useDeviceStore.getState().pair(pairingSecret)
+      console.log('[DeviceManager] Pairing successful, setting connection state to true')
+      // Update store state - set paired status directly since store.pair() was removed
+      const store = useDeviceStore.getState()
+      store.setConnectionState(true, true) // Set both connected and paired
       this.syncStateToStore()
     }
 

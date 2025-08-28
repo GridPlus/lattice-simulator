@@ -29,7 +29,7 @@ import {
   supportsFeature,
 } from '../utils'
 import { SIMULATOR_CONSTANTS, EXTERNAL } from './constants'
-import { emitPairingModeStarted, emitPairingModeEnded } from './deviceEvents'
+import { emitPairingModeStarted, emitPairingModeEnded, emitConnectionChanged, emitPairingChanged } from './deviceEvents'
 import { useDeviceStore } from '../store/deviceStore'
 import elliptic from 'elliptic';
 
@@ -250,7 +250,9 @@ export class LatticeSimulator {
       // Successful pairing
       this.isPaired = true
       this.pairingSecret = pairingCode
-      
+
+      // Set connection state, connected and paired
+      deviceStore.setConnectionState(true, true)
       // Exit pairing mode
       deviceStore.exitPairingMode()
       
@@ -275,13 +277,18 @@ export class LatticeSimulator {
     // Successful pairing
     this.isPaired = true
     this.pairingSecret = request.pairingSecret
-    
+
+    // Set connection state, connected and paired
+    deviceStore.setConnectionState(true, true)
+
     // Exit pairing mode
     deviceStore.exitPairingMode()
     
     // Emit pairing mode ended event
     try {
       emitPairingModeEnded(this.deviceId)
+      console.log('[Simulator] Emitting connection changed event to true (emitConnectionChanged)')
+      emitConnectionChanged(this.deviceId, true)
     } catch (error) {
       console.error('[Simulator] Error emitting pairing mode ended:', error)
     }
