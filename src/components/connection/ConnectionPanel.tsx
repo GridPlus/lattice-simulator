@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/store'
-import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings } from 'lucide-react'
+import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check } from 'lucide-react'
 import { useDeviceEvents } from '@/hooks/useDeviceEvents'
 
 /**
@@ -13,6 +13,7 @@ function ConnectionStatus() {
   const { name, firmwareVersion } = useDeviceStatus()
   const { pairingCode, pairingStartTime, pairingTimeoutMs } = useDeviceStore()
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
+  const [isCopied, setIsCopied] = useState(false)
   
   // Enable SSE connection for real-time updates from server
   // Connect to SSE when we have a device ID, regardless of connection status
@@ -28,6 +29,18 @@ function ConnectionStatus() {
     const elapsed = Date.now() - pairingStartTime
     const remaining = Math.max(0, pairingTimeoutMs - elapsed)
     return Math.ceil(remaining / 1000) // Return seconds
+  }
+
+  const handleCopyPairingCode = async () => {
+    if (!pairingCode) return
+    
+    try {
+      await navigator.clipboard.writeText(pairingCode)
+      setIsCopied(true)
+      setTimeout(() => setIsCopied(false), 2000) // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy pairing code:', err)
+    }
   }
 
   // Update pairing timer every second
@@ -107,8 +120,21 @@ function ConnectionStatus() {
                 Pairing Mode Active
               </h4>
               <div className="mb-3">
-                <div className="text-3xl font-mono font-bold text-blue-800 dark:text-blue-200 tracking-wider">
-                  {pairingCode}
+                <div className="flex items-center justify-center space-x-3">
+                  <div className="text-3xl font-mono font-bold text-blue-800 dark:text-blue-200 tracking-wider">
+                    {pairingCode}
+                  </div>
+                  <button
+                    onClick={handleCopyPairingCode}
+                    className="p-2 rounded-lg bg-blue-100 hover:bg-blue-200 dark:bg-blue-800 dark:hover:bg-blue-700 transition-colors"
+                    title={isCopied ? 'Copied!' : 'Copy pairing code'}
+                  >
+                    {isCopied ? (
+                      <Check className="w-5 h-5 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <Copy className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+                    )}
+                  </button>
                 </div>
                 <p className="text-sm text-blue-700 dark:text-blue-300 mt-1">
                   Enter this code in your application
