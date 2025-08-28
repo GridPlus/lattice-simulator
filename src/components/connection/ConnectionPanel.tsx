@@ -11,16 +11,24 @@ import { useDeviceEvents } from '@/hooks/useDeviceEvents'
 function ConnectionStatus() {
   const { isConnected, isPaired, isPairingMode, deviceId } = useDeviceConnection()
   const { name, firmwareVersion } = useDeviceStatus()
-  const { pairingCode, pairingStartTime, pairingTimeoutMs } = useDeviceStore()
+  const { pairingCode, pairingStartTime, pairingTimeoutMs, syncStoreToDeviceManager } = useDeviceStore()
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
   const [isCopied, setIsCopied] = useState(false)
   
   // Enable SSE connection for real-time updates from server
   // Connect to SSE when we have a device ID, regardless of connection status
   useDeviceEvents(deviceId || 'SD0001', true)
+  
+  // Sync store state to device manager when component mounts
+  useEffect(() => {
+    const currentDeviceId = deviceId || 'SD0001'
+    console.log('[ConnectionStatus] Component mounted, syncing store to device manager for:', currentDeviceId)
+    syncStoreToDeviceManager(currentDeviceId)
+  }, [deviceId, syncStoreToDeviceManager])
 
-  const formatFirmwareVersion = (version: string) => {
-    return version || 'Unknown'
+  const formatFirmwareVersion = (version: Buffer) => {
+    if (!version || version.length < 3) return 'Unknown'
+    return `${version[2]}.${version[1]}.${version[0]}`
   }
 
   const getPairingTimeRemaining = () => {

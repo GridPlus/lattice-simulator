@@ -21,7 +21,7 @@ export interface ActiveWallets {
 export interface DeviceInfo {
   deviceId: string
   name: string
-  firmwareVersion: string // Version string like "0.15.0"
+  firmwareVersion: Buffer // Buffer for consistency with other parts of the codebase
   isPaired: boolean
   isLocked: boolean
   pairingTimeoutMs?: number

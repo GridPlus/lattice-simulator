@@ -19,7 +19,7 @@ const EMPTY_WALLET_UID = '0'.repeat(64) // 32 bytes as hex string
 const DEFAULT_DEVICE_INFO: DeviceInfo = {
   deviceId: 'SD0001',
   name: 'Lattice1 Simulator',
-  firmwareVersion: '0.15.0', // Direct version string
+  firmwareVersion: Buffer.from([0, 0, 15, 0]), // v0.15.0 as Buffer
   isPaired: false,
   isLocked: false,
 }
@@ -106,6 +106,7 @@ interface DeviceStore extends DeviceState {
   setLocked: (locked: boolean) => void
   setBusy: (busy: boolean) => void
   setConnectionState: (isConnected: boolean, isPaired: boolean) => void
+  syncStoreToDeviceManager: (deviceId: string) => void
   
   // Request Management
   addPendingRequest: (request: PendingRequest) => void
@@ -277,6 +278,27 @@ export const useDeviceStore = create<DeviceStore>()(
         })
       },
       
+      syncStoreToDeviceManager: async (deviceId: string) => {
+        const state = get()
+        console.log('[DeviceStore] Syncing store state to device manager for:', deviceId)
+        
+        try {
+          // Import DeviceManager here to avoid circular dependency
+          const { getDeviceManager } = await import('../lib/deviceManager')
+          const deviceManager = getDeviceManager(deviceId)
+          
+          // If we have a connected device, sync the state back to the device manager
+          if (state.isConnected) {
+            console.log('[DeviceStore] Device is connected, syncing state to device manager')
+            deviceManager.syncStateToStore()
+          }
+          
+          console.log('[DeviceStore] Store to device manager sync completed')
+        } catch (error) {
+          console.error('[DeviceStore] Error syncing store to device manager:', error)
+        }
+      },
+      
       addPendingRequest: (request: PendingRequest) => {
         set((draft) => {
           draft.pendingRequests.push(request)
@@ -410,6 +432,9 @@ export const useDeviceStore = create<DeviceStore>()(
         deviceInfo: state.deviceInfo,
         isConnected: state.isConnected,
         isPaired: state.isPaired,
+        isPairingMode: state.isPairingMode,
+        pairingCode: state.pairingCode,
+        pairingStartTime: state.pairingStartTime,
         config: state.config,
         addressTags: state.addressTags,
         kvRecords: state.kvRecords,

@@ -387,7 +387,7 @@ export class DeviceManager {
   /**
    * Sync simulator state to Zustand store
    */
-  private syncStateToStore(): void {
+  public syncStateToStore(): void {
     const isPaired = this.simulator.getIsPaired()
     
     console.log('[DeviceManager] Syncing state to store:', {
