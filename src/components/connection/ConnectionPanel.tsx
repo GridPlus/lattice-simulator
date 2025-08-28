@@ -22,7 +22,6 @@ function ConnectionStatus() {
     if (version.length < 3) return 'Unknown'
     return `${version[2]}.${version[1]}.${version[0]}`
   }
-  console.log(`hereis ConnectionStatus: isPairingMode: ${isPairingMode}, pairingCode: ${pairingCode}, pairingStartTime: ${pairingStartTime}, pairingTimeoutMs: ${pairingTimeoutMs}`)
 
   const getPairingTimeRemaining = () => {
     if (!isPairingMode || !pairingStartTime) return 0
@@ -145,8 +144,21 @@ function ConnectionStatus() {
  * Connections and pairing are handled via API calls from lattice-manager
  */
 function ConnectionInfo() {
-  const { isConnected, isPaired, deviceId } = useDeviceConnection()
-  const { disconnect } = useDeviceStore()
+  const { isConnected, deviceId } = useDeviceConnection()
+  const { resetDeviceState } = useDeviceStore()
+  const [isResetting, setIsResetting] = useState(false)
+
+  const handleResetConnectionState = async () => {
+    setIsResetting(true)
+    try {
+      await resetDeviceState()
+      console.log('[ConnectionInfo] Device state reset successfully')
+    } catch (error) {
+      console.error('[ConnectionInfo] Error resetting device state:', error)
+    } finally {
+      setIsResetting(false)
+    }
+  }
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -167,11 +179,16 @@ function ConnectionInfo() {
         
         {isConnected && (
           <button
-            onClick={disconnect}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            onClick={handleResetConnectionState}
+            disabled={isResetting}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <WifiOff className="w-4 h-4" />
-            <span>Reset Connection State</span>
+            {isResetting ? (
+              <RefreshCw className="w-4 h-4 animate-spin" />
+            ) : (
+              <WifiOff className="w-4 h-4" />
+            )}
+            <span>{isResetting ? 'Resetting...' : 'Reset Connection State'}</span>
           </button>
         )}
       </div>

@@ -127,6 +127,7 @@ interface DeviceStore extends DeviceState {
   
   // Reset
   reset: () => void
+  resetDeviceState: () => Promise<void>
 }
 
 /**
@@ -161,6 +162,8 @@ export const useDeviceStore = create<DeviceStore>()(
           draft.currentRequest = undefined
           draft.userApprovalRequired = false
         })
+        const state = get()
+        emitConnectionChanged(state.deviceInfo.deviceId, false)
       },
       
       
@@ -178,6 +181,8 @@ export const useDeviceStore = create<DeviceStore>()(
           draft.pairingCode = undefined
           draft.pairingStartTime = undefined
         })
+        const state = get()
+        emitPairingChanged(state.deviceInfo.deviceId, false)
       },
       
       enterPairingMode: () => {
@@ -348,6 +353,50 @@ export const useDeviceStore = create<DeviceStore>()(
           ...INITIAL_STATE,
           config: DEFAULT_SIMULATOR_CONFIG,
         }))
+      },
+
+      resetDeviceState: async () => {
+        const state = get()
+        const deviceId = state.deviceInfo.deviceId
+        
+        try {
+          console.log(`[DeviceStore] Resetting device state for: ${deviceId}`)
+          
+          // Call the API to reset server-side state
+          const response = await fetch(`/api/device-reset/${deviceId}`, {
+            method: 'POST',
+          })
+          
+          if (response.ok) {
+            console.log(`[DeviceStore] Server-side reset successful for: ${deviceId}`)
+            
+            // Reset client-side state
+            set(() => ({
+              ...INITIAL_STATE,
+              config: DEFAULT_SIMULATOR_CONFIG,
+            }))
+            
+            // Emit events to notify other components
+            emitConnectionChanged(deviceId, false)
+            emitPairingChanged(deviceId, false)
+            
+            console.log(`[DeviceStore] Full device reset completed for: ${deviceId}`)
+          } else {
+            console.error(`[DeviceStore] Server-side reset failed for: ${deviceId}`)
+            throw new Error('Server reset failed')
+          }
+        } catch (error) {
+          console.error(`[DeviceStore] Error resetting device state:`, error)
+          
+          // Still reset client state even if server reset fails
+          set(() => ({
+            ...INITIAL_STATE,
+            config: DEFAULT_SIMULATOR_CONFIG,
+          }))
+          
+          emitConnectionChanged(deviceId, false)
+          emitPairingChanged(deviceId, false)
+        }
       },
     }))
   )
