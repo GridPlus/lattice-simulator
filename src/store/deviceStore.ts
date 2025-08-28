@@ -3,7 +3,7 @@
  */
 
 import { create } from 'zustand'
-import { subscribeWithSelector } from 'zustand/middleware'
+import { subscribeWithSelector, persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type {
   DeviceState,
@@ -14,12 +14,12 @@ import type {
 } from '../types'
 import { emitPairingModeStarted, emitPairingModeEnded, emitConnectionChanged, emitPairingChanged } from '../lib/deviceEvents'
 
-const EMPTY_WALLET_UID = Buffer.alloc(32)
+const EMPTY_WALLET_UID = '0'.repeat(64) // 32 bytes as hex string
 
 const DEFAULT_DEVICE_INFO: DeviceInfo = {
   deviceId: 'SD0001',
   name: 'Lattice1 Simulator',
-  firmwareVersion: Buffer.from([0, 0, 15, 0]), // v0.15.0
+  firmwareVersion: '0.15.0', // Direct version string
   isPaired: false,
   isLocked: false,
 }
@@ -28,13 +28,13 @@ const DEFAULT_ACTIVE_WALLETS: ActiveWallets = {
   internal: {
     uid: EMPTY_WALLET_UID,
     external: false,
-    name: Buffer.from('Internal Wallet'),
+    name: 'Internal Wallet',
     capabilities: 0,
   },
   external: {
     uid: EMPTY_WALLET_UID,
     external: true,
-    name: Buffer.alloc(0),
+    name: '', // Empty name for external wallet
     capabilities: 0,
   },
 }
@@ -146,8 +146,9 @@ interface DeviceStore extends DeviceState {
  * ```
  */
 export const useDeviceStore = create<DeviceStore>()(
-  subscribeWithSelector(
-    immer((set, get) => ({
+  persist(
+    subscribeWithSelector(
+      immer((set, get) => ({
       ...INITIAL_STATE,
       config: DEFAULT_SIMULATOR_CONFIG,
       
@@ -399,6 +400,21 @@ export const useDeviceStore = create<DeviceStore>()(
         }
       },
     }))
+    ),
+    {
+      name: 'lattice-device-store',
+      // Skip hydration to prevent SSR mismatch
+      // skipHydration: true,
+      // Only persist essential state, not sensitive or temporary data
+      partialize: (state) => ({
+        deviceInfo: state.deviceInfo,
+        isConnected: state.isConnected,
+        isPaired: state.isPaired,
+        config: state.config,
+        addressTags: state.addressTags,
+        kvRecords: state.kvRecords,
+      }),
+    }
   )
 )
 

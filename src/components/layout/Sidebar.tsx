@@ -7,6 +7,7 @@
  */
 
 import React from 'react'
+import { usePathname } from 'next/navigation'
 import { 
   Home, 
   Wifi, 
@@ -84,9 +85,7 @@ const navigationItems: NavItem[] = [
  * @returns Sidebar with navigation items and active state
  */
 export function Sidebar() {
-  // For now, we'll use a simple active state based on current path
-  // In a real app, this would use Next.js router
-  const activeItem = 'dashboard'
+  const pathname = usePathname()
 
   return (
     <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 min-h-screen">
@@ -95,7 +94,7 @@ export function Sidebar() {
         <nav className="space-y-1">
           {navigationItems.map((item) => {
             const Icon = item.icon
-            const isActive = activeItem === item.id
+            const isActive = pathname === item.href
             
             return (
               <a

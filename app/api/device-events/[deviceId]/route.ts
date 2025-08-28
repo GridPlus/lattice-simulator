@@ -1,5 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { useDeviceStore } from '@/store'
+import { NextRequest } from 'next/server'
 import { deviceEvents } from '@/lib/deviceEvents'
 
 /**

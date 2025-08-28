@@ -7,9 +7,9 @@ import { LatticeResponseCode } from './protocol'
 export type WalletPath = number[]
 
 export interface Wallet {
-  uid: Buffer
+  uid: string // Hex string representation
   external: boolean
-  name: Buffer
+  name: string // Direct string instead of Buffer
   capabilities: number
 }
 
@@ -21,7 +21,7 @@ export interface ActiveWallets {
 export interface DeviceInfo {
   deviceId: string
   name: string
-  firmwareVersion: Buffer
+  firmwareVersion: string // Version string like "0.15.0"
   isPaired: boolean
   isLocked: boolean
   pairingTimeoutMs?: number

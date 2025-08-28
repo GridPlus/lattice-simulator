@@ -19,9 +19,8 @@ function ConnectionStatus() {
   // Connect to SSE when we have a device ID, regardless of connection status
   useDeviceEvents(deviceId || 'SD0001', true)
 
-  const formatFirmwareVersion = (version: Buffer) => {
-    if (version.length < 3) return 'Unknown'
-    return `${version[2]}.${version[1]}.${version[0]}`
+  const formatFirmwareVersion = (version: string) => {
+    return version || 'Unknown'
   }
 
   const getPairingTimeRemaining = () => {
