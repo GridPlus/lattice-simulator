@@ -435,8 +435,6 @@ export const useDeviceStore = create<DeviceStore>()(
     ),
     {
       name: 'lattice-device-store',
-      // Skip hydration to prevent SSR mismatch
-      // skipHydration: true,
       // Only persist essential state, not sensitive or temporary data
       partialize: (state) => ({
         deviceInfo: {

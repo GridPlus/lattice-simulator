@@ -19,30 +19,6 @@ import { formatFirmwareVersion } from '@/utils/protocol'
 export function Header() {
   const { isLocked, firmwareVersion, name } = useDeviceStatus()
 
-  const formatFirmwareVersionForDisplay = (version: Buffer | { type: 'Buffer', data: number[] } | number[]) => {
-    console.log('Firmware version:', version)
-    
-    // Handle case where Buffer was serialized to plain object
-    if (version && typeof version === 'object' && 'type' in version && version.type === 'Buffer' && 'data' in version) {
-      const bufferData = (version as { type: 'Buffer', data: number[] }).data
-      if (bufferData.length < 3) return 'Unknown'
-      return `${bufferData[2]}.${bufferData[1]}.${bufferData[0]}`
-    }
-    
-    // Handle array (during rehydration)
-    if (Array.isArray(version)) {
-      if (version.length < 3) return 'Unknown'
-      return `${version[2]}.${version[1]}.${version[0]}`
-    }
-    
-    // Handle actual Buffer
-    if (Buffer.isBuffer(version)) {
-      return formatFirmwareVersion(version)
-    }
-    
-    return 'Unknown'
-  }
-
   return (
     <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -58,7 +34,7 @@ export function Header() {
                   {name}
                 </h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  v{formatFirmwareVersionForDisplay(firmwareVersion)}
+                  v{formatFirmwareVersion(firmwareVersion)}
                 </p>
               </div>
             </div>
