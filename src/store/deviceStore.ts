@@ -439,7 +439,11 @@ export const useDeviceStore = create<DeviceStore>()(
       // skipHydration: true,
       // Only persist essential state, not sensitive or temporary data
       partialize: (state) => ({
-        deviceInfo: state.deviceInfo,
+        deviceInfo: {
+          ...state.deviceInfo,
+          // Convert Buffer to array for serialization
+          firmwareVersion: state.deviceInfo.firmwareVersion ? Array.from(state.deviceInfo.firmwareVersion) : null,
+        },
         isConnected: state.isConnected,
         isPaired: state.isPaired,
         isPairingMode: state.isPairingMode,
@@ -449,6 +453,12 @@ export const useDeviceStore = create<DeviceStore>()(
         addressTags: state.addressTags,
         kvRecords: state.kvRecords,
       }),
+      // Custom deserializer to convert arrays back to Buffers
+      onRehydrateStorage: () => (state) => {
+        if (state?.deviceInfo?.firmwareVersion && Array.isArray(state.deviceInfo.firmwareVersion)) {
+          state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
+        }
+      },
     }
   )
 )
