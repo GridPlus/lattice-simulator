@@ -223,10 +223,7 @@ export const useDeviceStore = create<DeviceStore>()(
       
       exitPairingMode: () => {
         const state = get()
-        console.log('[DeviceStore] Exiting pairing mode-1, isPaired: ', state.isPaired, 'isConnected: ', state.isConnected, 'isPairingMode: ', state.isPairingMode)
         if (state.isPairingMode) {
-          console.log('[DeviceStore] Exiting pairing mode-2, isPaired: ', state.isPaired, 'isConnected: ', state.isConnected, 'isPairingMode: ', state.isPairingMode)
-          
           // Emit device event for SSE clients
           try {
             emitPairingModeEnded(state.deviceInfo.deviceId)
