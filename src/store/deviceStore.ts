@@ -280,17 +280,27 @@ export const useDeviceStore = create<DeviceStore>()(
       
       syncStoreToDeviceManager: async (deviceId: string) => {
         const state = get()
-        console.log('[DeviceStore] Syncing store state to device manager for:', deviceId)
+        console.log('[DeviceStore] Syncing store state to device manager for:', deviceId, {
+          isConnected: state.isConnected,
+          isPaired: state.isPaired,
+          isPairingMode: state.isPairingMode
+        })
+        
+        // Check if persist is working by logging localStorage
+        if (typeof window !== 'undefined') {
+          const persisted = localStorage.getItem('lattice-device-store')
+          console.log('[DeviceStore] Persisted state from localStorage:', persisted ? JSON.parse(persisted) : 'null')
+        }
         
         try {
           // Import DeviceManager here to avoid circular dependency
           const { getDeviceManager } = await import('../lib/deviceManager')
           const deviceManager = getDeviceManager(deviceId)
           
-          // If we have a connected device, sync the state back to the device manager
+          // Sync the store state to the device manager's simulator
           if (state.isConnected) {
-            console.log('[DeviceStore] Device is connected, syncing state to device manager')
-            deviceManager.syncStateToStore()
+            console.log('[DeviceStore] Device is connected, syncing store state to device manager')
+            deviceManager.syncStoreToSimulator(state)
           }
           
           console.log('[DeviceStore] Store to device manager sync completed')
@@ -458,6 +468,7 @@ export const useDeviceConnection = () => {
   }))
   
   console.log('[useDeviceConnection] State updated:', state)
+  console.log('[useDeviceConnection] Full store state:', useDeviceStore.getState())
   return state
 }
 

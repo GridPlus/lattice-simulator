@@ -68,7 +68,9 @@ export class DeviceManager {
     })
 
     this.isInitialized = true
-    this.syncStateToStore()
+    
+    // Restore simulator state from persisted store state
+    this.restoreFromStore(deviceId)
   }
 
   /**
@@ -421,6 +423,82 @@ export class DeviceManager {
     }
     
     console.log('[DeviceManager] State sync complete')
+  }
+
+  /**
+   * Restore simulator state from persisted store state
+   * 
+   * Called during initialization to restore the simulator state
+   * from the persisted store state after page refresh.
+   */
+  private restoreFromStore(deviceId?: string): void {
+    const id = deviceId || 'SD0001'
+    const storeState = useDeviceStore.getState()
+    
+    console.log('[DeviceManager] Restoring from store for device:', id, {
+      isConnected: storeState.isConnected,
+      isPaired: storeState.isPaired,
+      isPairingMode: storeState.isPairingMode
+    })
+    
+    // Only restore if the device is connected and we have the right device ID
+    if (storeState.isConnected && storeState.deviceInfo.deviceId === id) {
+      console.log('[DeviceManager] Device is connected, restoring simulator state')
+      
+      // Restore paired state
+      if (storeState.isPaired) {
+        this.simulator.setIsPaired(true)
+        console.log('[DeviceManager] Restored isPaired to true')
+      }
+      
+      // Restore device info
+      if (storeState.deviceInfo) {
+        this.simulator.setDeviceInfo(storeState.deviceInfo)
+        console.log('[DeviceManager] Restored device info')
+      }
+      
+      // Restore active wallets
+      if (storeState.activeWallets) {
+        this.simulator.setActiveWallets(storeState.activeWallets)
+        console.log('[DeviceManager] Restored active wallets')
+      }
+    } else {
+      console.log('[DeviceManager] Device not connected or wrong device ID, skipping restore')
+    }
+  }
+
+  /**
+   * Sync store state to simulator
+   * 
+   * Updates the simulator with the current store state to ensure
+   * consistency after page refresh or navigation.
+   */
+  public syncStoreToSimulator(storeState: any): void {
+    console.log('[DeviceManager] Syncing store state to simulator:', {
+      isConnected: storeState.isConnected,
+      isPaired: storeState.isPaired,
+      isPairingMode: storeState.isPairingMode
+    })
+    
+    // Update simulator's paired state
+    if (storeState.isPaired) {
+      this.simulator.setIsPaired(true)
+      console.log('[DeviceManager] Set simulator isPaired to true')
+    }
+    
+    // Update simulator's device info
+    if (storeState.deviceInfo) {
+      this.simulator.setDeviceInfo(storeState.deviceInfo)
+      console.log('[DeviceManager] Updated simulator device info')
+    }
+    
+    // Update simulator's active wallets
+    if (storeState.activeWallets) {
+      this.simulator.setActiveWallets(storeState.activeWallets)
+      console.log('[DeviceManager] Updated simulator active wallets')
+    }
+    
+    console.log('[DeviceManager] Store to simulator sync complete')
   }
 
   // Getters for accessing simulator state

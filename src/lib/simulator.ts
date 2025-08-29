@@ -119,15 +119,15 @@ export class LatticeSimulator {
     
     this.activeWallets = {
       internal: {
-        uid: internalUid,
+        uid: internalUid.toString('hex'),
         external: false,
-        name: Buffer.from('Internal Wallet'),
+        name: 'Internal Wallet',
         capabilities: 0,
       },
       external: {
-        uid: emptyUid,
+        uid: emptyUid.toString('hex'),
         external: true,
-        name: Buffer.alloc(0),
+        name: '',
         capabilities: 0,
       },
     }
@@ -649,6 +649,16 @@ export class LatticeSimulator {
   }
 
   /**
+   * Sets the pairing status
+   * 
+   * @param paired - Whether the device is paired
+   */
+  setIsPaired(paired: boolean): void {
+    this.isPaired = paired
+    console.log('[Simulator] Set isPaired to:', paired)
+  }
+
+  /**
    * Gets the lock status
    * 
    * @returns True if device is currently locked
@@ -701,6 +711,29 @@ export class LatticeSimulator {
    */
   setAutoApprove(autoApprove: boolean): void {
     this.autoApprove = autoApprove
+  }
+
+  /**
+   * Sets the device info
+   * 
+   * @param deviceInfo - Device information to set
+   */
+  setDeviceInfo(deviceInfo: any): void {
+    if (deviceInfo.deviceId) this.deviceId = deviceInfo.deviceId
+    if (deviceInfo.firmwareVersion) this.firmwareVersion = deviceInfo.firmwareVersion
+    if (deviceInfo.isPaired !== undefined) this.isPaired = deviceInfo.isPaired
+    if (deviceInfo.isLocked !== undefined) this.isLocked = deviceInfo.isLocked
+    console.log('[Simulator] Set device info:', deviceInfo)
+  }
+
+  /**
+   * Sets the active wallets
+   * 
+   * @param wallets - Active wallets to set
+   */
+  setActiveWallets(wallets: ActiveWallets): void {
+    this.activeWallets = wallets
+    console.log('[Simulator] Set active wallets:', wallets)
   }
 
   /**
