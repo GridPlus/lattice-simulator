@@ -223,8 +223,9 @@ export const useDeviceStore = create<DeviceStore>()(
       
       exitPairingMode: () => {
         const state = get()
+        console.log('[DeviceStore] Exiting pairing mode-1, isPaired: ', state.isPaired, 'isConnected: ', state.isConnected, 'isPairingMode: ', state.isPairingMode)
         if (state.isPairingMode) {
-          console.log('[DeviceStore] Exiting pairing mode, isPaired: ', state.isPaired, 'isConnected: ', state.isConnected)
+          console.log('[DeviceStore] Exiting pairing mode-2, isPaired: ', state.isPaired, 'isConnected: ', state.isConnected, 'isPairingMode: ', state.isPairingMode)
           
           // Emit device event for SSE clients
           try {
@@ -456,6 +457,7 @@ export const useDeviceStore = create<DeviceStore>()(
         if (state?.deviceInfo?.firmwareVersion && Array.isArray(state.deviceInfo.firmwareVersion)) {
           state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
         }
+        console.log('[DeviceStore] Rehydrated state:', state)
       },
     }
   )
@@ -475,8 +477,6 @@ export const useDeviceConnection = () => {
     deviceId: state.deviceInfo.deviceId,
   }))
   
-  console.log('[useDeviceConnection] State updated:', state)
-  console.log('[useDeviceConnection] Full store state:', useDeviceStore.getState())
   return state
 }
 

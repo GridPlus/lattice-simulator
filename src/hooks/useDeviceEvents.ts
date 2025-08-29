@@ -43,12 +43,30 @@ export interface PairingChangedData {
  */
 export function useDeviceEvents(deviceId: string | null, enabled: boolean = true) {
   const eventSourceRef = useRef<EventSource | null>(null)
+  const lastProcessedTimestampRef = useRef<number>(0)
   const { 
     setConnectionState, 
     exitPairingMode,
   } = useDeviceStore()
 
+  // Helper function to check if event should be processed (avoid re-processing old events)
+  const shouldProcessEvent = (timestamp: number): boolean => {
+    if (timestamp + 1000 <= lastProcessedTimestampRef.current) {
+      console.log('[useDeviceEvents] Skipping old event with timestamp:', timestamp, 'last processed:', lastProcessedTimestampRef.current)
+      return false
+    }
+    lastProcessedTimestampRef.current = timestamp
+    
+    return true
+  }
+
   useEffect(() => {
+    // Initialize timestamp ref with current time to avoid processing very old events on initial load
+    if (lastProcessedTimestampRef.current === 0) {
+      lastProcessedTimestampRef.current = Date.now()
+      console.log('[useDeviceEvents] Initialized timestamp ref with current time:', lastProcessedTimestampRef.current)
+    }
+    
     // Check if we're in the browser environment
     if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
       console.log('[useDeviceEvents] Not in browser environment, skipping SSE connection')
@@ -94,6 +112,26 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         const data: DeviceEventData = JSON.parse(event.data)
         console.log('[useDeviceEvents] Device state update:', data)
 
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
+
+        // Get current store state to check for conflicts
+        const currentState = useDeviceStore.getState()
+        
+        // If the SSE state conflicts with our persisted state and we're already connected/paired,
+        // this might be an old state update - log it but don't overwrite
+        if (currentState.isConnected && !data.isConnected) {
+          console.log('[useDeviceEvents] Ignoring SSE disconnect event - client is already connected')
+          return
+        }
+        
+        if (currentState.isPaired && !data.isPaired) {
+          console.log('[useDeviceEvents] Ignoring SSE unpaired event - client is already paired')
+          return
+        }
+
         // Update connection state
         setConnectionState(data.isConnected, data.isPaired)
 
@@ -133,6 +171,11 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         const data: PairingModeStartedData = JSON.parse(event.data)
         console.log('[useDeviceEvents] Pairing mode started:', data)
         
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
+        
         // Set pairing mode state directly in store
         const { setState } = useDeviceStore
         setState((draft) => {
@@ -148,9 +191,16 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
     })
 
     // Handle pairing mode ended events
-    eventSource.addEventListener('pairing_mode_ended', () => {
+    eventSource.addEventListener('pairing_mode_ended', (event) => {
       try {
-        console.log('[useDeviceEvents] Pairing mode ended')
+        const data: PairingModeEndedData = JSON.parse(event.data)
+        console.log('[useDeviceEvents] Pairing mode ended:', data)
+        
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
+        
         exitPairingMode()
       } catch (error) {
         console.error('[useDeviceEvents] Error parsing pairing_mode_ended event:', error)
@@ -163,6 +213,11 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] Connection changed event received, event: ', event)
         const data: ConnectionChangedData = JSON.parse(event.data)
         console.log('[useDeviceEvents] Connection changed:', data.isConnected)
+        
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
         
         const currentState = useDeviceStore.getState()
         setConnectionState(data.isConnected, currentState.isPaired)
@@ -177,6 +232,11 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] Pairing changed event received, event: ', event)
         const data: PairingChangedData = JSON.parse(event.data)
         console.log('[useDeviceEvents] Pairing changed:', data.isPaired)
+        
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
         
         const currentState = useDeviceStore.getState()
         setConnectionState(currentState.isConnected, data.isPaired)

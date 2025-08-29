@@ -253,9 +253,8 @@ export class LatticeSimulator {
       this.isPaired = true
       this.pairingSecret = pairingCode
 
-      // Set connection state, connected and paired
+      // Set connection state, connected and paired, exit pairing mode
       deviceStore.setConnectionState(true, true)
-      // Exit pairing mode
       deviceStore.exitPairingMode()
       
       console.log('[Simulator] Device successfully paired via finalizePairing!')
@@ -280,21 +279,10 @@ export class LatticeSimulator {
     this.isPaired = true
     this.pairingSecret = request.pairingSecret
 
-    // Set connection state, connected and paired
+    // Set connection state, connected and paired, exit pairing mode
     deviceStore.setConnectionState(true, true)
-
-    // Exit pairing mode
     deviceStore.exitPairingMode()
-    
-    // Emit pairing mode ended event
-    try {
-      emitPairingModeEnded(this.deviceId)
-      console.log('[Simulator] Emitting connection changed event to true (emitConnectionChanged)')
-      emitConnectionChanged(this.deviceId, true)
-    } catch (error) {
-      console.error('[Simulator] Error emitting pairing mode ended:', error)
-    }
-    
+
     console.log('[Simulator] Device successfully paired!')
     
     return createDeviceResponse(true, LatticeResponseCode.success, true)
