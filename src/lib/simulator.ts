@@ -117,6 +117,8 @@ export class LatticeSimulator {
     
     const emptyUid = Buffer.alloc(32) // External wallet starts empty (no SafeCard)
     
+    // Store UIDs as hex strings for better serialization and debugging
+    // Protocol handler will convert back to Buffers when needed for SDK compatibility
     this.activeWallets = {
       internal: {
         uid: internalUid.toString('hex'),
@@ -729,7 +731,7 @@ export class LatticeSimulator {
   /**
    * Sets the active wallets
    * 
-   * @param wallets - Active wallets to set
+   * @param wallets - Active wallets to set (UIDs should be hex strings, names should be strings)
    */
   setActiveWallets(wallets: ActiveWallets): void {
     this.activeWallets = wallets

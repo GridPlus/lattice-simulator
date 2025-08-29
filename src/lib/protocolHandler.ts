@@ -751,6 +751,20 @@ export class ProtocolHandler {
     return data.signature as Buffer
   }
 
+  /**
+   * Convert hex string UID to Buffer for protocol response
+   */
+  private hexStringToBuffer(hexString: string): Buffer {
+    return Buffer.from(hexString, 'hex')
+  }
+
+  /**
+   * Convert string name to Buffer for protocol response
+   */
+  private stringNameToBuffer(name: string): Buffer {
+    return Buffer.from(name, 'utf8')
+  }
+
   private serializeGetWalletsResponse(data: any): Buffer {
     // Match the SDK's expected format from decodeFetchActiveWalletResponse
     // Each wallet descriptor is 71 bytes: uid (32) + capabilities (4) + name (35)
@@ -759,7 +773,9 @@ export class ProtocolHandler {
     let offset = 0
     
     // Internal wallet first (71 bytes)
-    data.internal.uid.copy(response, offset)
+    // Convert hex string UID back to Buffer for protocol compatibility
+    const internalUidBuf = this.hexStringToBuffer(data.internal.uid)
+    internalUidBuf.copy(response, offset)
     offset += 32
     
     response.writeUInt32BE(data.internal.capabilities || 0, offset)
@@ -767,15 +783,18 @@ export class ProtocolHandler {
     
     // Name field: 35 bytes total
     const internalNameBuf = Buffer.alloc(35)
-    if (data.internal.name && Buffer.isBuffer(data.internal.name)) {
-      // Copy up to 35 bytes of the name, pad with zeros
-      data.internal.name.copy(internalNameBuf, 0, 0, Math.min(35, data.internal.name.length))
+    if (data.internal.name && typeof data.internal.name === 'string') {
+      // Convert string name to Buffer and copy up to 35 bytes
+      const nameBuf = this.stringNameToBuffer(data.internal.name)
+      nameBuf.copy(internalNameBuf, 0, 0, Math.min(35, nameBuf.length))
     }
     internalNameBuf.copy(response, offset)
     offset += 35
     
     // External wallet second (71 bytes)  
-    data.external.uid.copy(response, offset)
+    // Convert hex string UID back to Buffer for protocol compatibility
+    const externalUidBuf = this.hexStringToBuffer(data.external.uid)
+    externalUidBuf.copy(response, offset)
     offset += 32
     
     response.writeUInt32BE(data.external.capabilities || 0, offset)
@@ -783,16 +802,17 @@ export class ProtocolHandler {
     
     // Name field: 35 bytes total
     const externalNameBuf = Buffer.alloc(35)
-    if (data.external.name && Buffer.isBuffer(data.external.name) && data.external.name.length > 0) {
-      // Copy up to 35 bytes of the name, pad with zeros
-      data.external.name.copy(externalNameBuf, 0, 0, Math.min(35, data.external.name.length))
+    if (data.external.name && typeof data.external.name === 'string' && data.external.name.length > 0) {
+      // Convert string name to Buffer and copy up to 35 bytes
+      const nameBuf = this.stringNameToBuffer(data.external.name)
+      nameBuf.copy(externalNameBuf, 0, 0, Math.min(35, nameBuf.length))
     }
     externalNameBuf.copy(response, offset)
     offset += 35
     
     console.log('[ProtocolHandler] Serialized wallet response length:', response.length)
-    console.log('[ProtocolHandler] Internal wallet UID:', data.internal.uid.toString('hex'))
-    console.log('[ProtocolHandler] External wallet UID:', data.external.uid.toString('hex'))
+    console.log('[ProtocolHandler] Internal wallet UID (hex):', data.internal.uid)
+    console.log('[ProtocolHandler] External wallet UID (hex):', data.external.uid)
     
     return response
   }
