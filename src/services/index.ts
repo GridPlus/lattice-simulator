@@ -3,3 +3,4 @@
  */
 
 export * from './ethereumWallet'
+export * from './bitcoinWallet'
