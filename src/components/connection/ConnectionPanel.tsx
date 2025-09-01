@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from 'react'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/store'
-import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check } from 'lucide-react'
+import { useWalletStore } from '@/store/walletStore'
+import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check, Wallet } from 'lucide-react'
 import { useDeviceEvents } from '@/hooks/useDeviceEvents'
+import { WalletSetup } from '@/components/setup'
 
 /**
  * Connection status indicator component
@@ -12,8 +14,10 @@ function ConnectionStatus() {
   const { isConnected, isPaired, isPairingMode, deviceId } = useDeviceConnection()
   const { name, firmwareVersion } = useDeviceStatus()
   const { pairingCode, pairingStartTime, pairingTimeoutMs, syncStoreToDeviceManager } = useDeviceStore()
+  const { isInitialized: walletsInitialized } = useWalletStore()
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
   const [isCopied, setIsCopied] = useState(false)
+  const [showWalletSetup, setShowWalletSetup] = useState(false)
   
   // Enable SSE connection for real-time updates from server
   // Connect to SSE when we have a device ID, regardless of connection status
@@ -150,6 +154,61 @@ function ConnectionStatus() {
               <div className="text-sm text-blue-600 dark:text-blue-400">
                 Time remaining: {pairingTimeRemaining}s
               </div>
+            </div>
+          </div>
+        )}
+
+        {isConnected && isPaired && (
+          <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+            <div className="flex items-center space-x-3">
+              {walletsInitialized ? (
+                <Wallet className="w-5 h-5 text-green-500" />
+              ) : (
+                <Wallet className="w-5 h-5 text-orange-500" />
+              )}
+              <div>
+                <p className="font-medium text-gray-900 dark:text-white">
+                  {walletsInitialized ? 'Wallets Initialized' : 'Wallets Not Initialized'}
+                </p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  {walletsInitialized ? 'HD wallets ready for use' : 'Setup required to generate wallet accounts'}
+                </p>
+              </div>
+            </div>
+            {!walletsInitialized && (
+              <button
+                onClick={() => setShowWalletSetup(true)}
+                className="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition-colors"
+              >
+                Setup
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Wallet Setup Modal/Overlay */}
+        {showWalletSetup && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto m-4">
+              <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Wallet Setup
+                </h2>
+                <button
+                  onClick={() => setShowWalletSetup(false)}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              <WalletSetup 
+                onSetupComplete={() => {
+                  setShowWalletSetup(false)
+                  // Force a re-render to show updated wallet status
+                }}
+              />
             </div>
           </div>
         )}
