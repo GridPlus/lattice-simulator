@@ -5,6 +5,7 @@
 export * from './protocol'
 export * from './device'
 export * from './crypto'
+export * from './wallet'
 
 // Re-export commonly used types
 export type {
