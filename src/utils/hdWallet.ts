@@ -58,7 +58,7 @@ export function generateDerivationPath(
 ): number[] {
   const paths = BIP44_DERIVATION_PATHS[coinType]
   
-  let purpose = paths.purpose
+  let purpose: number = paths.purpose
   
   // Use specific purpose for Bitcoin address types
   if (coinType === 'BTC') {
@@ -137,12 +137,8 @@ export function deriveHDKey(seed: Uint8Array, derivationPath: number[]): HDKey {
   const masterKey = HDKey.fromMasterSeed(seed)
   
   // Derive child key using path
-  let derivedKey = masterKey
-  for (const pathSegment of derivationPath) {
-    derivedKey = derivedKey.derive(pathSegment)
-  }
-  
-  return derivedKey
+  const pathString = formatDerivationPath(derivationPath)
+  return masterKey.derive(pathString)
 }
 
 /**
@@ -194,16 +190,14 @@ export async function deriveMultipleKeys(
   basePath.pop() // Remove the address index (0)
   
   // Derive to the base path
-  let baseKey = masterKey
-  for (const segment of basePath) {
-    baseKey = baseKey.derive(segment)
-  }
+  const basePathString = formatDerivationPath(basePath)
+  const baseKey = masterKey.derive(basePathString)
   
   // Generate multiple addresses
   const keys: HDKey[] = []
   for (let i = 0; i < count; i++) {
     const addressIndex = startIndex + i
-    const addressKey = baseKey.derive(addressIndex)
+    const addressKey = baseKey.derive(addressIndex.toString())
     keys.push(addressKey)
   }
   

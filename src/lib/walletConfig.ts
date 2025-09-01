@@ -110,8 +110,8 @@ export function getEnvInfo(): {
 /**
  * Logs wallet configuration status for debugging
  */
-export function logWalletConfigStatus(): void {
-  const config = getWalletConfig()
+export async function logWalletConfigStatus(): Promise<void> {
+  const config = await getWalletConfig()
   const envInfo = getEnvInfo()
   
   console.log('[WalletConfig] Configuration Status:')
