@@ -267,7 +267,7 @@ export const useWalletStore = create<WalletStore>()(
             }
 
             set((state) => {
-              state.wallets[coinType][type].push(...newAccounts)
+              state.wallets[coinType][type].push(...(newAccounts as any))
               state.isLoading = false
             })
 
