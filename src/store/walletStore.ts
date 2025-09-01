@@ -16,18 +16,36 @@ import type {
   BitcoinWalletAccount,
   SolanaWalletAccount
 } from '../types/wallet'
-import {
-  createMultipleEthereumAccounts,
-  createEthereumAccount
-} from '../services/ethereumWallet'
-import {
-  createMultipleBitcoinAccounts,
-  createBitcoinAccount
-} from '../services/bitcoinWallet'
-import {
-  createMultipleSolanaAccounts,
-  createSolanaAccount
-} from '../services/solanaWallet'
+// Dynamic imports to avoid SSR issues with crypto libraries
+let walletServices: any = null
+
+async function getWalletServices() {
+  if (walletServices) {
+    return walletServices
+  }
+
+  try {
+    const [ethereumWallet, bitcoinWallet, solanaWallet] = await Promise.all([
+      import('../services/ethereumWallet'),
+      import('../services/bitcoinWallet'), 
+      import('../services/solanaWallet')
+    ])
+
+    walletServices = {
+      createMultipleEthereumAccounts: ethereumWallet.createMultipleEthereumAccounts,
+      createEthereumAccount: ethereumWallet.createEthereumAccount,
+      createMultipleBitcoinAccounts: bitcoinWallet.createMultipleBitcoinAccounts,
+      createBitcoinAccount: bitcoinWallet.createBitcoinAccount,
+      createMultipleSolanaAccounts: solanaWallet.createMultipleSolanaAccounts,
+      createSolanaAccount: solanaWallet.createSolanaAccount,
+    }
+
+    return walletServices
+  } catch (error) {
+    console.error('Failed to load wallet services:', error)
+    throw error
+  }
+}
 
 /**
  * Initial empty wallet collection
@@ -149,19 +167,22 @@ export const useWalletStore = create<WalletStore>()(
 
           try {
             console.log('[WalletStore] Initializing wallets from mnemonic...')
+            
+            // Load wallet services dynamically
+            const services = await getWalletServices()
 
             // Create initial external accounts for each coin type (first 5 accounts)
             const [ethAccounts, btcAccounts, solAccounts] = await Promise.all([
-              createMultipleEthereumAccounts(0, 'external', 5, 0),
-              createMultipleBitcoinAccounts(0, 'external', 'segwit', 5, 0),
-              createMultipleSolanaAccounts(0, 'external', 5, 0)
+              services.createMultipleEthereumAccounts(0, 'external', 5, 0),
+              services.createMultipleBitcoinAccounts(0, 'external', 'segwit', 5, 0),
+              services.createMultipleSolanaAccounts(0, 'external', 5, 0)
             ])
 
             // Create initial internal accounts for each coin type (first 2 accounts)
             const [ethInternalAccounts, btcInternalAccounts, solInternalAccounts] = await Promise.all([
-              createMultipleEthereumAccounts(0, 'internal', 2, 0),
-              createMultipleBitcoinAccounts(0, 'internal', 'segwit', 2, 0),
-              createMultipleSolanaAccounts(0, 'internal', 2, 0)
+              services.createMultipleEthereumAccounts(0, 'internal', 2, 0),
+              services.createMultipleBitcoinAccounts(0, 'internal', 'segwit', 2, 0),
+              services.createMultipleSolanaAccounts(0, 'internal', 2, 0)
             ])
 
             set((state) => {
@@ -225,18 +246,21 @@ export const useWalletStore = create<WalletStore>()(
           try {
             const currentAccounts = get().wallets[coinType][type]
             const nextAccountIndex = currentAccounts.length
+            
+            // Load wallet services dynamically
+            const services = await getWalletServices()
 
             let newAccounts: WalletAccount[]
 
             switch (coinType) {
               case 'ETH':
-                newAccounts = await createMultipleEthereumAccounts(0, type, count, nextAccountIndex)
+                newAccounts = await services.createMultipleEthereumAccounts(0, type, count, nextAccountIndex)
                 break
               case 'BTC':
-                newAccounts = await createMultipleBitcoinAccounts(0, type, 'segwit', count, nextAccountIndex)
+                newAccounts = await services.createMultipleBitcoinAccounts(0, type, 'segwit', count, nextAccountIndex)
                 break
               case 'SOL':
-                newAccounts = await createMultipleSolanaAccounts(0, type, count, nextAccountIndex)
+                newAccounts = await services.createMultipleSolanaAccounts(0, type, count, nextAccountIndex)
                 break
               default:
                 throw new Error(`Unsupported coin type: ${coinType}`)

@@ -8,11 +8,27 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import ECPair, { type ECPairInterface } from 'ecpair'
 
-// Initialize bitcoinjs-lib with secp256k1 implementation
-bitcoin.initEccLib(ecc)
+// Lazy initialization to avoid SSR issues
+let isInitialized = false
+let ECPairFactory: ReturnType<typeof ECPair>
 
-// Initialize ECPair factory with secp256k1
-const ECPairFactory = ECPair(ecc)
+function initializeBitcoinLibs() {
+  if (isInitialized || typeof window === 'undefined') {
+    return
+  }
+  
+  try {
+    // Initialize bitcoinjs-lib with secp256k1 implementation
+    bitcoin.initEccLib(ecc)
+    
+    // Initialize ECPair factory with secp256k1
+    ECPairFactory = ECPair(ecc)
+    
+    isInitialized = true
+  } catch (error) {
+    console.error('Failed to initialize Bitcoin crypto libraries:', error)
+  }
+}
 import { 
   BitcoinWalletAccount, 
   CreateAccountParams, 
@@ -51,6 +67,8 @@ export function createBitcoinAccountFromHDKey(
   name?: string,
   network: keyof typeof BITCOIN_NETWORKS = 'mainnet'
 ): BitcoinWalletAccount {
+  initializeBitcoinLibs()
+  
   if (!hdKey.privateKey || !hdKey.publicKey) {
     throw new Error('HD key must have both private and public keys to create Bitcoin account')
   }
@@ -230,6 +248,8 @@ export function getBitcoinKeyPair(
   bitcoinAccount: BitcoinWalletAccount,
   network: keyof typeof BITCOIN_NETWORKS = 'mainnet'
 ): ECPairInterface | null {
+  initializeBitcoinLibs()
+  
   if (!bitcoinAccount.privateKey) {
     console.warn('Cannot create Bitcoin key pair: private key not available (external account)')
     return null
@@ -257,6 +277,8 @@ export async function signBitcoinMessage(
   message: string | Uint8Array,
   network: keyof typeof BITCOIN_NETWORKS = 'mainnet'
 ): Promise<string | null> {
+  initializeBitcoinLibs()
+  
   const keyPair = getBitcoinKeyPair(bitcoinAccount, network)
   if (!keyPair || !keyPair.privateKey) {
     throw new Error('Cannot sign: account does not have private key access')
@@ -284,6 +306,8 @@ export function isValidBitcoinAddress(
   address: string, 
   network: keyof typeof BITCOIN_NETWORKS = 'mainnet'
 ): boolean {
+  initializeBitcoinLibs()
+  
   try {
     bitcoin.address.toOutputScript(address, BITCOIN_NETWORKS[network])
     return true
