@@ -28,6 +28,10 @@ import {
   generateRequestId,
   supportsFeature,
 } from '../utils'
+import { 
+  resolveWalletAddresses, 
+  ensureWalletStoreInitialized 
+} from '../utils/walletAddressResolver'
 import { SIMULATOR_CONSTANTS, EXTERNAL } from './constants'
 import { emitPairingModeStarted, emitPairingModeEnded, emitConnectionChanged, emitPairingChanged } from './deviceEvents'
 import { useDeviceStore } from '../store/deviceStore'
@@ -325,8 +329,25 @@ export class LatticeSimulator {
       return createDeviceResponse<GetAddressesResponse>(false, LatticeResponseCode.invalidMsg, undefined, 'Unsupported derivation path')
     }
     
-    // Generate addresses
-    const addressInfos = generateMockAddresses(request.startPath, request.n, coinType)
+    // Ensure wallet store is initialized before resolving addresses
+    console.log('[Simulator] Ensuring wallet store is initialized...')
+    const walletReady = await ensureWalletStoreInitialized()
+    
+    // Get addresses from wallet store or fall back to mock generation
+    let addressInfos
+    if (walletReady) {
+      console.log('[Simulator] Using real wallet addresses from store')
+      addressInfos = resolveWalletAddresses(request.startPath, request.n)
+      
+      // If no addresses found from wallet store, fall back to mock
+      if (addressInfos.length === 0) {
+        console.warn('[Simulator] No addresses found in wallet store, falling back to mock addresses')
+        addressInfos = generateMockAddresses(request.startPath, request.n, coinType)
+      }
+    } else {
+      console.warn('[Simulator] Wallet store not initialized, using mock addresses')
+      addressInfos = generateMockAddresses(request.startPath, request.n, coinType)
+    }
     
     const response: GetAddressesResponse = {
       addresses: addressInfos.map(info => info.address),
