@@ -9,6 +9,7 @@ import {
   DeviceResponse,
   WalletPath,
   AddressInfo,
+  WalletCoinType,
 } from '../types'
 import {
   generateEthereumAddress,
@@ -175,7 +176,7 @@ export function supportsFeature(
 export function generateMockAddresses(
   startPath: WalletPath,
   count: number,
-  coinType: 'ETH' | 'BTC' | 'SOL' = 'ETH',
+  coinType: WalletCoinType = 'ETH',
   seed?: Buffer
 ): AddressInfo[] {
   const addresses: AddressInfo[] = []
@@ -236,7 +237,7 @@ export function generateMockAddresses(
  * @param path - HD wallet derivation path
  * @returns Detected coin type or 'UNKNOWN'
  */
-export function detectCoinTypeFromPath(path: WalletPath): 'ETH' | 'BTC' | 'SOL' | 'UNKNOWN' {
+export function detectCoinTypeFromPath(path: WalletPath): WalletCoinType | 'UNKNOWN' {
   if (path.length < 2) return 'UNKNOWN'
   
   const coinType = path[1]
@@ -260,7 +261,7 @@ export function detectCoinTypeFromPath(path: WalletPath): 'ETH' | 'BTC' | 'SOL' 
  * @returns Standard derivation path array
  * @throws {Error} When coin type is unsupported
  */
-export function getStandardPath(coinType: 'ETH' | 'BTC' | 'SOL', account: number = 0): WalletPath {
+export function getStandardPath(coinType: WalletCoinType, account: number = 0): WalletPath {
   switch (coinType) {
     case 'ETH':
       return [...DERIVATION_PATHS.ETH_DEFAULT.slice(0, -2), account, 0]

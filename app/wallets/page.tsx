@@ -12,7 +12,7 @@ import {
 } from '@radix-ui/react-select'
 import { Search, Copy, ChevronDown, Plus, Star, Loader2, AlertCircle } from 'lucide-react'
 import { useWalletStore, useWalletStats } from '@/store/walletStore'
-import type { CoinType, WalletAccount } from '@/types/wallet'
+import type { WalletCoinType, WalletAccount } from '@/types/wallet'
 
 interface DisplayWalletAccount {
   index: number
@@ -32,7 +32,7 @@ const COIN_TYPES = {
 
 export default function WalletsPage() {
   const router = useRouter()
-  const [selectedCoin, setSelectedCoin] = useState<CoinType>('ETH')
+  const [selectedCoin, setSelectedCoin] = useState<WalletCoinType>('ETH')
   const [searchPath, setSearchPath] = useState('')
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null)
   const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'external' | 'internal'>('all')
@@ -251,7 +251,7 @@ export default function WalletsPage() {
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Coin Type
                   </label>
-                  <Select value={selectedCoin} onValueChange={(value: CoinType) => setSelectedCoin(value)}>
+                  <Select value={selectedCoin} onValueChange={(value: WalletCoinType) => setSelectedCoin(value)}>
                     <SelectTrigger className="w-full flex items-center justify-between h-10 px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                       <SelectValue placeholder="Select coin type">
                         <span className="flex items-center">
@@ -272,7 +272,7 @@ export default function WalletsPage() {
                         >
                           <span className="flex items-center">
                             {name} ({key})
-                            {activeWallets[key as CoinType] && (
+                            {activeWallets[key as WalletCoinType] && (
                               <Star className="w-4 h-4 ml-2 text-yellow-500 fill-current" />
                             )}
                           </span>

@@ -3,7 +3,7 @@
  * Defines interfaces for wallet accounts with external/internal distinction
  */
 
-export type CoinType = 'ETH' | 'BTC' | 'SOL'
+export type WalletCoinType = 'ETH' | 'BTC' | 'SOL'
 export type WalletAccountType = 'external' | 'internal'
 
 /**
@@ -21,7 +21,7 @@ export interface BaseWalletAccount {
   /** Account type: external (SafeCard) or internal (device-only) */
   type: WalletAccountType
   /** Cryptocurrency type */
-  coinType: CoinType
+  coinType: WalletCoinType
   /** Whether this account is currently active for this coin */
   isActive: boolean
   /** Account name/label */
@@ -114,7 +114,7 @@ export interface WalletGenerationOptions {
   /** Account type to generate */
   type: WalletAccountType
   /** Coin type */
-  coinType: CoinType
+  coinType: WalletCoinType
   /** Whether to include private keys (for internal accounts only) */
   includePrivateKeys?: boolean
 }
@@ -137,7 +137,7 @@ export interface WalletDerivationResult {
  * Account creation parameters
  */
 export interface CreateAccountParams {
-  coinType: CoinType
+  coinType: WalletCoinType
   accountIndex: number
   type: WalletAccountType
   name?: string
@@ -152,16 +152,16 @@ export interface WalletService {
   createAccount(params: CreateAccountParams): Promise<WalletDerivationResult>
   
   /** Get all accounts for a coin type */
-  getAccountsByCoin(coinType: CoinType): WalletAccount[]
+  getAccountsByCoin(coinType: WalletCoinType): WalletAccount[]
   
   /** Get accounts by type (external/internal) */
   getAccountsByType(type: WalletAccountType): WalletAccount[]
   
   /** Get active wallet for a coin type */
-  getActiveWallet(coinType: CoinType): WalletAccount | undefined
+  getActiveWallet(coinType: WalletCoinType): WalletAccount | undefined
   
   /** Set active wallet for a coin type */
-  setActiveWallet(coinType: CoinType, account: WalletAccount): void
+  setActiveWallet(coinType: WalletCoinType, account: WalletAccount): void
   
   /** Get all wallets */
   getAllWallets(): WalletCollection

@@ -5,7 +5,7 @@
 
 import { HDKey } from '@scure/bip32'
 import { getWalletConfig } from '../lib/walletConfig'
-import { CoinType } from '../types/wallet'
+import { WalletCoinType } from '../types/wallet'
 import { BIP_CONSTANTS, HARDENED_OFFSET } from '../lib/constants'
 
 /**
@@ -51,9 +51,10 @@ export const BTC_PURPOSES = {
  * @returns Derivation path as number array with hardened values
  */
 export function generateDerivationPath(
-  coinType: CoinType,
+  coinType: WalletCoinType,
   accountIndex: number = 0,
   isInternal: boolean = false,
+  addressIndex: number = 0,
   addressType: 'legacy' | 'segwit' | 'wrappedSegwit' = 'legacy'
 ): number[] {
   const paths = BIP44_DERIVATION_PATHS[coinType]
@@ -79,7 +80,7 @@ export function generateDerivationPath(
     HARDENED_OFFSET + paths.coinType, // Coin type (0', 60', 501')
     HARDENED_OFFSET + accountIndex,    // Account (0', 1', 2', ...)
     isInternal ? 1 : 0,               // Change (0 = external, 1 = internal)
-    0                                 // Address index (will be incremented)
+    addressIndex                      // Address index (0, 1, 2, ...)
   ]
 }
 
@@ -175,7 +176,7 @@ export async function getMasterHDKey(): Promise<HDKey> {
  * @returns Promise<Array> of derived HDKey instances
  */
 export async function deriveMultipleKeys(
-  coinType: CoinType,
+  coinType: WalletCoinType,
   accountIndex: number = 0,
   isInternal: boolean = false,
   count: number = 1,
@@ -214,12 +215,13 @@ export async function deriveMultipleKeys(
  * @returns Derivation info object
  */
 export function getDerivationInfo(
-  coinType: CoinType,
+  coinType: WalletCoinType,
   accountIndex: number = 0,
   isInternal: boolean = false,
+  addressIndex: number = 0,
   addressType: 'legacy' | 'segwit' | 'wrappedSegwit' = 'legacy'
 ) {
-  const path = generateDerivationPath(coinType, accountIndex, isInternal, addressType)
+  const path = generateDerivationPath(coinType, accountIndex, isInternal, addressIndex, addressType)
   const pathString = formatDerivationPath(path)
   const config = BIP44_DERIVATION_PATHS[coinType]
   

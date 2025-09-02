@@ -29,14 +29,15 @@ export function createSolanaAccountFromHDKey(
   hdKey: HDKey,
   accountIndex: number,
   type: WalletAccountType,
+  addressIndex: number = 0,
   name?: string
 ): SolanaWalletAccount {
   if (!hdKey.privateKey || !hdKey.publicKey) {
     throw new Error('HD key must have both private and public keys to create Solana account')
   }
 
-  // Get derivation info for Solana (BIP-44 m/44'/501'/0'/0/x)
-  const derivationInfo = getDerivationInfo('SOL', accountIndex, type === 'internal')
+  // Get derivation info for Solana (BIP-44 m/44'/501'/0'/0/x) with correct address index
+  const derivationInfo = getDerivationInfo('SOL', accountIndex, type === 'internal', addressIndex)
   
   // Solana uses Ed25519 keys, so we need to take first 32 bytes of the private key
   const privateKeyBytes = hdKey.privateKey.slice(0, 32)
@@ -97,6 +98,7 @@ export async function createMultipleSolanaAccounts(
       hdKey,
       accountIndex,
       type,
+      addressIndex,
       `Solana ${type === 'internal' ? 'Internal' : 'External'} Account ${addressIndex}`
     )
     

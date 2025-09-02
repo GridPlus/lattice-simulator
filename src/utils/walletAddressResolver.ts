@@ -4,8 +4,9 @@
  */
 
 import { useWalletStore } from '@/store/walletStore'
-import type { WalletPath, AddressInfo, CoinType } from '../types'
+import type { WalletPath, AddressInfo } from '../types'
 import { detectCoinTypeFromPath } from './protocol'
+import { WalletCoinType } from '../types/wallet'
 
 /**
  * Resolves real addresses from the wallet store based on derivation paths
@@ -33,12 +34,12 @@ export function resolveWalletAddresses(
   }
 
   // Detect coin type from the derivation path
-  const coinType = detectCoinTypeFromPath(startPath) as CoinType
+  const coinType = detectCoinTypeFromPath(startPath)
   if (coinType === 'UNKNOWN') {
     console.warn('[WalletAddressResolver] Unknown coin type for path:', startPath)
     return []
   }
-
+  
   // Get wallet accounts for the coin type
   const coinWallets = walletStore.wallets[coinType]
   if (!coinWallets) {
@@ -67,16 +68,22 @@ export function resolveWalletAddresses(
   
   for (let i = 0; i < count && (startAddressIndex + i) < accounts.length; i++) {
     const account = accounts[startAddressIndex + i]
+    const addressIndex = startAddressIndex + i
+    
+    // Generate the correct derivation path by incrementing the address index
+    const derivationPath = [...startPath.slice(0, 4), addressIndex]
     
     addresses.push({
-      path: account.derivationPath,
+      path: derivationPath,
       address: account.address,
-      publicKey: account.publicKey,
+      publicKey: Buffer.from(account.publicKey, 'hex'),
+      index: addressIndex,
     })
     
     console.log(`[WalletAddressResolver] Added address ${i + 1}/${count}:`, {
-      path: account.derivationPathString,
+      path: derivationPath.join('/'),
       address: account.address,
+      addressIndex,
     })
   }
 
@@ -123,7 +130,7 @@ function analyzeDerivationPath(path: WalletPath): {
  * @param coinType - The cryptocurrency type
  * @returns Active wallet address info or null if none set
  */
-export function getActiveWalletAddress(coinType: CoinType): AddressInfo | null {
+export function getActiveWalletAddress(coinType: WalletCoinType): AddressInfo | null {
   const walletStore = useWalletStore.getState()
   
   if (!walletStore.isInitialized) {
@@ -138,7 +145,8 @@ export function getActiveWalletAddress(coinType: CoinType): AddressInfo | null {
   return {
     path: activeWallet.derivationPath,
     address: activeWallet.address,
-    publicKey: activeWallet.publicKey,
+    publicKey: Buffer.from(activeWallet.publicKey, 'hex'),
+    index: activeWallet.accountIndex,
   }
 }
 

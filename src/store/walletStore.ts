@@ -10,7 +10,7 @@ import type {
   WalletAccount,
   WalletCollection,
   ActiveWallets,
-  CoinType,
+  WalletCoinType,
   WalletAccountType,
   EthereumWalletAccount,
   BitcoinWalletAccount,
@@ -107,10 +107,10 @@ interface WalletActions {
   
   // Account Management
   /** Create new accounts for a specific coin type */
-  createAccounts: (coinType: CoinType, type: WalletAccountType, count?: number) => Promise<void>
+  createAccounts: (coinType: WalletCoinType, type: WalletAccountType, count?: number) => Promise<void>
   
   /** Get all accounts for a specific coin type */
-  getAccountsByCoin: (coinType: CoinType) => WalletAccount[]
+  getAccountsByCoin: (coinType: WalletCoinType) => WalletAccount[]
   
   /** Get accounts by type (external/internal) */
   getAccountsByType: (type: WalletAccountType) => WalletAccount[]
@@ -120,10 +120,10 @@ interface WalletActions {
   
   // Active Wallet Management
   /** Set active wallet for a coin type */
-  setActiveWallet: (coinType: CoinType, account: WalletAccount) => void
+  setActiveWallet: (coinType: WalletCoinType, account: WalletAccount) => void
   
   /** Get active wallet for a coin type */
-  getActiveWallet: (coinType: CoinType) => WalletAccount | undefined
+  getActiveWallet: (coinType: WalletCoinType) => WalletAccount | undefined
   
   // Error Management
   /** Set error message */
@@ -237,7 +237,7 @@ export const useWalletStore = create<WalletStore>()(
         },
 
         // Account Management
-        createAccounts: async (coinType: CoinType, type: WalletAccountType, count = 1) => {
+        createAccounts: async (coinType: WalletCoinType, type: WalletAccountType, count = 1) => {
           set((state) => {
             state.isLoading = true
             state.error = null
@@ -282,7 +282,7 @@ export const useWalletStore = create<WalletStore>()(
           }
         },
 
-        getAccountsByCoin: (coinType: CoinType) => {
+        getAccountsByCoin: (coinType: WalletCoinType) => {
           const state = get()
           return [
             ...state.wallets[coinType].external,
@@ -313,7 +313,7 @@ export const useWalletStore = create<WalletStore>()(
         },
 
         // Active Wallet Management
-        setActiveWallet: (coinType: CoinType, account: WalletAccount) => {
+        setActiveWallet: (coinType: WalletCoinType, account: WalletAccount) => {
           set((state) => {
             // Clear previous active wallet for this coin type
             const currentActive = state.activeWallets[coinType]
@@ -335,7 +335,7 @@ export const useWalletStore = create<WalletStore>()(
           console.log(`[WalletStore] Set active ${coinType} wallet: ${account.name} (${account.address})`)
         },
 
-        getActiveWallet: (coinType: CoinType) => {
+        getActiveWallet: (coinType: WalletCoinType) => {
           return get().activeWallets[coinType]
         },
 

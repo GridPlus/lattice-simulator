@@ -30,14 +30,15 @@ export function createEthereumAccountFromHDKey(
   hdKey: HDKey,
   accountIndex: number,
   type: WalletAccountType,
+  addressIndex: number = 0,
   name?: string
 ): EthereumWalletAccount {
   if (!hdKey.privateKey) {
     throw new Error('HD key must have private key to create Ethereum account')
   }
 
-  // Get derivation info
-  const derivationInfo = getDerivationInfo('ETH', accountIndex, type === 'internal')
+  // Get derivation info with the correct address index
+  const derivationInfo = getDerivationInfo('ETH', accountIndex, type === 'internal', addressIndex)
   
   // Create viem account from private key
   const privateKeyHex = toHex(hdKey.privateKey)
@@ -96,6 +97,7 @@ export async function createMultipleEthereumAccounts(
       hdKey,
       accountIndex,
       type,
+      addressIndex,
       `Ethereum ${type === 'internal' ? 'Internal' : 'External'} Account ${addressIndex}`
     )
     
