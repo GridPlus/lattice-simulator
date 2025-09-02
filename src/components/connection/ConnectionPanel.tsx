@@ -1,9 +1,10 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/store'
 import { useWalletStore } from '@/store/walletStore'
-import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check, Wallet } from 'lucide-react'
+import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check, Wallet, Trash2, AlertTriangle } from 'lucide-react'
 import { useDeviceEvents } from '@/hooks/useDeviceEvents'
 import { WalletSetup } from '@/components/setup'
 
@@ -180,11 +181,14 @@ function ConnectionStatus() {
  * Connections and pairing are handled via API calls from lattice-manager
  */
 function ConnectionInfo() {
+  const router = useRouter()
   const { isConnected, deviceId } = useDeviceConnection()
   const { resetDeviceState } = useDeviceStore()
-  const { isInitialized: walletsInitialized } = useWalletStore()
+  const { isInitialized: walletsInitialized, clearWallets } = useWalletStore()
   const [isResetting, setIsResetting] = useState(false)
   const [showWalletSetup, setShowWalletSetup] = useState(false)
+  const [showResetConfirm, setShowResetConfirm] = useState(false)
+  const [isResettingDevice, setIsResettingDevice] = useState(false)
 
   const handleResetConnectionState = async () => {
     setIsResetting(true)
@@ -195,6 +199,26 @@ function ConnectionInfo() {
       console.error('[ConnectionInfo] Error resetting device state:', error)
     } finally {
       setIsResetting(false)
+    }
+  }
+
+  const handleResetDevice = async () => {
+    setIsResettingDevice(true)
+    try {
+      // Clear all wallet data
+      clearWallets()
+      console.log('[ConnectionInfo] Device wallets reset successfully')
+      
+      // Close the confirmation dialog
+      setShowResetConfirm(false)
+      
+      // Optionally also reset connection state
+      // await resetDeviceState()
+      
+    } catch (error) {
+      console.error('[ConnectionInfo] Error resetting device:', error)
+    } finally {
+      setIsResettingDevice(false)
     }
   }
 
@@ -217,29 +241,46 @@ function ConnectionInfo() {
 
         {/* Wallet Initialization Status */}
         <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <div className="flex items-center space-x-3">
+          <div 
+            className={`flex items-center space-x-3 flex-1 ${
+              walletsInitialized ? 'cursor-pointer hover:opacity-75 transition-opacity' : ''
+            }`}
+            onClick={walletsInitialized ? () => router.push('/wallets') : undefined}
+          >
             {walletsInitialized ? (
               <Wallet className="w-5 h-5 text-green-500" />
             ) : (
               <Wallet className="w-5 h-5 text-orange-500" />
             )}
             <div>
-              <p className="font-medium text-gray-900 dark:text-white">
+              <p className={`font-medium text-gray-900 dark:text-white ${
+                walletsInitialized ? 'hover:text-blue-600 dark:hover:text-blue-400' : ''
+              }`}>
                 {walletsInitialized ? 'Wallets Initialized' : 'Wallets Not Initialized'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {walletsInitialized ? 'HD wallets ready for use' : 'Setup required to generate wallet accounts'}
+                {walletsInitialized ? 'HD wallets ready for use • Click to manage' : 'Setup required to generate wallet accounts'}
               </p>
             </div>
           </div>
-          {!walletsInitialized && (
-            <button
-              onClick={() => setShowWalletSetup(true)}
-              className="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition-colors"
-            >
-              Setup
-            </button>
-          )}
+          <div className="flex space-x-2">
+            {!walletsInitialized ? (
+              <button
+                onClick={() => setShowWalletSetup(true)}
+                className="px-3 py-1.5 bg-orange-600 text-white text-sm rounded-lg hover:bg-orange-700 transition-colors"
+              >
+                Setup
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="flex items-center space-x-1 px-3 py-1.5 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Reset Device</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Wallet Setup Modal/Overlay */}
@@ -265,6 +306,65 @@ function ConnectionInfo() {
                   // Force a re-render to show updated wallet status
                 }}
               />
+            </div>
+          </div>
+        )}
+
+        {/* Reset Device Confirmation Dialog */}
+        {showResetConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md m-4 p-6">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="w-8 h-8 text-red-500" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                    Reset Device
+                  </h3>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    This action cannot be undone
+                  </p>
+                </div>
+              </div>
+              
+              <div className="mb-6">
+                <p className="text-gray-700 dark:text-gray-300 mb-4">
+                  Are you sure you want to reset this device? This will:
+                </p>
+                <ul className="list-disc list-inside text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                  <li>Clear all initialized wallet accounts</li>
+                  <li>Remove all generated addresses and keys</li>
+                  <li>Reset the device to factory settings</li>
+                  <li>Require wallet setup to be run again</li>
+                </ul>
+              </div>
+
+              <div className="flex space-x-3">
+                <button
+                  onClick={() => setShowResetConfirm(false)}
+                  className="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleResetDevice}
+                  disabled={isResettingDevice}
+                  className="flex-1 flex items-center justify-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isResettingDevice ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Resetting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Reset Device</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}
