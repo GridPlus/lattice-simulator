@@ -293,6 +293,8 @@ export async function POST(
         console.log(`[Route] Processing secure request type: ${parsedMessage.requestType}`)
         if (parsedMessage.requestType === 4) { // getWallets
           console.log(`[Route] Processing getWallets request`)
+        } else if (parsedMessage.requestType === 7) { // getKvRecords
+          console.log(`[Route] Processing getKvRecords request`)
         }
         
         const secureRequest = {

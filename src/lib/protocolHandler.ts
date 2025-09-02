@@ -408,8 +408,8 @@ export class ProtocolHandler {
    * @private
    */
   private async handleGetKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    const keys = this.parseGetKvRecordsRequest(data)
-    const response = await this.simulator.getKvRecords(keys)
+    const { type, n, start } = this.parseGetKvRecordsRequest(data)
+    const response = await this.simulator.getKvRecords({ type, n, start })
     
     return {
       code: response.code,
@@ -614,24 +614,30 @@ export class ProtocolHandler {
     }
   }
 
-  private parseGetKvRecordsRequest(data: Buffer): string[] {
-    const keys: string[] = []
-    let offset = 0
-    
-    const numKeys = data.readUInt8(offset)
-    offset += 1
-    
-    for (let i = 0; i < numKeys; i++) {
-      const keyLen = data.readUInt8(offset)
-      offset += 1
-      
-      const key = data.slice(offset, offset + keyLen).toString('utf8')
-      offset += keyLen
-      
-      keys.push(key)
+  private parseGetKvRecordsRequest(data: Buffer): { type: number; n: number; start: number } {
+    // Match the SDK's encodeGetKvRecordsRequest format:
+    // Buffer.alloc(9): type (4 bytes LE) + n (1 byte) + start (4 bytes LE)
+    if (data.length < 9) {
+      throw new Error('Invalid getKvRecords request: insufficient data')
     }
     
-    return keys
+    let offset = 0
+    
+    // Read type (4 bytes, little-endian)
+    const type = data.readUInt32LE(offset)
+    offset += 4
+    
+    // Read n (1 byte)
+    const n = data.readUInt8(offset)
+    offset += 1
+    
+    // Read start (4 bytes, little-endian)
+    const start = data.readUInt32LE(offset)
+    offset += 4
+    
+    console.log(`[ProtocolHandler] Parsed getKvRecords request: type=${type}, n=${n}, start=${start}`)
+    
+    return { type, n, start }
   }
 
   private parseAddKvRecordsRequest(data: Buffer): Record<string, string> {
@@ -661,7 +667,25 @@ export class ProtocolHandler {
   }
 
   private parseRemoveKvRecordsRequest(data: Buffer): string[] {
-    return this.parseGetKvRecordsRequest(data) // Same format
+    // For remove requests, we need to parse the keys differently
+    // This should match the addKvRecords format where keys are extracted
+    const keys: string[] = []
+    let offset = 0
+    
+    const numKeys = data.readUInt8(offset)
+    offset += 1
+    
+    for (let i = 0; i < numKeys; i++) {
+      const keyLen = data.readUInt8(offset)
+      offset += 1
+      
+      const key = data.slice(offset, offset + keyLen).toString('utf8')
+      offset += keyLen
+      
+      keys.push(key)
+    }
+    
+    return keys
   }
 
   // Response serialization methods (simplified for simulation)
@@ -817,28 +841,60 @@ export class ProtocolHandler {
     return response
   }
 
-  private serializeKvRecordsResponse(data: Record<string, string>): Buffer {
-    const records = Object.entries(data)
-    const response = Buffer.alloc(records.length * 128) // Estimate
+  private serializeKvRecordsResponse(data: { records: Array<{ id: number; type: number; caseSensitive: boolean; key: string; val: string }>; total: number; fetched: number }): Buffer {
+    // Match the SDK's decodeGetKvRecordsResponse format:
+    // nTotal (4 bytes BE) + nFetched (1 byte) + records array
+    // Each record: id (4 bytes BE) + type (4 bytes BE) + caseSensitive (1 byte) + key (max 64 bytes) + val (max 64 bytes)
+    
+    const { records, total, fetched } = data
+    const maxKeySize = 64 // kvKeyMaxStrSz from firmware constants
+    const maxValSize = 64 // kvValMaxStrSz from firmware constants
+    
+    // Calculate total size: 4 + 1 + records * (4 + 4 + 1 + maxKeySize + maxValSize)
+    const recordSize = 4 + 4 + 1 + maxKeySize + maxValSize
+    const response = Buffer.alloc(5 + records.length * recordSize)
     let offset = 0
     
-    response.writeUInt8(records.length, offset)
+    // Write total count (4 bytes, big-endian)
+    response.writeUInt32BE(total, offset)
+    offset += 4
+    
+    // Write fetched count (1 byte)
+    response.writeUInt8(fetched, offset)
     offset += 1
     
-    for (const [key, value] of records) {
-      const keyBuf = Buffer.from(key, 'utf8')
-      const valueBuf = Buffer.from(value, 'utf8')
+    // Write each record
+    for (const record of records) {
+      // Record ID (4 bytes, big-endian)
+      response.writeUInt32BE(record.id, offset)
+      offset += 4
       
-      response.writeUInt8(keyBuf.length, offset)
-      offset += 1
-      keyBuf.copy(response, offset)
-      offset += keyBuf.length
+      // Record type (4 bytes, big-endian)
+      response.writeUInt32BE(record.type, offset)
+      offset += 4
       
-      response.writeUInt8(valueBuf.length, offset)
+      // Case sensitive flag (1 byte)
+      response.writeUInt8(record.caseSensitive ? 1 : 0, offset)
       offset += 1
-      valueBuf.copy(response, offset)
-      offset += valueBuf.length
+      
+      // Key (maxKeySize bytes, null-terminated)
+      const keyBuf = Buffer.from(record.key, 'utf8')
+      const keySize = Math.min(keyBuf.length + 1, maxKeySize) // +1 for null terminator
+      response.writeUInt8(keySize, offset)
+      offset += 1
+      keyBuf.copy(response, offset, 0, Math.min(keyBuf.length, keySize - 1))
+      offset += maxKeySize
+      
+      // Value (maxValSize bytes, null-terminated)
+      const valBuf = Buffer.from(record.val, 'utf8')
+      const valSize = Math.min(valBuf.length + 1, maxValSize) // +1 for null terminator
+      response.writeUInt8(valSize, offset)
+      offset += 1
+      valBuf.copy(response, offset, 0, Math.min(valBuf.length, valSize - 1))
+      offset += maxValSize
     }
+    
+    console.log(`[ProtocolHandler] Serialized KV records response: total=${total}, fetched=${fetched}, size=${offset} bytes`)
     
     return response.slice(0, offset)
   }

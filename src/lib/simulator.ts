@@ -444,25 +444,69 @@ export class LatticeSimulator {
    * @returns Promise resolving to record map of found key-value pairs
    * @throws {DeviceResponse} When device is not paired or feature unsupported
    */
-  async getKvRecords(keys: string[]): Promise<DeviceResponse<Record<string, string>>> {
+  async getKvRecords(params: { type: number; n: number; start: number }): Promise<DeviceResponse<{ records: Array<{ id: number; type: number; caseSensitive: boolean; key: string; val: string }>; total: number; fetched: number }>> {
     await simulateDelay(150, 75)
     
     if (!this.isPaired) {
-      return createDeviceResponse(false, LatticeResponseCode.pairFailed)
+      return createDeviceResponse(false, LatticeResponseCode.pairFailed, { records: [], total: 0, fetched: 0 })
     }
     
     if (!supportsFeature(this.firmwareVersion, [0, 12, 0])) {
-      return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion)
+      return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion, { records: [], total: 0, fetched: 0 })
     }
     
-    const records: Record<string, string> = {}
-    for (const key of keys) {
-      if (this.kvRecords[key]) {
-        records[key] = this.kvRecords[key]
-      }
+    const { type, n, start } = params
+    
+    // Validate parameters according to SDK expectations
+    // When n=0, it means "get maximum allowed records"
+    const maxRecords = 9 // kvActionMaxNum from firmware constants
+    const actualN = n === 0 ? maxRecords : n
+    
+    if (actualN < 1) {
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, 'Must request at least one record')
     }
     
-    return createDeviceResponse(true, LatticeResponseCode.success, records)
+    if (actualN > maxRecords) {
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, `Too many records requested: ${actualN}, max allowed: ${maxRecords}`)
+    }
+    
+    // Get all records of the specified type
+    const allRecords = Object.entries(this.kvRecords)
+      .filter(([key, value]) => {
+        // For now, we'll return all records regardless of type
+        // In a real implementation, type would be used to filter records
+        return true
+      })
+      .map(([key, value], index) => ({
+        id: start + index,
+        type: type,
+        caseSensitive: false,
+        key: key,
+        val: value
+      }))
+    
+    // Apply pagination
+    const total = allRecords.length
+    
+    // Validate start index
+    if (start >= total) {
+      return createDeviceResponse(true, LatticeResponseCode.success, {
+        records: [],
+        total,
+        fetched: 0
+      })
+    }
+    
+    const fetched = Math.min(actualN, total - start)
+    const records = allRecords.slice(start, start + fetched)
+    
+    console.log(`[Simulator] getKvRecords: type=${type}, n=${n} (actual: ${actualN}), start=${start}, total=${total}, fetched=${fetched}`)
+    
+    return createDeviceResponse(true, LatticeResponseCode.success, {
+      records,
+      total,
+      fetched
+    })
   }
 
   /**
