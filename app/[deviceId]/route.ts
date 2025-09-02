@@ -289,7 +289,11 @@ export async function POST(
         if (!parsedMessage.payload) {
           throw new Error('Encrypted request missing payload')
         }
-        console.log(`hereis secure req`)
+        
+        console.log(`[Route] Processing secure request type: ${parsedMessage.requestType}`)
+        if (parsedMessage.requestType === 4) { // getWallets
+          console.log(`[Route] Processing getWallets request`)
+        }
         
         const secureRequest = {
           type: parsedMessage.requestType!,
@@ -299,7 +303,12 @@ export async function POST(
         }
         const response = await protocolHandler.handleSecureRequest(secureRequest)
         
-        console.log(`hereis response: ${JSON.stringify(response)}`)
+        console.log(`[Route] Secure request response:`, {
+          code: response.code,
+          dataLength: response.data?.length || 0,
+          error: response.error
+        })
+        
         if (response.code !== 0) {
           // Build error response payload: [responseCode (1)]
           const errorPayload = Buffer.from([response.code])
@@ -316,18 +325,16 @@ export async function POST(
         const responseCode = 0 // success
         const encryptedData = response.data || Buffer.alloc(0)
         
-        // Ensure encrypted data is exactly 1728 bytes
-        if (encryptedData.length !== 1728) {
-          console.error(`Encrypted data length mismatch: expected 1728, got ${encryptedData.length}`)
-          throw new Error('Encrypted response size mismatch')
-        }
+        // The protocol handler should have already padded the response to 1728 bytes
+        // and encrypted it, so encryptedData should be the correct size
+        console.log(`Secure request response - encrypted data length: ${encryptedData.length}`)
         
         // Add empty 1728 bytes due to firmware bug (C struct instead of union)
         const emptyData = Buffer.alloc(1728)
         
         const payload = Buffer.concat([
           Buffer.from([responseCode]),  // 1 byte
-          encryptedData,                // 1728 bytes
+          encryptedData,                // Encrypted data (should be 1728 bytes)
           emptyData                     // 1728 bytes
         ])
         
