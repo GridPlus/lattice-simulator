@@ -33,7 +33,7 @@ export default function WalletsPage() {
   const [selectedCoin, setSelectedCoin] = useState<CoinType>('ETH')
   const [searchPath, setSearchPath] = useState('')
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null)
-  const [showInternal, setShowInternal] = useState(false)
+  const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'external' | 'internal'>('all')
   
   const { 
     wallets, 
@@ -76,12 +76,19 @@ export default function WalletsPage() {
       isActive: account.isActive
     })
 
-    if (showInternal) {
-      return internalAccounts.map(convertToDisplayAccount)
-    } else {
-      return externalAccounts.map(convertToDisplayAccount)
+    switch (accountTypeFilter) {
+      case 'all':
+        return [
+          ...externalAccounts.map(convertToDisplayAccount),
+          ...internalAccounts.map(convertToDisplayAccount)
+        ]
+      case 'internal':
+        return internalAccounts.map(convertToDisplayAccount)
+      case 'external':
+      default:
+        return externalAccounts.map(convertToDisplayAccount)
     }
-  }, [wallets, selectedCoin, showInternal, isInitialized])
+  }, [wallets, selectedCoin, accountTypeFilter, isInitialized])
 
   const filteredAccounts = useMemo(() => {
     if (!searchPath.trim()) return accounts
@@ -122,7 +129,8 @@ export default function WalletsPage() {
     if (!isInitialized || isLoading) return
     
     try {
-      const accountType = showInternal ? 'internal' : 'external'
+      // Default to external accounts if "all" is selected
+      const accountType = accountTypeFilter === 'internal' ? 'internal' : 'external'
       await createAccounts(selectedCoin, accountType, 5)
       console.log(`[WalletsPage] Created 5 more ${accountType} ${selectedCoin} accounts`)
     } catch (err) {
@@ -279,16 +287,26 @@ export default function WalletsPage() {
                   </Select>
                 </div>
 
-                {/* Account Type Toggle */}
+                {/* Account Type Filter */}
                 <div className="flex-1">
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Account Type
                   </label>
                   <div className="flex bg-gray-100 dark:bg-gray-700 rounded-md p-1">
                     <button
-                      onClick={() => setShowInternal(false)}
+                      onClick={() => setAccountTypeFilter('all')}
                       className={`flex-1 px-3 py-2 text-sm font-medium rounded transition-colors ${
-                        !showInternal
+                        accountTypeFilter === 'all'
+                          ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
+                          : 'text-gray-600 dark:text-gray-400'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setAccountTypeFilter('external')}
+                      className={`flex-1 px-3 py-2 text-sm font-medium rounded transition-colors ${
+                        accountTypeFilter === 'external'
                           ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
                           : 'text-gray-600 dark:text-gray-400'
                       }`}
@@ -296,9 +314,9 @@ export default function WalletsPage() {
                       External
                     </button>
                     <button
-                      onClick={() => setShowInternal(true)}
+                      onClick={() => setAccountTypeFilter('internal')}
                       className={`flex-1 px-3 py-2 text-sm font-medium rounded transition-colors ${
-                        showInternal
+                        accountTypeFilter === 'internal'
                           ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm'
                           : 'text-gray-600 dark:text-gray-400'
                       }`}
@@ -366,7 +384,7 @@ export default function WalletsPage() {
                       {accounts.length === 0 ? (
                         <div>
                           <AlertCircle className="w-8 h-8 mx-auto mb-2 text-gray-400" />
-                          <p>No {showInternal ? 'internal' : 'external'} accounts available.</p>
+                          <p>No {accountTypeFilter === 'internal' ? 'internal' : accountTypeFilter === 'external' ? 'external' : ''} accounts available.</p>
                           <button
                             onClick={handleCreateMoreAccounts}
                             className="mt-2 text-blue-600 hover:text-blue-700 text-sm"
@@ -458,7 +476,7 @@ export default function WalletsPage() {
           <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 rounded-b-lg">
             <div className="flex items-center justify-between text-sm text-gray-500 dark:text-gray-400">
               <p>
-                Showing {filteredAccounts.length} of {accounts.length} {showInternal ? 'internal' : 'external'} accounts for {COIN_TYPES[selectedCoin].name}
+                Showing {filteredAccounts.length} of {accounts.length} {accountTypeFilter === 'all' ? '' : accountTypeFilter} accounts for {COIN_TYPES[selectedCoin].name}
               </p>
               {activeWallets[selectedCoin] && (
                 <p className="flex items-center space-x-1">
