@@ -97,10 +97,10 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
         <div className="text-center">
           <CheckCircle className="w-16 h-16 text-green-500 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-            Wallets Already Initialized
+            Wallets Initialized Successfully
           </h2>
           <p className="text-gray-600 dark:text-gray-400 mb-6">
-            Your wallets have already been set up and are ready to use.
+            Your HD wallets have been set up and are ready to use.
           </p>
           <button
             onClick={onSetupComplete}

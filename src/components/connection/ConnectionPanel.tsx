@@ -183,12 +183,15 @@ function ConnectionStatus() {
 function ConnectionInfo() {
   const router = useRouter()
   const { isConnected, deviceId } = useDeviceConnection()
-  const { resetDeviceState } = useDeviceStore()
+  const { resetDeviceState, setDeviceInfo } = useDeviceStore()
   const { isInitialized: walletsInitialized, clearWallets } = useWalletStore()
   const [isResetting, setIsResetting] = useState(false)
   const [showWalletSetup, setShowWalletSetup] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
   const [isResettingDevice, setIsResettingDevice] = useState(false)
+  const [isEditingDeviceId, setIsEditingDeviceId] = useState(false)
+  const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'SD0001')
+  const [isSaving, setIsSaving] = useState(false)
 
   const handleResetConnectionState = async () => {
     setIsResetting(true)
@@ -222,6 +225,29 @@ function ConnectionInfo() {
     }
   }
 
+  const handleSaveDeviceId = async () => {
+    setIsSaving(true)
+    try {
+      setDeviceInfo({ deviceId: deviceIdInput })
+      setIsEditingDeviceId(false)
+      console.log('[ConnectionInfo] Device ID updated successfully')
+    } catch (error) {
+      console.error('Failed to save device ID:', error)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setDeviceIdInput(deviceId || 'SD0001')
+    setIsEditingDeviceId(false)
+  }
+
+  // Update deviceIdInput when deviceId changes
+  useEffect(() => {
+    setDeviceIdInput(deviceId || 'SD0001')
+  }, [deviceId])
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
       <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
@@ -230,13 +256,54 @@ function ConnectionInfo() {
 
       <div className="space-y-3">
         <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Current Device ID:</span>
-            <span className="text-sm font-mono text-gray-900 dark:text-white">{deviceId}</span>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Connections are initiated by lattice-manager via API calls
-          </p>
+          {isEditingDeviceId ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Edit Device ID:</span>
+              </div>
+              <div className="flex space-x-2">
+                <input
+                  type="text"
+                  value={deviceIdInput}
+                  onChange={(e) => setDeviceIdInput(e.target.value)}
+                  placeholder="Enter device ID"
+                  className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-500 dark:text-white"
+                />
+                <button
+                  onClick={handleSaveDeviceId}
+                  disabled={isSaving || deviceIdInput === deviceId || !deviceIdInput.trim()}
+                  className="px-3 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {isSaving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  disabled={isSaving}
+                  className="px-3 py-1 bg-gray-600 text-white text-sm rounded hover:bg-gray-700 disabled:opacity-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Current Device ID:</span>
+                <div className="flex items-center space-x-2">
+                  <span className="text-sm font-mono text-gray-900 dark:text-white">{deviceId}</span>
+                  <button
+                    onClick={() => setIsEditingDeviceId(true)}
+                    className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer underline"
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                Connections are initiated by lattice-manager via API calls
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Wallet Initialization Status */}
@@ -373,7 +440,7 @@ function ConnectionInfo() {
           <button
             onClick={handleResetConnectionState}
             disabled={isResetting}
-            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full flex items-center justify-center space-x-2 px-4 py-3 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {isResetting ? (
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -388,115 +455,6 @@ function ConnectionInfo() {
   )
 }
 
-/**
- * Connection settings component
- */
-function ConnectionSettings() {
-  const { deviceId } = useDeviceConnection()
-  const { setDeviceInfo } = useDeviceStore()
-  const [autoConnect, setAutoConnect] = useState(false)
-  const [autoPair, setAutoPair] = useState(false)
-  const [connectionTimeout, setConnectionTimeout] = useState(30)
-  const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'SD0001')
-  const [isSaving, setIsSaving] = useState(false)
-
-  const handleSaveDeviceId = async () => {
-    setIsSaving(true)
-    try {
-      setDeviceInfo({ deviceId: deviceIdInput })
-      // You could also save to localStorage or make an API call here
-    } catch (error) {
-      console.error('Failed to save device ID:', error)
-    } finally {
-      setIsSaving(false)
-    }
-  }
-
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-        Connection Settings
-      </h3>
-
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Device ID
-          </label>
-          <div className="flex space-x-2">
-            <input
-              type="text"
-              value={deviceIdInput}
-              onChange={(e) => setDeviceIdInput(e.target.value)}
-              placeholder="Enter device ID"
-              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            />
-            <button
-              onClick={handleSaveDeviceId}
-              disabled={isSaving || deviceIdInput === deviceId}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isSaving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Unique identifier for this device simulator
-          </p>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-900 dark:text-white">Auto-connect</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Automatically connect when device is available
-            </p>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoConnect}
-              onChange={(e) => setAutoConnect(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-          </label>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="font-medium text-gray-900 dark:text-white">Auto-pair</p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Automatically pair after connection
-            </p>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer">
-            <input
-              type="checkbox"
-              checked={autoPair}
-              onChange={(e) => setAutoPair(e.target.checked)}
-              className="sr-only peer"
-            />
-            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 dark:peer-focus:ring-blue-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-blue-600"></div>
-          </label>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-            Connection Timeout (seconds)
-          </label>
-          <input
-            type="number"
-            min="5"
-            max="120"
-            value={connectionTimeout}
-            onChange={(e) => setConnectionTimeout(Number(e.target.value))}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-          />
-        </div>
-      </div>
-    </div>
-  )
-}
 
 /**
  * Main Connection Panel component
@@ -510,13 +468,10 @@ export function ConnectionPanel() {
         </h2>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="max-w-4xl">
         <div className="space-y-6">
           <ConnectionStatus />
           <ConnectionInfo />
-        </div>
-        <div>
-          <ConnectionSettings />
         </div>
       </div>
     </div>

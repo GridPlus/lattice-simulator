@@ -1,6 +1,7 @@
 'use client'
 
-import React, { useState, useMemo, useEffect } from 'react'
+import React, { useState, useMemo } from 'react'
+import { useRouter } from 'next/navigation'
 import { MainLayout } from '@/components/layout'
 import { 
   Select,
@@ -30,6 +31,7 @@ const COIN_TYPES = {
 }
 
 export default function WalletsPage() {
+  const router = useRouter()
   const [selectedCoin, setSelectedCoin] = useState<CoinType>('ETH')
   const [searchPath, setSearchPath] = useState('')
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null)
@@ -48,13 +50,6 @@ export default function WalletsPage() {
 
   const walletStats = useWalletStats()
 
-  // Initialize wallets on first load if not already initialized
-  useEffect(() => {
-    if (!isInitialized && !isLoading) {
-      console.log('[WalletsPage] Wallets not initialized, auto-initializing...')
-      initializeWallets()
-    }
-  }, [isInitialized, isLoading, initializeWallets])
 
   const accounts = useMemo(() => {
     if (!isInitialized || !wallets[selectedCoin]) {
@@ -201,10 +196,10 @@ export default function WalletsPage() {
                 Please set up your wallets first to view accounts.
               </p>
               <button
-                onClick={() => initializeWallets()}
+                onClick={() => router.push('/connection')}
                 className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
               >
-                Initialize Wallets
+                Go to Wallet Setup
               </button>
             </div>
           </div>
