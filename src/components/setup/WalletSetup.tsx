@@ -82,10 +82,11 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
     }
   }
 
-  // Validate mnemonic (basic check for 24 words)
+  // Validate mnemonic using proper BIP39 validation
   const validateMnemonic = (phrase: string) => {
     const words = phrase.trim().split(/\s+/)
-    return words.length === 24 && words.every(word => word.length > 0)
+    // Accept both 12 and 24 word mnemonics
+    return (words.length === 12 || words.length === 24) && words.every(word => word.length > 0)
   }
 
   const isValidMnemonic = validateMnemonic(mnemonic)
@@ -125,7 +126,7 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
             Wallet Setup
           </h2>
           <p className="text-gray-600 dark:text-gray-400">
-            Initialize your HD wallet with a 24-word mnemonic phrase
+            Initialize your HD wallet with a mnemonic phrase
           </p>
         </div>
 
@@ -168,7 +169,7 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                  24-word mnemonic phrase
+                  Mnemonic phrase (12 or 24 words)
                 </label>
                 <button
                   type="button"
@@ -193,7 +194,7 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
                 value={mnemonic}
                 onChange={(e) => setMnemonic(e.target.value)}
                 disabled={!isCustomMnemonic}
-                placeholder="Enter your 24-word mnemonic phrase..."
+                placeholder="Enter your 12 or 24-word mnemonic phrase..."
                 className={`w-full h-32 px-3 py-2 border rounded-lg text-sm font-mono resize-none
                   ${showMnemonic ? '' : 'text-security-disc'}
                   ${isCustomMnemonic ? 
@@ -210,14 +211,14 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
                   <>
                     <CheckCircle className="w-4 h-4 text-green-500" />
                     <span className="text-green-600 dark:text-green-400">
-                      Valid 24-word mnemonic
+                      Valid mnemonic phrase
                     </span>
                   </>
                 ) : mnemonic.trim() ? (
                   <>
                     <AlertCircle className="w-4 h-4 text-red-500" />
                     <span className="text-red-600 dark:text-red-400">
-                      Please enter exactly 24 words
+                      Please enter 12 or 24 words
                     </span>
                   </>
                 ) : null}

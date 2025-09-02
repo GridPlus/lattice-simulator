@@ -197,7 +197,7 @@ export async function deriveMultipleKeys(
   const keys: HDKey[] = []
   for (let i = 0; i < count; i++) {
     const addressIndex = startIndex + i
-    const addressKey = baseKey.derive(addressIndex.toString())
+    const addressKey = baseKey.deriveChild(addressIndex)
     keys.push(addressKey)
   }
   
