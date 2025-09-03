@@ -523,18 +523,29 @@ export class LatticeSimulator {
     await simulateDelay(200, 100)
     
     if (!this.isPaired) {
-      return createDeviceResponse(false, LatticeResponseCode.pairFailed)
+      return createDeviceResponse(false, LatticeResponseCode.pairFailed, undefined)
     }
     
     if (!supportsFeature(this.firmwareVersion, [0, 12, 0])) {
-      return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion)
+      return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion, undefined)
     }
     
     if (this.isLocked) {
-      return createDeviceResponse(false, LatticeResponseCode.deviceLocked)
+      return createDeviceResponse(false, LatticeResponseCode.deviceLocked, undefined)
     }
     
-    // Validate records
+    // Validate records according to SDK requirements
+    const recordCount = Object.keys(records).length
+    
+    if (recordCount < 1) {
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, 'Must provide at least one record')
+    }
+    
+    if (recordCount > 9) { // kvActionMaxNum from firmware constants
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, `Too many records: ${recordCount}, max allowed: 9`)
+    }
+    
+    // Validate individual records
     for (const [key, value] of Object.entries(records)) {
       if (key.length > 63 || value.length > 63) {
         return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, 'Key or value too long')
@@ -547,6 +558,9 @@ export class LatticeSimulator {
     
     // Add records
     Object.assign(this.kvRecords, records)
+    
+    console.log(`[Simulator] addKvRecords: Added ${recordCount} records successfully`)
+    console.log(`[Simulator] Records added:`, Object.keys(records))
     
     return createDeviceResponse(true, LatticeResponseCode.success)
   }

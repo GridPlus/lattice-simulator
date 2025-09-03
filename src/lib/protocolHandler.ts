@@ -95,56 +95,67 @@ export class ProtocolHandler {
       const { requestType, decryptedData } = decryptionResult
       console.log(`[ProtocolHandler] Decrypted data length: ${decryptedData.length}`)
       console.log(`[ProtocolHandler] Decrypted data (hex): ${decryptedData.toString('hex')}`)
+      console.log(`[ProtocolHandler] Processing secure request type: ${requestType}`)
       
       let response: SecureResponse
       
       switch (requestType) {
         case LatticeSecureEncryptedRequestType.finalizePairing:
+          console.log(`[ProtocolHandler] Handling finalizePairing request`)
           response = await this.handlePairRequest(decryptedData)
           break
           
         case LatticeSecureEncryptedRequestType.getAddresses:
+          console.log(`[ProtocolHandler] Handling getAddresses request`)
           response = await this.handleGetAddressesRequest(decryptedData)
           break
           
         case LatticeSecureEncryptedRequestType.sign:
+          console.log(`[ProtocolHandler] Handling sign request`)
           response = await this.handleSignRequest(decryptedData)
           break
           
         case LatticeSecureEncryptedRequestType.getWallets:
+          console.log(`[ProtocolHandler] Handling getWallets request`)
           response = await this.handleGetWalletsRequest()
           break
           
         case LatticeSecureEncryptedRequestType.getKvRecords:
+          console.log(`[ProtocolHandler] Handling getKvRecords request`)
           response = await this.handleGetKvRecordsRequest(decryptedData)
           break
           
         case LatticeSecureEncryptedRequestType.addKvRecords:
+          console.log(`[ProtocolHandler] Handling addKvRecords request`)
           response = await this.handleAddKvRecordsRequest(decryptedData)
           break
           
         case LatticeSecureEncryptedRequestType.removeKvRecords:
+          console.log(`[ProtocolHandler] Handling removeKvRecords request`)
           response = await this.handleRemoveKvRecordsRequest(decryptedData)
           break
           
         case LatticeSecureEncryptedRequestType.fetchEncryptedData:
+          console.log(`[ProtocolHandler] Handling fetchEncryptedData request`)
           response = await this.handleFetchEncryptedDataRequest(decryptedData)
           break
           
         case LatticeSecureEncryptedRequestType.test:
+          console.log(`[ProtocolHandler] Handling test request`)
           response = await this.handleTestRequest(decryptedData)
           break
           
         default:
+          console.log(`[ProtocolHandler] Unsupported request type: ${requestType}`)
           response = {
             code: LatticeResponseCode.invalidMsg,
-            error: `Unsupported request type: ${request.type}`,
+            error: `Unsupported request type: ${requestType}`,
           }
       }
       
       // If the response was successful and has data, encrypt it
       if (response.code === LatticeResponseCode.success && response.data) {
-        const encryptedData = await this.encryptResponseData(response.data, request.type)
+        const encryptedData = await this.encryptResponseData(response.data, requestType)
         return {
           ...response,
           data: encryptedData
@@ -641,26 +652,49 @@ export class ProtocolHandler {
   }
 
   private parseAddKvRecordsRequest(data: Buffer): Record<string, string> {
+    // Match the SDK's encodeAddKvRecordsRequest format:
+    // Buffer structure: [numRecords (1)] + [records...]
+    // Each record: [id (4)] + [type (4)] + [caseSensitive (1)] + [keyLen (1)] + [key (keyLen)] + [valLen (1)] + [val (valLen)]
+    // Note: key and val are padded to fwConstants.kvKeyMaxStrSz and fwConstants.kvValMaxStrSz respectively
+    
     const records: Record<string, string> = {}
     let offset = 0
     
     const numRecords = data.readUInt8(offset)
     offset += 1
     
+    console.log(`[ProtocolHandler] Parsing addKvRecords request: ${numRecords} records`)
+    
     for (let i = 0; i < numRecords; i++) {
+      // Skip ID (4 bytes) - will be assigned by firmware
+      offset += 4
+      
+      // Skip type (4 bytes) - not used in simulator
+      offset += 4
+      
+      // Skip caseSensitive (1 byte) - not used in simulator
+      offset += 1
+      
+      // Read key length and key
       const keyLen = data.readUInt8(offset)
       offset += 1
       
-      const key = data.slice(offset, offset + keyLen).toString('utf8')
-      offset += keyLen
+      // Extract key (remove null terminator if present)
+      const keyBuf = data.slice(offset, offset + keyLen - 1) // -1 to remove null terminator
+      const key = keyBuf.toString('utf8')
+      offset += 64 // kvKeyMaxStrSz + 1 (64 + 1)
       
-      const valueLen = data.readUInt8(offset)
+      // Read value length and value
+      const valLen = data.readUInt8(offset)
       offset += 1
       
-      const value = data.slice(offset, offset + valueLen).toString('utf8')
-      offset += valueLen
+      // Extract value (remove null terminator if present)
+      const valBuf = data.slice(offset, offset + valLen - 1) // -1 to remove null terminator
+      const val = valBuf.toString('utf8')
+      offset += 64 // kvValMaxStrSz + 1 (64 + 1)
       
-      records[key] = value
+      console.log(`[ProtocolHandler] Record ${i + 1}: key="${key}", value="${val}"`)
+      records[key] = val
     }
     
     return records

@@ -187,7 +187,7 @@ export async function deriveMultipleKeys(
   const masterKey = HDKey.fromMasterSeed(config.seed)
   
   // Generate base derivation path (without final address index)
-  const basePath = generateDerivationPath(coinType, accountIndex, isInternal, addressType)
+  const basePath = generateDerivationPath(coinType, accountIndex, isInternal, 0, addressType)
   basePath.pop() // Remove the address index (0)
   
   // Derive to the base path
