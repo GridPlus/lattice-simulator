@@ -256,28 +256,49 @@ export class ProtocolHandler {
     
     // Build the response payload: [newEphemeralPub (65)] | [responseData] | [checksum (4)]
     const newEphemeralPub = newEphemeralKeyPair.publicKey
-    const checksum = this.calculateChecksum(Buffer.concat([newEphemeralPub, responseData]))
+    console.log(`[ProtocolHandler] Response data(unpadded) length: ${responseData.length}`)
+    console.log(`[ProtocolHandler] Response data(unpadded) (hex): ${responseData.toString('hex')}`)
+    const responseDataSize: number = ProtocolConstants.msgSizes.secure.data.response.encrypted[requestType as keyof typeof ProtocolConstants.msgSizes.secure.data.response.encrypted];
+    const paddedResponseData = Buffer.concat([responseData, Buffer.alloc(responseDataSize - responseData.length)])
+    // Calculate checksum over [ephemeralPub + responseData] (excluding checksum itself)
+    const checksum = this.calculateChecksum(Buffer.concat([newEphemeralPub, paddedResponseData]))
     
     const checksumBuffer = Buffer.alloc(4)
     checksumBuffer.writeUInt32BE(checksum, 0)
     
     const responsePayload = Buffer.concat([
       newEphemeralPub,           // 65 bytes
-      responseData,              // variable size
+      paddedResponseData,        // variable size
       checksumBuffer             // 4 bytes checksum
     ])
     
     console.log('[ProtocolHandler] New ephemeral:', newEphemeralPub.toString('hex'))
-    console.log('[ProtocolHandler] Response data length:', responseData.length)
+    console.log('[ProtocolHandler] Response data length:', paddedResponseData.length)
     console.log('[ProtocolHandler] Checksum:', checksum.toString(16))
+    console.log('[ProtocolHandler] Checksum buffer (hex):', checksumBuffer.toString('hex'))
     console.log('[ProtocolHandler] Response payload length:', responsePayload.length)
-    console.log(`[ProtocolHandler] responsePayload: ${responsePayload.toString('hex')}`)
+    console.log('[ProtocolHandler] Response payload structure:')
+    console.log('  - Ephemeral pub (0-64):', responsePayload.slice(0, 65).toString('hex'))
+    console.log('  - Response data (65-...):', responsePayload.slice(65, 65 + paddedResponseData.length).toString('hex'))
+    console.log('  - Checksum (last 4 bytes):', responsePayload.slice(-4).toString('hex'))
+    console.log(`[ProtocolHandler] Full responsePayload: ${responsePayload.toString('hex')}`)
     
     // The SDK expects encrypted responses to be exactly 1728 bytes
     // Pad the response payload to fit in a 1728-byte encrypted buffer
     const maxPayloadSize = 1728
     const paddedPayload = Buffer.alloc(maxPayloadSize)
+    
+    // Copy the response payload (ephemeralPub + responseData + checksum)
     responsePayload.copy(paddedPayload, 0)
+    
+    // Verify the checksum is preserved after copying
+    const expectedChecksumPosition = 65 + paddedResponseData.length
+    const actualChecksum = paddedPayload.readUInt32BE(expectedChecksumPosition)
+    console.log('[ProtocolHandler] Checksum verification:')
+    console.log('  - Expected position:', expectedChecksumPosition)
+    console.log('  - Expected checksum:', checksum.toString(16))
+    console.log('  - Actual checksum at position:', actualChecksum.toString(16))
+    console.log('  - Match:', actualChecksum === checksum ? 'YES' : 'NO')
     
     // Encrypt the padded response payload
     const encryptedPayload = aes256_encrypt(paddedPayload, sharedSecret)
@@ -429,6 +450,7 @@ export class ProtocolHandler {
     const { type, n, start } = this.parseGetKvRecordsRequest(data)
     const response = await this.simulator.getKvRecords({ type, n, start })
     
+    console.log(`[ProtocolHandler] handleGetKvRecordsRequest.response: ${JSON.stringify(response.data)}`)
     return {
       code: response.code,
       data: response.data ? this.serializeKvRecordsResponse(response.data) : undefined,
