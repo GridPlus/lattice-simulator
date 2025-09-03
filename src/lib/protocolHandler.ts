@@ -10,6 +10,7 @@ import {
   PairRequest,
   GetAddressesRequest,
   SignRequest,
+  ProtocolConstants,
 } from '../types'
 import { LatticeSimulator } from './simulator'
 import { aes256_decrypt, aes256_encrypt } from '../utils/crypto'
@@ -92,9 +93,9 @@ export class ProtocolHandler {
         }
       }
       
-      const { requestType, decryptedData } = decryptionResult
-      console.log(`[ProtocolHandler] Decrypted data length: ${decryptedData.length}`)
-      console.log(`[ProtocolHandler] Decrypted data (hex): ${decryptedData.toString('hex')}`)
+      const { requestType, requestData } = decryptionResult
+      console.log(`[ProtocolHandler] requestData length: ${requestData.length}`)
+      console.log(`[ProtocolHandler] requestData (hex): ${requestData.toString('hex')}`)
       console.log(`[ProtocolHandler] Processing secure request type: ${requestType}`)
       
       let response: SecureResponse
@@ -102,17 +103,17 @@ export class ProtocolHandler {
       switch (requestType) {
         case LatticeSecureEncryptedRequestType.finalizePairing:
           console.log(`[ProtocolHandler] Handling finalizePairing request`)
-          response = await this.handlePairRequest(decryptedData)
+          response = await this.handlePairRequest(requestData)
           break
           
         case LatticeSecureEncryptedRequestType.getAddresses:
           console.log(`[ProtocolHandler] Handling getAddresses request`)
-          response = await this.handleGetAddressesRequest(decryptedData)
+          response = await this.handleGetAddressesRequest(requestData)
           break
           
         case LatticeSecureEncryptedRequestType.sign:
           console.log(`[ProtocolHandler] Handling sign request`)
-          response = await this.handleSignRequest(decryptedData)
+          response = await this.handleSignRequest(requestData)
           break
           
         case LatticeSecureEncryptedRequestType.getWallets:
@@ -122,27 +123,27 @@ export class ProtocolHandler {
           
         case LatticeSecureEncryptedRequestType.getKvRecords:
           console.log(`[ProtocolHandler] Handling getKvRecords request`)
-          response = await this.handleGetKvRecordsRequest(decryptedData)
+          response = await this.handleGetKvRecordsRequest(requestData)
           break
           
         case LatticeSecureEncryptedRequestType.addKvRecords:
           console.log(`[ProtocolHandler] Handling addKvRecords request`)
-          response = await this.handleAddKvRecordsRequest(decryptedData)
+          response = await this.handleAddKvRecordsRequest(requestData)
           break
           
         case LatticeSecureEncryptedRequestType.removeKvRecords:
           console.log(`[ProtocolHandler] Handling removeKvRecords request`)
-          response = await this.handleRemoveKvRecordsRequest(decryptedData)
+          response = await this.handleRemoveKvRecordsRequest(requestData)
           break
           
         case LatticeSecureEncryptedRequestType.fetchEncryptedData:
           console.log(`[ProtocolHandler] Handling fetchEncryptedData request`)
-          response = await this.handleFetchEncryptedDataRequest(decryptedData)
+          response = await this.handleFetchEncryptedDataRequest(requestData)
           break
           
         case LatticeSecureEncryptedRequestType.test:
           console.log(`[ProtocolHandler] Handling test request`)
-          response = await this.handleTestRequest(decryptedData)
+          response = await this.handleTestRequest(requestData)
           break
           
         default:
@@ -182,7 +183,7 @@ export class ProtocolHandler {
    * @returns Decrypted and deserialized request data, or null if no shared secret available
    * @private
    */
-  private async decryptRequestData(encryptedData: Buffer): Promise< { requestType: number; decryptedData: Buffer } | null> {
+  private async decryptRequestData(encryptedData: Buffer): Promise< { requestType: number; requestData: Buffer } | null> {
     // Get the shared secret from the simulator
     const sharedSecret = this.simulator.getSharedSecret()
     if (!sharedSecret) {
@@ -205,20 +206,26 @@ export class ProtocolHandler {
         throw new Error('Decrypted data too short (need at least 5 bytes)')
       }
       
+      let offset = 0;
       // Extract request type (first byte)
-      const requestType = decryptedData.readUInt8(0)
+      const requestType = decryptedData.readUInt8(offset)
+      offset += 1;
       console.log('[ProtocolHandler] Extracted request type:', requestType)
       
-      // Extract checksum (last 4 bytes) - SDK writes with writeUInt32LE, so we read with readUInt32LE
-      const checksum = decryptedData.readUInt32LE(decryptedData.length - 4)
-      console.log('[ProtocolHandler] Extracted checksum:', checksum.toString(16))
+      const requestDataSize: number = ProtocolConstants.msgSizes.secure.data.request.encrypted[requestType as keyof typeof ProtocolConstants.msgSizes.secure.data.request.encrypted];
+
       
       // Extract actual request data (everything between requestType and checksum)
-      const requestData = decryptedData.slice(1, decryptedData.length - 4)
+      const requestData = decryptedData.slice(offset, offset + requestDataSize)
+      offset += requestDataSize;
       console.log('[ProtocolHandler] Extracted request data length:', requestData.length)
       console.log('[ProtocolHandler] Extracted request data (hex):', requestData.toString('hex'))
+
+      // Extract checksum (last 4 bytes) - SDK writes with writeUInt32LE, so we read with readUInt32LE
+      const checksum = decryptedData.readUInt32LE(offset)
+      console.log('[ProtocolHandler] Extracted checksum:', checksum.toString(16))
             
-      return { requestType, decryptedData: requestData }
+      return { requestType, requestData }
     } catch (error) {
       console.error('[ProtocolHandler] Decryption/deserialization failed:', error)
       return null
