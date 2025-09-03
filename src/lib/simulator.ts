@@ -458,16 +458,24 @@ export class LatticeSimulator {
     const { type, n, start } = params
     
     // Validate parameters according to SDK expectations
-    // When n=0, it means "get maximum allowed records"
-    const maxRecords = 9 // kvActionMaxNum from firmware constants
-    const actualN = n === 0 ? maxRecords : n
+    // According to validateGetKvRequest: n must be >= 1 and <= kvActionMaxNum
+    const maxRecords = 10 // kvActionMaxNum from firmware constants (matches SDK)
     
-    if (actualN < 1) {
+    if (n < 1) {
       return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, 'Must request at least one record')
     }
     
-    if (actualN > maxRecords) {
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, `Too many records requested: ${actualN}, max allowed: ${maxRecords}`)
+    if (n > maxRecords) {
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, `Too many records requested: ${n}, max allowed: ${maxRecords}`)
+    }
+    
+    // Additional validation according to SDK's validateGetKvRequest
+    if (type !== 0 && !type) {
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, 'You must specify a type')
+    }
+    
+    if (start !== 0 && !start) {
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, 'You must specify a start index')
     }
     
     // Get all records of the specified type
@@ -497,10 +505,10 @@ export class LatticeSimulator {
       })
     }
     
-    const fetched = Math.min(actualN, total - start)
+    const fetched = Math.min(n, total - start)
     const records = allRecords.slice(start, start + fetched)
     
-    console.log(`[Simulator] getKvRecords: type=${type}, n=${n} (actual: ${actualN}), start=${start}, total=${total}, fetched=${fetched}`)
+    console.log(`[Simulator] getKvRecords: type=${type}, n=${n}, start=${start}, total=${total}, fetched=${fetched}`)
     
     return createDeviceResponse(true, LatticeResponseCode.success, {
       records,
@@ -541,8 +549,8 @@ export class LatticeSimulator {
       return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, 'Must provide at least one record')
     }
     
-    if (recordCount > 9) { // kvActionMaxNum from firmware constants
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, `Too many records: ${recordCount}, max allowed: 9`)
+    if (recordCount > 10) { // kvActionMaxNum from firmware constants (matches SDK)
+      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, `Too many records: ${recordCount}, max allowed: 10`)
     }
     
     // Validate individual records

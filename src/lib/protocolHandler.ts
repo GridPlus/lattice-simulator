@@ -218,7 +218,7 @@ export class ProtocolHandler {
       console.log('[ProtocolHandler] Extracted request data length:', requestData.length)
       console.log('[ProtocolHandler] Extracted request data (hex):', requestData.toString('hex'))
             
-      return { requestType, decryptedData }
+      return { requestType, decryptedData: requestData }
     } catch (error) {
       console.error('[ProtocolHandler] Decryption/deserialization failed:', error)
       return null
