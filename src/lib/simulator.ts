@@ -33,7 +33,7 @@ import {
   ensureWalletStoreInitialized 
 } from '../utils/walletAddressResolver'
 import { SIMULATOR_CONSTANTS, EXTERNAL } from './constants'
-import { emitPairingModeStarted, emitPairingModeEnded, emitConnectionChanged, emitPairingChanged } from './deviceEvents'
+import { emitPairingModeStarted, emitPairingModeEnded, emitConnectionChanged, emitPairingChanged, emitKvRecordsAdded, emitKvRecordsRemoved, emitKvRecordsFetched } from './deviceEvents'
 import { useDeviceStore } from '../store/deviceStore'
 import elliptic from 'elliptic';
 
@@ -511,6 +511,20 @@ export class LatticeSimulator {
     
     console.log(`[Simulator] getKvRecords: type=${type}, n=${n}, start=${start}, total=${total}, fetched=${fetched}`)
     
+    // Emit event for frontend clients
+    try {
+      emitKvRecordsFetched(this.deviceId, {
+        records,
+        total,
+        fetched,
+        type,
+        start,
+        n
+      })
+    } catch (error) {
+      console.error('[Simulator] Failed to emit kv_records_fetched event:', error)
+    }
+    
     return createDeviceResponse(true, LatticeResponseCode.success, {
       records,
       total,
@@ -578,6 +592,16 @@ export class LatticeSimulator {
     console.log(`[Simulator] addKvRecords: Added ${recordCount} records successfully`)
     console.log(`[Simulator] Records added:`, Object.keys(records))
     
+    // Emit event for frontend clients
+    try {
+      emitKvRecordsAdded(this.deviceId, {
+        records: Object.entries(records).map(([key, value]) => ({ key, value })),
+        count: recordCount
+      })
+    } catch (error) {
+      console.error('[Simulator] Failed to emit kv_records_added event:', error)
+    }
+    
     return createDeviceResponse(true, LatticeResponseCode.success)
   }
 
@@ -608,14 +632,30 @@ export class LatticeSimulator {
     }
     
     // Remove records by ID
+    const removedRecords: Array<{ id: number; key: string }> = []
+    
     for (const id of ids) {
       const key = this.kvRecordIdToKey.get(id)
       if (key) {
         console.log(`[Simulator] removeKvRecords: Removing record ID ${id} with key "${key}"`)
         delete this.kvRecords[key]
         this.kvRecordIdToKey.delete(id)
+        removedRecords.push({ id, key })
       } else {
         console.log(`[Simulator] removeKvRecords: Record ID ${id} not found`)
+      }
+    }
+    
+    // Emit event for frontend clients
+    if (removedRecords.length > 0) {
+      try {
+        emitKvRecordsRemoved(this.deviceId, {
+          removedRecords,
+          count: removedRecords.length,
+          type
+        })
+      } catch (error) {
+        console.error('[Simulator] Failed to emit kv_records_removed event:', error)
       }
     }
     

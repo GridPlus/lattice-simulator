@@ -35,6 +35,29 @@ export interface PairingChangedData {
   timestamp: number
 }
 
+export interface KvRecordsFetchedData {
+  records: Array<{ id: number; type: number; caseSensitive: boolean; key: string; val: string }>
+  total: number
+  fetched: number
+  type: number
+  start: number
+  n: number
+  timestamp: number
+}
+
+export interface KvRecordsAddedData {
+  records: Array<{ key: string; value: string }>
+  count: number
+  timestamp: number
+}
+
+export interface KvRecordsRemovedData {
+  removedRecords: Array<{ id: number; key: string }>
+  count: number
+  type: number
+  timestamp: number
+}
+
 /**
  * Hook to establish and manage SSE connection for real-time device updates
  * 
@@ -242,6 +265,72 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         setConnectionState(currentState.isConnected, data.isPaired)
       } catch (error) {
         console.error('[useDeviceEvents] Error parsing pairing_changed event:', error)
+      }
+    })
+
+    // Handle KV records fetched events
+    eventSource.addEventListener('kv_records_fetched', (event) => {
+      try {
+        const data: KvRecordsFetchedData = JSON.parse(event.data)
+        console.log('[useDeviceEvents] KV records fetched:', data)
+        
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
+        
+        // Update the store with fetched records
+        const { setKvRecord } = useDeviceStore.getState()
+        data.records.forEach(record => {
+          setKvRecord(record.key, record.val, record.type)
+        })
+        
+      } catch (error) {
+        console.error('[useDeviceEvents] Error parsing kv_records_fetched event:', error)
+      }
+    })
+
+    // Handle KV records added events
+    eventSource.addEventListener('kv_records_added', (event) => {
+      try {
+        const data: KvRecordsAddedData = JSON.parse(event.data)
+        console.log('[useDeviceEvents] KV records added:', data)
+        
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
+        
+        // Add new records to the store
+        const { setKvRecord } = useDeviceStore.getState()
+        data.records.forEach(record => {
+          setKvRecord(record.key, record.value)
+        })
+        
+      } catch (error) {
+        console.error('[useDeviceEvents] Error parsing kv_records_added event:', error)
+      }
+    })
+
+    // Handle KV records removed events
+    eventSource.addEventListener('kv_records_removed', (event) => {
+      try {
+        const data: KvRecordsRemovedData = JSON.parse(event.data)
+        console.log('[useDeviceEvents] KV records removed:', data)
+        
+        // Check if this event should be processed (avoid re-processing old events)
+        if (!shouldProcessEvent(data.timestamp)) {
+          return
+        }
+        
+        // Remove records from the store
+        const { removeKvRecord } = useDeviceStore.getState()
+        data.removedRecords.forEach(record => {
+          removeKvRecord(record.key)
+        })
+        
+      } catch (error) {
+        console.error('[useDeviceEvents] Error parsing kv_records_removed event:', error)
       }
     })
 
