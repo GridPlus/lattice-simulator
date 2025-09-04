@@ -121,6 +121,7 @@ interface DeviceStore extends DeviceState {
   removeKvRecord: (key: string) => void
   getKvRecord: (key: string) => string | undefined
   getAllKvRecords: () => Record<string, string>
+  updateKvRecord: (key: string, newValue: string) => void
   
   // Configuration
   updateConfig: (config: Partial<SimulatorConfig>) => void
@@ -363,6 +364,17 @@ export const useDeviceStore = create<DeviceStore>()(
       getAllKvRecords: () => {
         const state = get()
         return { ...state.kvRecords }
+      },
+      
+      updateKvRecord: (key: string, newValue: string) => {
+        set((draft) => {
+          const normalizedKey = key.toLowerCase()
+          if (draft.kvRecords[normalizedKey]) {
+            draft.kvRecords[normalizedKey] = newValue
+          } else {
+            throw new Error(`KV record not found for key: ${key}`)
+          }
+        })
       },
       
 
