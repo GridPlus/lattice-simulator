@@ -913,8 +913,8 @@ export class ProtocolHandler {
     const maxKeySize = 64 // kvKeyMaxStrSz from firmware constants
     const maxValSize = 64 // kvValMaxStrSz from firmware constants
     
-    // Calculate total size: 4 + 1 + records * (4 + 4 + 1 + maxKeySize + maxValSize)
-    const recordSize = 4 + 4 + 1 + maxKeySize + maxValSize
+    // Calculate total size: 4 + 1 + records * (4 + 4 + 1 + 1 + maxKeySize + 1 + maxValSize)
+    const recordSize = 4 + 4 + 1 + 1 + maxKeySize + 1 + maxValSize
     const response = Buffer.alloc(5 + records.length * recordSize)
     let offset = 0
     
