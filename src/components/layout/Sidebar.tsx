@@ -13,9 +13,7 @@ import {
   Wifi, 
   Wallet, 
   FileText, 
-  Settings, 
   Clock,
-  Shield,
   Database
 } from 'lucide-react'
 
@@ -60,22 +58,10 @@ const navigationItems: NavItem[] = [
     href: '/transactions'
   },
   {
-    id: 'security',
-    label: 'Security',
-    icon: Shield,
-    href: '/security'
-  },
-  {
     id: 'storage',
     label: 'Storage',
     icon: Database,
     href: '/storage'
-  },
-  {
-    id: 'settings',
-    label: 'Settings',
-    icon: Settings,
-    href: '/settings'
   }
 ]
 
