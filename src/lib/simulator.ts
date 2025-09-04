@@ -86,6 +86,10 @@ export class LatticeSimulator {
   
   /** Stored key-value records */
   private kvRecords: Record<string, string> = {}
+  /** Next available ID for KV records */
+  private nextKvRecordId: number = 0
+  /** Map from record ID to key for removal by ID */
+  private kvRecordIdToKey: Map<number, string> = new Map()
   
   /** Whether user approval is currently required for a pending operation */
   private userApprovalRequired: boolean = false
@@ -564,6 +568,13 @@ export class LatticeSimulator {
       }
     }
     
+    // Assign stable IDs to new records
+    for (const [key, value] of Object.entries(records)) {
+      const recordId = this.nextKvRecordId++
+      this.kvRecordIdToKey.set(recordId, key)
+      console.log(`[Simulator] addKvRecords: Assigned ID ${recordId} to key "${key}"`)
+    }
+    
     // Add records
     Object.assign(this.kvRecords, records)
     
@@ -576,14 +587,15 @@ export class LatticeSimulator {
   /**
    * Handles request to remove key-value records
    * 
-   * Removes stored key-value pairs from the device. Silently succeeds
-   * for keys that don't exist.
+   * Removes stored key-value pairs from the device by ID. Silently succeeds
+   * for IDs that don't exist.
    * 
-   * @param keys - Array of keys to remove
+   * @param type - Type of records to remove (0 for all, 1 for specific type)
+   * @param ids - Array of record IDs to remove
    * @returns Promise resolving to success status
    * @throws {DeviceResponse} When device is not paired, locked, or feature unsupported
    */
-  async removeKvRecords(keys: string[]): Promise<DeviceResponse<void>> {
+  async removeKvRecords(type: number, ids: number[]): Promise<DeviceResponse<void>> {
     await simulateDelay(150, 75)
     
     if (!this.isPaired) {
@@ -598,8 +610,16 @@ export class LatticeSimulator {
       return createDeviceResponse(false, LatticeResponseCode.deviceLocked)
     }
     
-    for (const key of keys) {
-      delete this.kvRecords[key]
+    // Remove records by ID
+    for (const id of ids) {
+      const key = this.kvRecordIdToKey.get(id)
+      if (key) {
+        console.log(`[Simulator] removeKvRecords: Removing record ID ${id} with key "${key}"`)
+        delete this.kvRecords[key]
+        this.kvRecordIdToKey.delete(id)
+      } else {
+        console.log(`[Simulator] removeKvRecords: Record ID ${id} not found`)
+      }
     }
     
     return createDeviceResponse(true, LatticeResponseCode.success)
@@ -837,6 +857,8 @@ export class LatticeSimulator {
     this.ephemeralKeyPair = undefined
     this.addressTags = {}
     this.kvRecords = {}
+    this.nextKvRecordId = 0
+    this.kvRecordIdToKey.clear()
     this.userApprovalRequired = false
   }
 }

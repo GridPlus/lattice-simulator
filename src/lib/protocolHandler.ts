@@ -498,9 +498,11 @@ export class ProtocolHandler {
    * @private
    */
   private async handleRemoveKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    const keys = this.parseRemoveKvRecordsRequest(data)
-    const response = await this.simulator.removeKvRecords(keys)
+    const { type, ids } = this.parseRemoveKvRecordsRequest(data)
+    console.log(`[ProtocolHandler] handleRemoveKvRecordsRequest.type: ${type}, ids: ${ids}`)
     
+    const response = await this.simulator.removeKvRecords(type, ids)
+    console.log(`[ProtocolHandler] handleRemoveKvRecordsRequest.response: ${response}`)
     return {
       code: response.code,
       data: response.success ? Buffer.alloc(0) : undefined,
@@ -739,26 +741,39 @@ export class ProtocolHandler {
     return records
   }
 
-  private parseRemoveKvRecordsRequest(data: Buffer): string[] {
-    // For remove requests, we need to parse the keys differently
-    // This should match the addKvRecords format where keys are extracted
-    const keys: string[] = []
-    let offset = 0
-    
-    const numKeys = data.readUInt8(offset)
-    offset += 1
-    
-    for (let i = 0; i < numKeys; i++) {
-      const keyLen = data.readUInt8(offset)
-      offset += 1
-      
-      const key = data.slice(offset, offset + keyLen).toString('utf8')
-      offset += keyLen
-      
-      keys.push(key)
+  private parseRemoveKvRecordsRequest(data: Buffer): { type: number; ids: number[] } {
+    // Match the SDK's encodeRemoveKvRecordsRequest format:
+    // Buffer structure: [type (4 bytes LE)] + [numIds (1 byte)] + [ids... (4 bytes each LE)]
+    if (data.length < 5) {
+      throw new Error('Invalid removeKvRecords request: insufficient data')
     }
     
-    return keys
+    let offset = 0
+    
+    // Read type (4 bytes, little-endian)
+    const type = data.readUInt32LE(offset)
+    offset += 4
+    
+    // Read number of IDs (1 byte)
+    const numIds = data.readUInt8(offset)
+    offset += 1
+    
+    // Validate minimum data length for IDs
+    if (data.length < 5 + numIds * 4) {
+      throw new Error(`Invalid removeKvRecords request: expected ${5 + numIds * 4} bytes, got ${data.length}`)
+    }
+    
+    // Read IDs (4 bytes each, little-endian)
+    const ids: number[] = []
+    for (let i = 0; i < numIds; i++) {
+      const id = data.readUInt32LE(offset)
+      ids.push(id)
+      offset += 4
+    }
+    
+    console.log(`[ProtocolHandler] Parsed removeKvRecords request: type=${type}, numIds=${numIds}, ids=${ids}`)
+    
+    return { type, ids }
   }
 
   // Response serialization methods (simplified for simulation)
