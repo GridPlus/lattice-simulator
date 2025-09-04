@@ -224,6 +224,16 @@ export class ProtocolHandler {
       // Extract checksum (last 4 bytes) - SDK writes with writeUInt32LE, so we read with readUInt32LE
       const checksum = decryptedData.readUInt32LE(offset)
       console.log('[ProtocolHandler] Extracted checksum:', checksum.toString(16))
+      
+      // Validate checksum against the data portion (requestType + requestData)
+      const dataToValidate = decryptedData.slice(0, offset)
+      const calculatedChecksum = crc32.buf(dataToValidate) >>> 0 // Convert to unsigned 32-bit
+      console.log('[ProtocolHandler] Calculated checksum:', calculatedChecksum.toString(16))
+      
+      if (checksum !== calculatedChecksum) {
+        throw new Error(`Checksum mismatch in decrypted request data: received=${checksum}, calculated=${calculatedChecksum}`)
+      }
+      console.log('[ProtocolHandler] Checksum validation passed')
             
       return { requestType, requestData }
     } catch (error) {
