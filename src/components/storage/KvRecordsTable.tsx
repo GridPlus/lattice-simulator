@@ -126,7 +126,7 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
               {/* Key */}
               <td className="px-6 py-4 whitespace-nowrap">
                 <div className="flex items-center gap-2">
-                  <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded">
+                  <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-600 dark:text-gray-400">
                     {record.isAddressTag ? record.key.slice(0, 8) + '...' + record.key.slice(-6) : record.key}
                   </code>
                   <button
@@ -152,7 +152,7 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
                    />
                  ) : (
                   <div className="flex items-center gap-2">
-                    <span className="max-w-xs truncate">{record.value}</span>
+                    <span className="max-w-xs truncate text-gray-600 dark:text-gray-400">{record.value}</span>
                     <button
                       onClick={() => handleCopy(record.value)}
                       className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
