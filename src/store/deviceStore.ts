@@ -75,7 +75,6 @@ const INITIAL_STATE: DeviceState = {
   userApprovalTimeoutMs: 60000, // 60 seconds
   
   // Storage
-  addressTags: {},
   kvRecords: {},
 }
 
@@ -118,10 +117,10 @@ interface DeviceStore extends DeviceState {
   setActiveWallets: (wallets: ActiveWallets) => void
   
   // Storage Management
-  setAddressTag: (address: string, tag: string) => void
-  removeAddressTag: (address: string) => void
-  setKvRecord: (key: string, value: string) => void
+  setKvRecord: (key: string, value: string, type?: number) => void
   removeKvRecord: (key: string) => void
+  getKvRecord: (key: string) => string | undefined
+  getAllKvRecords: () => Record<string, string>
   
   // Configuration
   updateConfig: (config: Partial<SimulatorConfig>) => void
@@ -349,23 +348,24 @@ export const useDeviceStore = create<DeviceStore>()(
         })
       },
       
-      setAddressTag: (address: string, tag: string) => {
+      setKvRecord: (key: string, value: string, type: number = 0) => {
         set((draft) => {
-          draft.addressTags[address.toLowerCase()] = tag
+          draft.kvRecords[key.toLowerCase()] = value
         })
       },
       
-      removeAddressTag: (address: string) => {
-        set((draft) => {
-          delete draft.addressTags[address.toLowerCase()]
-        })
+      getKvRecord: (key: string) => {
+        const state = get()
+        const normalizedKey = key.toLowerCase()
+        return state.kvRecords[normalizedKey]
       },
       
-      setKvRecord: (key: string, value: string) => {
-        set((draft) => {
-          draft.kvRecords[key] = value
-        })
+      getAllKvRecords: () => {
+        const state = get()
+        return { ...state.kvRecords }
       },
+      
+
       
       removeKvRecord: (key: string) => {
         set((draft) => {
@@ -446,7 +446,6 @@ export const useDeviceStore = create<DeviceStore>()(
         pairingCode: state.pairingCode,
         pairingStartTime: state.pairingStartTime,
         config: state.config,
-        addressTags: state.addressTags,
         kvRecords: state.kvRecords,
       }),
       // Custom deserializer to convert arrays back to Buffers

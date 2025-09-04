@@ -64,7 +64,6 @@ export interface DeviceState {
   userApprovalTimeoutMs: number
   
   // Storage
-  addressTags: Record<string, string>
   kvRecords: Record<string, string>
 }
 

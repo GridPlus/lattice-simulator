@@ -81,9 +81,6 @@ export class LatticeSimulator {
   /** Currently active internal and external wallets */
   private activeWallets: ActiveWallets
   
-  /** Stored address name tags */
-  private addressTags: Record<string, string> = {}
-  
   /** Stored key-value records */
   private kvRecords: Record<string, string> = {}
   /** Next available ID for KV records */
@@ -855,7 +852,6 @@ export class LatticeSimulator {
     this.isLocked = false
     this.pairingSecret = undefined
     this.ephemeralKeyPair = undefined
-    this.addressTags = {}
     this.kvRecords = {}
     this.nextKvRecordId = 0
     this.kvRecordIdToKey.clear()
