@@ -3,7 +3,17 @@
  * This allows the simulator to broadcast events that the SSE endpoint can listen to
  */
 
-type DeviceEventType = 'pairing_mode_started' | 'pairing_mode_ended' | 'connection_changed' | 'pairing_changed'
+type DeviceEventType = 
+  | 'pairing_mode_started' 
+  | 'pairing_mode_ended' 
+  | 'connection_changed' 
+  | 'pairing_changed'
+  | 'kv_records_fetched'
+  | 'kv_records_added'
+  | 'kv_records_removed'
+  | 'kv_records_updated'
+  | 'kv_records_synced'
+  | 'kv_records_reset'
 
 interface DeviceEvent {
   deviceId: string
@@ -109,4 +119,29 @@ export const emitPairingChanged = (deviceId: string, isPaired: boolean) => {
   deviceEvents.emit(deviceId, 'pairing_changed', {
     isPaired,
   })
+}
+
+// KV Records Event Helpers
+export const emitKvRecordsFetched = (deviceId: string, data: any) => {
+  deviceEvents.emit(deviceId, 'kv_records_fetched', data)
+}
+
+export const emitKvRecordsAdded = (deviceId: string, data: any) => {
+  deviceEvents.emit(deviceId, 'kv_records_added', data)
+}
+
+export const emitKvRecordsRemoved = (deviceId: string, data: any) => {
+  deviceEvents.emit(deviceId, 'kv_records_removed', data)
+}
+
+export const emitKvRecordsUpdated = (deviceId: string, data: any) => {
+  deviceEvents.emit(deviceId, 'kv_records_updated', data)
+}
+
+export const emitKvRecordsSynced = (deviceId: string, data: any) => {
+  deviceEvents.emit(deviceId, 'kv_records_synced', data)
+}
+
+export const emitKvRecordsReset = (deviceId: string, data: any) => {
+  deviceEvents.emit(deviceId, 'kv_records_reset', data)
 }

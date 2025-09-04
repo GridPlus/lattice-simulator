@@ -6,6 +6,7 @@ export * from './protocol'
 export * from './device'
 export * from './crypto'
 export * from './wallet'
+export * from './kvRecords'
 
 // Re-export commonly used types
 export type {
