@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react'
 import { useDeviceStore } from '@/store/deviceStore'
 import { KvRecordsTable } from '@/components/storage/KvRecordsTable'
 import { AddKvRecordModal } from '@/components/storage/AddKvRecordModal'
+import { MainLayout } from '@/components/layout'
 import { Plus, Database, Tag } from 'lucide-react'
 
 export default function StoragePage() {
@@ -76,7 +77,8 @@ export default function StoragePage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <MainLayout>
+      <div className="p-6 space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -204,5 +206,6 @@ export default function StoragePage() {
         loading={isLoading}
       />
     </div>
+    </MainLayout>
   )
 }
