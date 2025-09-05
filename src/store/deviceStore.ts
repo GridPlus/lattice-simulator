@@ -128,6 +128,7 @@ interface DeviceStore extends DeviceState {
   
   // Reset
   reset: () => void
+  resetConnectionState: () => Promise<void>
   resetDeviceState: () => Promise<void>
 }
 
@@ -504,12 +505,79 @@ const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWi
         }))
       },
 
+      resetConnectionState: async () => {
+        const state = get()
+        const deviceId = state.deviceInfo.deviceId
+        
+        try {
+          console.log(`[DeviceStore] Resetting connection state for: ${deviceId}`)
+          
+          // Call the API to reset server-side connection state
+          const response = await fetch(`/api/device-reset/${deviceId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ resetType: 'connection' })
+          })
+          
+          if (response.ok) {
+            console.log(`[DeviceStore] Server-side connection reset successful for: ${deviceId}`)
+            
+            // Reset only connection and pairing related fields, preserve KV records
+            set((draft) => {
+              draft.isConnected = false
+              draft.isPaired = false
+              draft.isPairingMode = false
+              draft.pairingCode = undefined
+              draft.pairingStartTime = undefined
+              draft.pairingTimeoutId = undefined
+              draft.ephemeralPub = undefined
+              draft.sharedSecret = undefined
+              draft.pendingRequests = []
+              draft.currentRequest = undefined
+              draft.userApprovalRequired = false
+              // Keep KV records, device info, config, etc.
+            })
+            
+            // Emit events to notify other components
+            emitConnectionChanged(deviceId, false)
+            emitPairingChanged(deviceId, false)
+            
+            console.log(`[DeviceStore] Connection state reset completed for: ${deviceId}`)
+          } else {
+            console.error(`[DeviceStore] Server-side connection reset failed for: ${deviceId}`)
+            throw new Error('Server connection reset failed')
+          }
+        } catch (error) {
+          console.error(`[DeviceStore] Error resetting connection state:`, error)
+          
+          // Still reset connection state even if server reset fails
+          set((draft) => {
+            draft.isConnected = false
+            draft.isPaired = false
+            draft.isPairingMode = false
+            draft.pairingCode = undefined
+            draft.pairingStartTime = undefined
+            draft.pairingTimeoutId = undefined
+            draft.ephemeralPub = undefined
+            draft.sharedSecret = undefined
+            draft.pendingRequests = []
+            draft.currentRequest = undefined
+            draft.userApprovalRequired = false
+          })
+          
+          emitConnectionChanged(deviceId, false)
+          emitPairingChanged(deviceId, false)
+        }
+      },
+
       resetDeviceState: async () => {
         const state = get()
         const deviceId = state.deviceInfo.deviceId
         
         try {
-          console.log(`[DeviceStore] Resetting device state for: ${deviceId}`)
+          console.log(`[DeviceStore] Resetting full device state for: ${deviceId}`)
           
           // Call the API to reset server-side state
           const response = await fetch(`/api/device-reset/${deviceId}`, {
@@ -519,7 +587,7 @@ const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWi
           if (response.ok) {
             console.log(`[DeviceStore] Server-side reset successful for: ${deviceId}`)
             
-            // Reset client-side state
+            // Reset client-side state (including KV records)
             set(() => ({
               ...INITIAL_STATE,
               config: DEFAULT_SIMULATOR_CONFIG,

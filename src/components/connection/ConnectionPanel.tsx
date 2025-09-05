@@ -183,7 +183,7 @@ function ConnectionStatus() {
 function ConnectionInfo() {
   const router = useRouter()
   const { isConnected, deviceId } = useDeviceConnection()
-  const { resetDeviceState, setDeviceInfo } = useDeviceStore()
+  const { resetConnectionState, resetDeviceState, setDeviceInfo } = useDeviceStore()
   const { isInitialized: walletsInitialized, clearWallets } = useWalletStore()
   const [isResetting, setIsResetting] = useState(false)
   const [showWalletSetup, setShowWalletSetup] = useState(false)
@@ -196,10 +196,10 @@ function ConnectionInfo() {
   const handleResetConnectionState = async () => {
     setIsResetting(true)
     try {
-      await resetDeviceState()
-      console.log('[ConnectionInfo] Device state reset successfully')
+      await resetConnectionState()
+      console.log('[ConnectionInfo] Connection state reset successfully')
     } catch (error) {
-      console.error('[ConnectionInfo] Error resetting device state:', error)
+      console.error('[ConnectionInfo] Error resetting connection state:', error)
     } finally {
       setIsResetting(false)
     }

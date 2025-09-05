@@ -17,22 +17,51 @@ export async function POST(
 ) {
   try {
     const { deviceId } = params
+    const body = await request.json().catch(() => ({}))
+    const { resetType = 'full' } = body // 'full' or 'connection'
 
-    console.log(`[API] Resetting device state for: ${deviceId}`)
+    console.log(`[API] Resetting device state for: ${deviceId}, type: ${resetType}`)
 
-    // Get the device manager and reset its state
+    // Get the device manager
     const deviceManager = getDeviceManager(deviceId)
-    deviceManager.reset()
+    const simulator = deviceManager.getSimulator()
 
-    // Clear the device manager instance to force a fresh start
-    resetDeviceManager(deviceId)
+    if (resetType === 'connection') {
+      // Reset only connection and pairing related state
+      console.log(`[API] Resetting connection state only for: ${deviceId}`)
+      
+      // Reset connection/pairing state in simulator
+      simulator.setIsPaired(false)
+      simulator.unpair()
+      
+      // Clear ephemeral keys and connection state
+      // Note: We don't reset KV records or other persistent data
+      
+      console.log(`[API] Connection state reset successfully for: ${deviceId}`)
+      
+      return NextResponse.json({
+        success: true,
+        message: `Device ${deviceId} connection state reset successfully`,
+        resetType: 'connection'
+      })
+    } else {
+      // Full reset (default behavior)
+      console.log(`[API] Performing full device reset for: ${deviceId}`)
+      
+      // Get the device manager and reset its state
+      deviceManager.reset()
 
-    console.log(`[API] Device ${deviceId} state reset successfully`)
+      // Clear the device manager instance to force a fresh start
+      resetDeviceManager(deviceId)
 
-    return NextResponse.json({
-      success: true,
-      message: `Device ${deviceId} state reset successfully`
-    })
+      console.log(`[API] Full device reset completed for: ${deviceId}`)
+
+      return NextResponse.json({
+        success: true,
+        message: `Device ${deviceId} state reset successfully`,
+        resetType: 'full'
+      })
+    }
 
   } catch (error) {
     console.error('Error resetting device state:', error)
