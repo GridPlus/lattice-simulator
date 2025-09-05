@@ -12,6 +12,7 @@ import { useDeviceConnection, useDeviceStatus } from '@/store'
 import { Header } from '@/components/layout/Header'
 import { Sidebar } from '@/components/layout/Sidebar'
 import ServerRequestProvider from '@/components/ServerRequestProvider'
+import { useClientStateSync } from '@/hooks/useClientStateSync'
 
 interface MainLayoutProps {
   children: React.ReactNode
@@ -26,6 +27,9 @@ interface MainLayoutProps {
 export function MainLayout({ children }: MainLayoutProps) {
   const { isConnected, isPaired } = useDeviceConnection()
   const { isLocked, isBusy } = useDeviceStatus()
+  
+  // Sync client state to server on page load
+  useClientStateSync()
 
   return (
     <ServerRequestProvider>

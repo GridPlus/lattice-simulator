@@ -898,4 +898,28 @@ export class LatticeSimulator {
     this.kvRecordIdToKey.clear()
     this.userApprovalRequired = false
   }
+
+  /**
+   * Sets KV records directly (for state synchronization)
+   * 
+   * This method is used to restore KV records from client state
+   * during server startup or state synchronization.
+   * 
+   * @param records - Map of key-value records to set
+   */
+  setKvRecordsDirectly(records: Record<string, string>): void {
+    console.log('[Simulator] Setting KV records directly:', Object.keys(records))
+    this.kvRecords = { ...records }
+    
+    // Update the next ID counter to avoid conflicts
+    this.nextKvRecordId = Object.keys(records).length
+    
+    // Rebuild the ID to key mapping
+    this.kvRecordIdToKey.clear()
+    Object.keys(records).forEach((key, index) => {
+      this.kvRecordIdToKey.set(index, key)
+    })
+    
+    console.log('[Simulator] KV records set successfully, count:', Object.keys(this.kvRecords).length)
+  }
 }
