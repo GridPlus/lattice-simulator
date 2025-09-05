@@ -27,6 +27,7 @@ interface ClientState {
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('[SyncAPI] ===== CLIENT STATE SYNC REQUEST RECEIVED =====')
     const clientState: ClientState = await request.json()
     
     console.log('[SyncAPI] Received client state:', {
@@ -38,33 +39,12 @@ export async function POST(request: NextRequest) {
 
     // Get the device manager for this device
     const deviceManager = getDeviceManager(clientState.deviceInfo.deviceId)
-    const simulator = deviceManager.getSimulator()
-
-    // Sync device info
-    if (clientState.deviceInfo.firmwareVersion) {
-      const firmwareVersion = Buffer.from(clientState.deviceInfo.firmwareVersion)
-      simulator.setDeviceInfo({
-        deviceId: clientState.deviceInfo.deviceId,
-        name: clientState.deviceInfo.name,
-        firmwareVersion,
-        isLocked: clientState.deviceInfo.isLocked
-      })
-    }
-
-    // Sync pairing state
-    simulator.setIsPaired(clientState.isPaired)
     
-    // Sync KV records
-    if (clientState.kvRecords && Object.keys(clientState.kvRecords).length > 0) {
-      console.log('[SyncAPI] Syncing KV records to server:', Object.keys(clientState.kvRecords))
-      
-      // Set KV records directly using the new method
-      simulator.setKvRecordsDirectly(clientState.kvRecords)
-      
-      console.log('[SyncAPI] KV records synced successfully')
-    }
-
-    // Sync configuration
+    // Use the new restoreFromClientState method to properly sync from client (source of truth)
+    deviceManager.restoreFromClientState(clientState)
+    
+    // Also sync configuration separately
+    const simulator = deviceManager.getSimulator()
     if (clientState.config) {
       simulator.setAutoApprove(clientState.config.autoApproveRequests || false)
     }

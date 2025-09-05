@@ -188,14 +188,13 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
             console.log('[useDeviceEvents] Entering pairing mode from server event')
             
             // We need to manually set the pairing state since the server triggered it
-            // Update store state to match server
-            const { setState } = useDeviceStore
-            setState((draft) => {
-              draft.isPairingMode = true
-              draft.pairingCode = data.pairingCode
-              draft.pairingStartTime = data.timestamp - ((data.pairingTimeRemaining || 60) * 1000 - 60000) // Calculate start time
-              draft.pairingTimeoutMs = 60000 // 60 seconds timeout
-            })
+            // Update store state to match server using the proper store methods
+            const store = useDeviceStore.getState()
+            if (!store.isPairingMode) {
+              // Use the store's enterPairingMode method to properly set the state
+              store.enterPairingMode()
+              console.log('[useDeviceEvents] Entered pairing mode from server event')
+            }
           }
         } else if (!data.isPairingMode) {
           const currentState = useDeviceStore.getState()
@@ -221,14 +220,12 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
           return
         }
         
-        // Set pairing mode state directly in store
-        const { setState } = useDeviceStore
-        setState((draft) => {
-          draft.isPairingMode = true
-          draft.pairingCode = data.pairingCode
-          draft.pairingStartTime = data.timestamp
-          draft.pairingTimeoutMs = data.timeoutMs
-        })
+        // Use the store's enterPairingMode method to properly set the state
+        const store = useDeviceStore.getState()
+        if (!store.isPairingMode) {
+          store.enterPairingMode()
+          console.log('[useDeviceEvents] Entered pairing mode from server event')
+        }
 
       } catch (error) {
         console.error('[useDeviceEvents] Error parsing pairing_mode_started event:', error)

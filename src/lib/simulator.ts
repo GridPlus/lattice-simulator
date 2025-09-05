@@ -165,10 +165,11 @@ export class LatticeSimulator {
     this.ephemeralKeyPair = generateKeyPair()
     
     // If device is not paired, enter pairing mode for 60 seconds
-    if (!this.isPaired) {
-      console.log('[Simulator] Device not paired, entering pairing mode...')
+    // Only manage pairing mode on client-side, not server-side
+    if (!this.isPaired && typeof window !== 'undefined') {
+      console.log('[Simulator] Device not paired, entering pairing mode (client-side only)...')
       try {
-        // Trigger pairing mode using the device store
+        // Trigger pairing mode using the device store (client-side only)
         const deviceStore = useDeviceStore.getState()
         console.log('[Simulator] Current pairing mode state before:', deviceStore.isPairingMode)
         deviceStore.enterPairingMode()
@@ -188,6 +189,8 @@ export class LatticeSimulator {
       } catch (error) {
         console.error('[Simulator] Error entering pairing mode:', error)
       }
+    } else if (!this.isPaired) {
+      console.log('[Simulator] Device not paired, but pairing mode is managed by client-side store (server-side)')
     }
     
     const response: ConnectResponse = {
@@ -228,10 +231,17 @@ export class LatticeSimulator {
     }
     
     // Check if device is in pairing mode
+    // On client-side, check the store state. On server-side, allow pairing if not already paired
     const deviceStore = useDeviceStore.getState()
     
-    if (!deviceStore.isPairingMode) {
-      return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'Device not in pairing mode')
+    if (typeof window !== 'undefined') {
+      // Client-side: Check store state
+      if (!deviceStore.isPairingMode) {
+        return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'Device not in pairing mode')
+      }
+    } else {
+      // Server-side: Allow pairing if device is not already paired (pairing mode managed by client)
+      console.log('[Simulator] Server-side pairing validation: device not paired, allowing pairing')
     }
     
     // If this is a finalizePairing request with DER signature, validate it
@@ -240,9 +250,12 @@ export class LatticeSimulator {
       
       // Try to validate against the stored pairing code
       const pairingCode = deviceStore.pairingCode
-      if (!pairingCode) {
+      if (!pairingCode && typeof window !== 'undefined') {
         return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'No pairing code available')
       }
+      
+      // On server-side, use a default pairing code for validation
+      const validationCode = pairingCode || '123456'
       
       // For now, we'll simulate signature validation
       // In a real implementation, we would:
@@ -256,12 +269,17 @@ export class LatticeSimulator {
       
       // Successful pairing
       this.isPaired = true
-      this.pairingSecret = pairingCode
+      this.pairingSecret = validationCode
 
-      // Set connection state, connected and paired, exit pairing mode
-      deviceStore.setConnectionState(true, true)
-      // Exit pairing mode immediately - the state should be updated now
-      deviceStore.exitPairingMode()
+      // Update connection state and exit pairing mode (client-side only)
+      if (typeof window !== 'undefined') {
+        const deviceStore = useDeviceStore.getState()
+        deviceStore.setConnectionState(true, true)
+        deviceStore.exitPairingMode()
+        console.log('[Simulator] Device paired successfully, updated client-side store state')
+      } else {
+        console.log('[Simulator] Device paired successfully, but state management is handled by client-side store (server-side)')
+      }
       
       console.log('[Simulator] Device successfully paired via finalizePairing!')
       
@@ -285,10 +303,15 @@ export class LatticeSimulator {
     this.isPaired = true
     this.pairingSecret = request.pairingSecret
 
-    // Set connection state, connected and paired, exit pairing mode
-    deviceStore.setConnectionState(true, true)
-    // Exit pairing mode immediately - the state should be updated now
-    deviceStore.exitPairingMode()
+    // Update connection state and exit pairing mode (client-side only)
+    if (typeof window !== 'undefined') {
+      const deviceStore = useDeviceStore.getState()
+      deviceStore.setConnectionState(true, true)
+      deviceStore.exitPairingMode()
+      console.log('[Simulator] Device paired successfully, updated client-side store state')
+    } else {
+      console.log('[Simulator] Device paired successfully, but state management is handled by client-side store (server-side)')
+    }
 
     console.log('[Simulator] Device successfully paired!')
     

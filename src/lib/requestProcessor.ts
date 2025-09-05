@@ -190,22 +190,19 @@ export class RequestProcessor {
       }, this.config.userApprovalTimeoutMs)
 
       // Set up subscription to store changes
-      const unsubscribe = useDeviceStore.subscribe(
-        (state) => state.pendingRequests,
-        (pendingRequests) => {
-          const request = pendingRequests.find(req => req.id === requestId)
-          if (!request) {
-            // Request was removed (approved or declined)
-            clearTimeout(timeoutId)
-            unsubscribe()
-            
-            // Check if it was approved by looking at current request
-            const currentRequest = useDeviceStore.getState().currentRequest
-            const wasApproved = !currentRequest || currentRequest.id !== requestId
-            resolve(wasApproved)
-          }
+      const unsubscribe = useDeviceStore.subscribe((state) => {
+        const request = state.pendingRequests.find(req => req.id === requestId)
+        if (!request) {
+          // Request was removed (approved or declined)
+          clearTimeout(timeoutId)
+          unsubscribe()
+          
+          // Check if it was approved by looking at current request
+          const currentRequest = useDeviceStore.getState().currentRequest
+          const wasApproved = !currentRequest || currentRequest.id !== requestId
+          resolve(wasApproved)
         }
-      )
+      })
     })
   }
 

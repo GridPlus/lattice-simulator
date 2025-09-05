@@ -620,9 +620,12 @@ const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWi
 
 // Create the store with or without persistence based on environment
 console.log('[DeviceStore] Creating store instance...', typeof window !== 'undefined' ? 'client' : 'server')
-export const useDeviceStore = create<DeviceStore>()(
-  (typeof window !== 'undefined'
-    ? persist(
+// Create the store with proper typing
+const createStore = () => {
+  if (typeof window !== 'undefined') {
+    // Client-side: use persistence
+    return create<DeviceStore>()(
+      persist(
         createBaseStore(),
         {
           name: 'lattice-device-store',
@@ -661,8 +664,14 @@ export const useDeviceStore = create<DeviceStore>()(
           },
         }
       )
-    : createBaseStore()) as any
-)
+    )
+  } else {
+    // Server-side: no persistence
+    return create<DeviceStore>()(createBaseStore())
+  }
+}
+
+export const useDeviceStore = createStore()
 
 // Selectors for commonly used state slices
 /**

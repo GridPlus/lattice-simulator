@@ -13,8 +13,11 @@ export function useClientStateSync() {
   const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)
 
   useEffect(() => {
+    console.log('[ClientStateSync] Hook called, hasSynced:', hasSynced.current, 'window:', typeof window !== 'undefined')
+    
     // Only sync once per session and only on client side
     if (hasSynced.current || typeof window === 'undefined') {
+      console.log('[ClientStateSync] Skipping sync - already synced or server-side')
       return
     }
 
@@ -25,14 +28,16 @@ export function useClientStateSync() {
         // Get current client state from Zustand store
         const clientState = useDeviceStore.getState()
         
-        // Check if we have meaningful state to sync
+        // Always sync state to ensure server has correct initial state
+        // Even if device is not paired, we need to sync the initial state
         const hasKvRecords = Object.keys(clientState.kvRecords).length > 0
         const isPaired = clientState.isPaired
         
-        if (!hasKvRecords && !isPaired) {
-          console.log('[ClientStateSync] No meaningful state to sync, skipping')
-          return
-        }
+        console.log('[ClientStateSync] Always syncing state to server:', {
+          hasKvRecords,
+          isPaired,
+          reason: 'Ensure server has correct initial state'
+        })
 
         console.log('[ClientStateSync] Syncing state:', {
           deviceId: clientState.deviceInfo.deviceId,

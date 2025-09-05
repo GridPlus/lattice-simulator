@@ -69,8 +69,9 @@ export class DeviceManager {
 
     this.isInitialized = true
     
-    // Restore simulator state from persisted store state
-    this.restoreFromStore(deviceId)
+    // Note: Server-side state restoration is handled via /api/sync-client-state
+    // The client-side localStorage is the source of truth, not the server-side store
+    console.log('[DeviceManager] Server-side DeviceManager initialized, waiting for client state sync')
   }
 
   /**
@@ -405,7 +406,6 @@ export class DeviceManager {
     // Update device info first
     store.setDeviceInfo({
       deviceId: this.simulator.getDeviceId(),
-      isPaired: isPaired,
       isLocked: this.simulator.getIsLocked(),
       firmwareVersion: this.simulator.getFirmwareVersion(),
     })
@@ -426,44 +426,41 @@ export class DeviceManager {
   }
 
   /**
-   * Restore simulator state from persisted store state
+   * Restore simulator state from client state
    * 
-   * Called during initialization to restore the simulator state
-   * from the persisted store state after page refresh.
+   * This method is called by the /api/sync-client-state endpoint to restore
+   * the server-side simulator state from the client's localStorage (source of truth).
+   * 
+   * @param clientState - State from client's localStorage
    */
-  private restoreFromStore(deviceId?: string): void {
-    const id = deviceId || 'SD0001'
-    const storeState = useDeviceStore.getState()
-    
-    console.log('[DeviceManager] Restoring from store for device:', id, {
-      isConnected: storeState.isConnected,
-      isPaired: storeState.isPaired,
-      isPairingMode: storeState.isPairingMode
+  public restoreFromClientState(clientState: any): void {
+    console.log('[DeviceManager] Restoring simulator state from client state:', {
+      isPaired: clientState.isPaired,
+      kvRecordsCount: Object.keys(clientState.kvRecords || {}).length
     })
     
-    // Only restore if the device is connected and we have the right device ID
-    if (storeState.isConnected && storeState.deviceInfo.deviceId === id) {
-      console.log('[DeviceManager] Device is connected, restoring simulator state')
-      
-      // Restore paired state
-      if (storeState.isPaired) {
-        this.simulator.setIsPaired(true)
-        console.log('[DeviceManager] Restored isPaired to true')
-      }
-      
-      // Restore device info
-      if (storeState.deviceInfo) {
-        this.simulator.setDeviceInfo(storeState.deviceInfo)
-        console.log('[DeviceManager] Restored device info')
-      }
-      
-      // Restore active wallets
-      if (storeState.activeWallets) {
-        this.simulator.setActiveWallets(storeState.activeWallets)
-        console.log('[DeviceManager] Restored active wallets')
-      }
-    } else {
-      console.log(`[DeviceManager] Device not connected or wrong device ID[${id}], skipping restore`)
+    // Restore paired state
+    if (clientState.isPaired) {
+      this.simulator.setIsPaired(true)
+      console.log('[DeviceManager] Restored isPaired to true from client state')
+    }
+    
+    // Restore device info
+    if (clientState.deviceInfo) {
+      this.simulator.setDeviceInfo(clientState.deviceInfo)
+      console.log('[DeviceManager] Restored device info from client state')
+    }
+    
+    // Restore active wallets
+    if (clientState.activeWallets) {
+      this.simulator.setActiveWallets(clientState.activeWallets)
+      console.log('[DeviceManager] Restored active wallets from client state')
+    }
+    
+    // Restore KV records
+    if (clientState.kvRecords && Object.keys(clientState.kvRecords).length > 0) {
+      this.simulator.setKvRecordsDirectly(clientState.kvRecords)
+      console.log('[DeviceManager] Restored KV records from client state:', Object.keys(clientState.kvRecords))
     }
   }
 
