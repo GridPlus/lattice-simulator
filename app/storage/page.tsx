@@ -85,7 +85,7 @@ export default function StoragePage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
             <Database className="w-8 h-8" />
-            Storage & KV Records
+            KV Records - Address Tags
           </h1>
           <p className="text-gray-600 dark:text-gray-400 mt-2">
             Manage key-value records stored on the device, including address tags
@@ -101,10 +101,6 @@ export default function StoragePage() {
         </button>
       </div>
 
-      {/* Debug Panel */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-        <ServerClientDebug />
-      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -211,6 +207,11 @@ export default function StoragePage() {
         onAdd={handleAddRecord}
         loading={isLoading}
       />
+
+      {/* Debug Panel - Collapsible at bottom */}
+      <div className="mt-8">
+        <ServerClientDebug defaultCollapsed={true} />
+      </div>
     </div>
     </MainLayout>
   )

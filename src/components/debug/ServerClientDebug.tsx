@@ -9,6 +9,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useDeviceStore } from '@/store/deviceStore'
+import { ChevronDown, ChevronUp, Bug } from 'lucide-react'
 
 interface RequestLog {
   timestamp: number
@@ -17,10 +18,15 @@ interface RequestLog {
   data?: any
 }
 
-export function ServerClientDebug() {
+interface ServerClientDebugProps {
+  defaultCollapsed?: boolean
+}
+
+export function ServerClientDebug({ defaultCollapsed = true }: ServerClientDebugProps) {
   const [logs, setLogs] = useState<RequestLog[]>([])
   const [isConnected, setIsConnected] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
   const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)
 
   const addLog = (type: RequestLog['type'], message: string, data?: any) => {
@@ -125,9 +131,14 @@ export function ServerClientDebug() {
   }
 
   return (
-    <div className="border rounded-lg p-4 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="border rounded-lg bg-white dark:bg-gray-800 shadow-sm">
+      {/* Header - Always visible */}
+      <div 
+        className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
         <div className="flex items-center space-x-2">
+          <Bug className="w-5 h-5 text-gray-600 dark:text-gray-400" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
             Server-Client Debug
           </h3>
@@ -137,27 +148,47 @@ export function ServerClientDebug() {
           </span>
         </div>
         
-        <div className="flex space-x-2">
-          <button
-            onClick={testKvRequest}
-            disabled={testing || !isConnected}
-            className={`px-3 py-1 text-sm rounded ${
-              testing || !isConnected
-                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            }`}
-          >
-            {testing ? 'Testing...' : 'Test KV Request'}
-          </button>
+        <div className="flex items-center space-x-2">
+          {!isCollapsed && (
+            <div className="flex space-x-2">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  testKvRequest()
+                }}
+                disabled={testing || !isConnected}
+                className={`px-3 py-1 text-sm rounded ${
+                  testing || !isConnected
+                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                }`}
+              >
+                {testing ? 'Testing...' : 'Test KV Request'}
+              </button>
+              
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  clearLogs()
+                }}
+                className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+              >
+                Clear
+              </button>
+            </div>
+          )}
           
-          <button
-            onClick={clearLogs}
-            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
-          >
-            Clear
-          </button>
+          {isCollapsed ? (
+            <ChevronDown className="w-5 h-5 text-gray-400" />
+          ) : (
+            <ChevronUp className="w-5 h-5 text-gray-400" />
+          )}
         </div>
       </div>
+
+      {/* Collapsible Content */}
+      {!isCollapsed && (
+        <div className="px-4 pb-4 space-y-4 border-t border-gray-200 dark:border-gray-700">
 
       <div className="space-y-1">
         <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -194,10 +225,12 @@ export function ServerClientDebug() {
         </div>
       </div>
 
-      <div className="text-xs text-gray-500 dark:text-gray-400">
-        <p><strong>Device ID:</strong> {deviceId}</p>
-        <p><strong>How it works:</strong> Server requests trigger SSE events → Client responds via HTTP API</p>
-      </div>
+          <div className="text-xs text-gray-500 dark:text-gray-400">
+            <p><strong>Device ID:</strong> {deviceId}</p>
+            <p><strong>How it works:</strong> Server requests trigger SSE events → Client responds via HTTP API</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -60,7 +60,7 @@ const navigationItems: NavItem[] = [
   },
   {
     id: 'storage',
-    label: 'Storage',
+    label: 'Address Tags',
     icon: Database,
     href: '/storage'
   }
