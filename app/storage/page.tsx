@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react'
 import { useDeviceStore } from '@/store/deviceStore'
 import { KvRecordsTable } from '@/components/storage/KvRecordsTable'
 import { AddKvRecordModal } from '@/components/storage/AddKvRecordModal'
+import { ServerClientDebug } from '@/components/debug/ServerClientDebug'
 import { MainLayout } from '@/components/layout'
 import { Plus, Database, Tag } from 'lucide-react'
 
@@ -98,6 +99,11 @@ export default function StoragePage() {
           <Plus className="w-4 h-4" />
           Add Record
         </button>
+      </div>
+
+      {/* Debug Panel */}
+      <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
+        <ServerClientDebug />
       </div>
 
       {/* Stats Cards */}

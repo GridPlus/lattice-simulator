@@ -14,6 +14,7 @@ type DeviceEventType =
   | 'kv_records_updated'
   | 'kv_records_synced'
   | 'kv_records_reset'
+  | 'server_request'
 
 interface DeviceEvent {
   deviceId: string

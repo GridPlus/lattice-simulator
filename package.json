@@ -24,6 +24,8 @@
     "@scure/bip32": "^2.0.0",
     "@scure/bip39": "^2.0.0",
     "@solana/web3.js": "^1.98.4",
+    "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "aes-js": "^3.1.2",
     "bitcoinjs-lib": "^6.1.7",
     "class-variance-authority": "^0.7.0",
@@ -38,7 +40,9 @@
     "react-dom": "^18.2.0",
     "tailwind-merge": "^2.0.0",
     "tiny-secp256k1": "^2.2.4",
+    "uuid": "^11.1.0",
     "viem": "^2.36.0",
+    "ws": "^8.18.3",
     "zustand": "^4.4.0"
   },
   "devDependencies": {

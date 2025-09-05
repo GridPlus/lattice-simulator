@@ -16,6 +16,7 @@ import { LatticeSimulator } from './simulator'
 import { aes256_decrypt, aes256_encrypt } from '../utils/crypto'
 import crc32  from 'crc-32'
 import { generateKeyPair } from '../utils/crypto'
+import { requestKvRecords, requestAddKvRecords, requestRemoveKvRecords } from './requestManager'
 
 /**
  * Secure request structure for encrypted protocol messages
@@ -450,63 +451,143 @@ export class ProtocolHandler {
   /**
    * Handles key-value record retrieval request
    * 
-   * Processes requests for retrieving stored key-value pairs.
+   * Requests data from client-side storage via RequestManager instead of
+   * using simulator's local storage. This allows the client to be the 
+   * authoritative source of KV data.
    * 
    * @param data - Encrypted KV request data
    * @returns Promise resolving to records response
    * @private
    */
   private async handleGetKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    const { type, n, start } = this.parseGetKvRecordsRequest(data)
-    const response = await this.simulator.getKvRecords({ type, n, start })
-    
-    console.log(`[ProtocolHandler] handleGetKvRecordsRequest.response: ${JSON.stringify(response.data)}`)
-    return {
-      code: response.code,
-      data: response.data ? this.serializeKvRecordsResponse(response.data) : undefined,
-      error: response.error,
+    try {
+      const { type, n, start } = this.parseGetKvRecordsRequest(data)
+      const deviceId = this.simulator.getDeviceId()
+      
+      console.log(`[ProtocolHandler] Requesting KV records from client for device: ${deviceId}`)
+      
+      // Request data from client-side storage
+      const clientData = await requestKvRecords(deviceId, { type, n, start })
+      
+      console.log(`[ProtocolHandler] Received KV records from client:`, clientData)
+      
+      // Validate that we got the expected data structure
+      if (!clientData || typeof clientData !== 'object') {
+        return {
+          code: LatticeResponseCode.internalError,
+          error: 'Invalid data received from client',
+        }
+      }
+
+      // The client should send data in the same format the simulator expects
+      const responseData = {
+        records: clientData.records || [],
+        total: clientData.total || 0,
+        fetched: clientData.fetched || 0
+      }
+      
+      return {
+        code: LatticeResponseCode.success,
+        data: this.serializeKvRecordsResponse(responseData),
+      }
+      
+    } catch (error) {
+      console.error('[ProtocolHandler] Error handling KV records request:', error)
+      
+      // If client request fails, fall back to simulator data
+      console.log('[ProtocolHandler] Falling back to simulator data')
+      const { type, n, start } = this.parseGetKvRecordsRequest(data)
+      const response = await this.simulator.getKvRecords({ type, n, start })
+      
+      return {
+        code: response.code,
+        data: response.data ? this.serializeKvRecordsResponse(response.data) : undefined,
+        error: response.error,
+      }
     }
   }
 
   /**
    * Handles key-value record addition request
    * 
-   * Processes requests for storing new key-value pairs.
+   * Requests client to store new key-value pairs via RequestManager.
    * 
    * @param data - Encrypted KV addition request data
    * @returns Promise resolving to addition response
    * @private
    */
   private async handleAddKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    const records = this.parseAddKvRecordsRequest(data)
-    const response = await this.simulator.addKvRecords(records)
-    
-    return {
-      code: response.code,
-      data: response.success ? Buffer.alloc(0) : undefined,
-      error: response.error,
+    try {
+      const records = this.parseAddKvRecordsRequest(data)
+      const deviceId = this.simulator.getDeviceId()
+      
+      console.log(`[ProtocolHandler] Requesting to add KV records via client for device: ${deviceId}`)
+      
+      // Request client to add records
+      const result = await requestAddKvRecords(deviceId, records)
+      
+      console.log(`[ProtocolHandler] KV records add result from client:`, result)
+      
+      return {
+        code: result.success ? LatticeResponseCode.success : LatticeResponseCode.internalError,
+        data: result.success ? Buffer.alloc(0) : undefined,
+        error: result.error,
+      }
+      
+    } catch (error) {
+      console.error('[ProtocolHandler] Error handling add KV records request:', error)
+      
+      // Fall back to simulator
+      const records = this.parseAddKvRecordsRequest(data)
+      const response = await this.simulator.addKvRecords(records)
+      
+      return {
+        code: response.code,
+        data: response.success ? Buffer.alloc(0) : undefined,
+        error: response.error,
+      }
     }
   }
 
   /**
    * Handles key-value record removal request
    * 
-   * Processes requests for removing stored key-value pairs.
+   * Requests client to remove stored key-value pairs via RequestManager.
    * 
    * @param data - Encrypted KV removal request data
    * @returns Promise resolving to removal response
    * @private
    */
   private async handleRemoveKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    const { type, ids } = this.parseRemoveKvRecordsRequest(data)
-    console.log(`[ProtocolHandler] handleRemoveKvRecordsRequest.type: ${type}, ids: ${ids}`)
-    
-    const response = await this.simulator.removeKvRecords(type, ids)
-    console.log(`[ProtocolHandler] handleRemoveKvRecordsRequest.response: ${response}`)
-    return {
-      code: response.code,
-      data: response.success ? Buffer.alloc(0) : undefined,
-      error: response.error,
+    try {
+      const { type, ids } = this.parseRemoveKvRecordsRequest(data)
+      const deviceId = this.simulator.getDeviceId()
+      
+      console.log(`[ProtocolHandler] Requesting to remove KV records via client for device: ${deviceId}, type: ${type}, ids: ${ids}`)
+      
+      // Request client to remove records
+      const result = await requestRemoveKvRecords(deviceId, { type, ids })
+      
+      console.log(`[ProtocolHandler] KV records remove result from client:`, result)
+      
+      return {
+        code: result.success ? LatticeResponseCode.success : LatticeResponseCode.internalError,
+        data: result.success ? Buffer.alloc(0) : undefined,
+        error: result.error,
+      }
+      
+    } catch (error) {
+      console.error('[ProtocolHandler] Error handling remove KV records request:', error)
+      
+      // Fall back to simulator
+      const { type, ids } = this.parseRemoveKvRecordsRequest(data)
+      const response = await this.simulator.removeKvRecords(type, ids)
+      
+      return {
+        code: response.code,
+        data: response.success ? Buffer.alloc(0) : undefined,
+        error: response.error,
+      }
     }
   }
 

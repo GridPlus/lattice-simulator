@@ -94,8 +94,8 @@ describe('Checksum Mismatch Reproduction', () => {
     // by checking if the protocol produces consistent checksums
     
     // Simulate the exact error scenario from the logs
-    const expectedChecksum = 3092091761  // From your logs - what client expects
-    const receivedChecksum = 1856734265   // From your logs - what client gets
+    const expectedChecksum: number = 3092091761  // From your logs - what client expects
+    const receivedChecksum: number = 1856734265   // From your logs - what client gets
     
     // Create a test that demonstrates the checksum mismatch issue
     const checksumMismatch = expectedChecksum !== receivedChecksum

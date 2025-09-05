@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtocolHandler } from '@/lib/protocolHandler'
 import { LatticeResponseCode } from '@/types'
-import { LatticeSimulator } from '@/lib/simulator'
 
 // Mock the simulator with simple vi.fn() calls
 const mockSimulator = {
@@ -9,7 +8,7 @@ const mockSimulator = {
   getKvRecords: vi.fn(),
   getSharedSecret: vi.fn(),
   updateEphemeralKeyPair: vi.fn(),
-} as unknown as LatticeSimulator
+} as any
 
 describe('ProtocolHandler - handleGetKvRecordsRequest', () => {
   let protocolHandler: ProtocolHandler

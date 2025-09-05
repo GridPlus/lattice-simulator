@@ -279,11 +279,11 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
           return
         }
         
-        // Update the store with fetched records
-        const { setKvRecord } = useDeviceStore.getState()
-        data.records.forEach(record => {
-          setKvRecord(record.key, record.val, record.type)
-        })
+        // Note: We don't update the store here because:
+        // 1. The server doesn't have persistent storage
+        // 2. The client maintains its own KV record state
+        // 3. This event is just a notification that a fetch operation occurred
+        // 4. The actual data should come from the client's own store or API response
         
       } catch (error) {
         console.error('[useDeviceEvents] Error parsing kv_records_fetched event:', error)
@@ -301,11 +301,11 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
           return
         }
         
-        // Add new records to the store
-        const { setKvRecord } = useDeviceStore.getState()
-        data.records.forEach(record => {
-          setKvRecord(record.key, record.value)
-        })
+        // Note: We don't automatically add records here because:
+        // 1. The client should control its own KV record state
+        // 2. This event is just a notification that records were added on the device
+        // 3. The client can choose to sync its state or ignore the notification
+        // 4. For now, we'll just log the event for debugging purposes
         
       } catch (error) {
         console.error('[useDeviceEvents] Error parsing kv_records_added event:', error)
@@ -323,11 +323,11 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
           return
         }
         
-        // Remove records from the store
-        const { removeKvRecord } = useDeviceStore.getState()
-        data.removedRecords.forEach(record => {
-          removeKvRecord(record.key)
-        })
+        // Note: We don't automatically remove records here because:
+        // 1. The client should control its own KV record state
+        // 2. This event is just a notification that records were removed on the device
+        // 3. The client can choose to sync its state or ignore the notification
+        // 4. For now, we'll just log the event for debugging purposes
         
       } catch (error) {
         console.error('[useDeviceEvents] Error parsing kv_records_removed event:', error)
