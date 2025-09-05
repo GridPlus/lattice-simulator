@@ -8,6 +8,7 @@
 
 import React from 'react'
 import { usePathname } from 'next/navigation'
+import Link from 'next/link'
 import { 
   Home, 
   Wifi, 
@@ -83,7 +84,7 @@ export function Sidebar() {
             const isActive = pathname === item.href
             
             return (
-              <a
+              <Link
                 key={item.id}
                 href={item.href}
                 className={`group flex items-center px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
@@ -105,7 +106,7 @@ export function Sidebar() {
                     {item.badge}
                   </span>
                 )}
-              </a>
+              </Link>
             )
           })}
         </nav>
