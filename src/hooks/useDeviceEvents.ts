@@ -67,18 +67,40 @@ export interface KvRecordsRemovedData {
 export function useDeviceEvents(deviceId: string | null, enabled: boolean = true) {
   const eventSourceRef = useRef<EventSource | null>(null)
   const lastProcessedTimestampRef = useRef<number>(0)
+  const processedEventsRef = useRef<Set<string>>(new Set())
   const { 
     setConnectionState, 
     exitPairingMode,
   } = useDeviceStore()
 
   // Helper function to check if event should be processed (avoid re-processing old events)
-  const shouldProcessEvent = (timestamp: number): boolean => {
+  const shouldProcessEvent = (timestamp: number, eventType: string, eventData: any): boolean => {
+    // Create a unique event identifier
+    const eventId = `${eventType}-${timestamp}-${JSON.stringify(eventData)}`
+    
+    // Check if we've already processed this exact event
+    if (processedEventsRef.current.has(eventId)) {
+      console.log('[useDeviceEvents] Skipping duplicate event:', eventId)
+      return false
+    }
+    
+    // Check if this is an old event
     if (timestamp + 1000 <= lastProcessedTimestampRef.current) {
       console.log('[useDeviceEvents] Skipping old event with timestamp:', timestamp, 'last processed:', lastProcessedTimestampRef.current)
       return false
     }
+    
+    // Mark this event as processed
+    processedEventsRef.current.add(eventId)
     lastProcessedTimestampRef.current = timestamp
+    
+    // Clean up old processed events (keep only last 100)
+    if (processedEventsRef.current.size > 100) {
+      const eventsArray = Array.from(processedEventsRef.current)
+      processedEventsRef.current.clear()
+      // Keep the most recent 50 events
+      eventsArray.slice(-50).forEach(event => processedEventsRef.current.add(event))
+    }
     
     return true
   }
@@ -136,7 +158,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] Device state update:', data)
 
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'device_state', data)) {
           return
         }
 
@@ -195,7 +217,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] Pairing mode started:', data)
         
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'pairing_mode_started', data)) {
           return
         }
         
@@ -220,7 +242,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] Pairing mode ended:', data)
         
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'pairing_mode_ended', data)) {
           return
         }
         
@@ -238,7 +260,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] Connection changed:', data.isConnected)
         
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'connection_changed', data)) {
           return
         }
         
@@ -257,7 +279,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] Pairing changed:', data.isPaired)
         
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'pairing_changed', data)) {
           return
         }
         
@@ -275,7 +297,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] KV records fetched:', data)
         
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'kv_records_fetched', data)) {
           return
         }
         
@@ -297,7 +319,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] KV records added:', data)
         
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'kv_records_added', data)) {
           return
         }
         
@@ -319,7 +341,7 @@ export function useDeviceEvents(deviceId: string | null, enabled: boolean = true
         console.log('[useDeviceEvents] KV records removed:', data)
         
         // Check if this event should be processed (avoid re-processing old events)
-        if (!shouldProcessEvent(data.timestamp)) {
+        if (!shouldProcessEvent(data.timestamp, 'kv_records_removed', data)) {
           return
         }
         

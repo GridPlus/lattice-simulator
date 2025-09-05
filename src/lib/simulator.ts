@@ -260,6 +260,7 @@ export class LatticeSimulator {
 
       // Set connection state, connected and paired, exit pairing mode
       deviceStore.setConnectionState(true, true)
+      // Exit pairing mode immediately - the state should be updated now
       deviceStore.exitPairingMode()
       
       console.log('[Simulator] Device successfully paired via finalizePairing!')
@@ -286,6 +287,7 @@ export class LatticeSimulator {
 
     // Set connection state, connected and paired, exit pairing mode
     deviceStore.setConnectionState(true, true)
+    // Exit pairing mode immediately - the state should be updated now
     deviceStore.exitPairingMode()
 
     console.log('[Simulator] Device successfully paired!')
@@ -855,7 +857,6 @@ export class LatticeSimulator {
   setDeviceInfo(deviceInfo: any): void {
     if (deviceInfo.deviceId) this.deviceId = deviceInfo.deviceId
     if (deviceInfo.firmwareVersion) this.firmwareVersion = deviceInfo.firmwareVersion
-    if (deviceInfo.isPaired !== undefined) this.isPaired = deviceInfo.isPaired
     if (deviceInfo.isLocked !== undefined) this.isLocked = deviceInfo.isLocked
     console.log('[Simulator] Set device info:', deviceInfo)
   }

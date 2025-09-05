@@ -463,7 +463,7 @@ export class DeviceManager {
         console.log('[DeviceManager] Restored active wallets')
       }
     } else {
-      console.log('[DeviceManager] Device not connected or wrong device ID, skipping restore')
+      console.log(`[DeviceManager] Device not connected or wrong device ID[${id}], skipping restore`)
     }
   }
 

@@ -2,7 +2,7 @@
  * Zustand store for device state management
  */
 
-import { create } from 'zustand'
+import { create, StateCreator } from 'zustand'
 import { subscribeWithSelector, persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type {
@@ -20,7 +20,6 @@ const DEFAULT_DEVICE_INFO: DeviceInfo = {
   deviceId: 'SD0001',
   name: 'Lattice1 Simulator',
   firmwareVersion: Buffer.from([0, 0, 15, 0]), // v0.15.0 as Buffer
-  isPaired: false,
   isLocked: false,
 }
 
@@ -66,6 +65,7 @@ const INITIAL_STATE: DeviceState = {
   pairingCode: undefined,
   pairingTimeoutMs: 60000, // 60 seconds
   pairingStartTime: undefined,
+  pairingTimeoutId: undefined, // Store timeout ID to clear it later
   
   // Pending Requests
   pendingRequests: [],
@@ -146,10 +146,58 @@ interface DeviceStore extends DeviceState {
  * store.setLocked(true);
  * ```
  */
-export const useDeviceStore = create<DeviceStore>()(
-  persist(
-    subscribeWithSelector(
-      immer((set, get) => ({
+// Custom storage implementation that handles SSR
+const createStorage = () => {
+  if (typeof window === 'undefined') {
+    // Server-side: return a no-op storage that never rehydrates
+    return {
+      getItem: () => {
+        console.log('[DeviceStore] Server-side: getItem returning null (no rehydration)')
+        return null
+      },
+      setItem: () => {
+        console.log('[DeviceStore] Server-side: setItem no-op')
+      },
+      removeItem: () => {
+        console.log('[DeviceStore] Server-side: removeItem no-op')
+      },
+    }
+  }
+  
+  // Client-side: use localStorage
+  return {
+    getItem: (key: string) => {
+      try {
+        const value = localStorage.getItem(key)
+        return value ? JSON.parse(value) : null
+      } catch (error) {
+        console.warn('[DeviceStore] localStorage.getItem failed:', error)
+        return null
+      }
+    },
+    setItem: (key: string, value: any) => {
+      try {
+        console.log('[DeviceStore] Saving to localStorage:', key, value)
+        localStorage.setItem(key, JSON.stringify(value))
+        console.log('[DeviceStore] Successfully saved to localStorage')
+      } catch (error) {
+        console.warn('[DeviceStore] localStorage.setItem failed:', error)
+      }
+    },
+    removeItem: (key: string) => {
+      try {
+        localStorage.removeItem(key)
+      } catch (error) {
+        console.warn('[DeviceStore] localStorage.removeItem failed:', error)
+      }
+    },
+  }
+}
+
+// Create the base store without persistence
+const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWithSelector", never], ["zustand/immer", never]]> => 
+  subscribeWithSelector(
+    immer((set, get) => ({
       ...INITIAL_STATE,
       config: DEFAULT_SIMULATOR_CONFIG,
       
@@ -170,21 +218,28 @@ export const useDeviceStore = create<DeviceStore>()(
       
       
       unpair: () => {
+        const state = get()
+        // Clear the pairing timeout if it exists
+        if (state.pairingTimeoutId) {
+          clearTimeout(state.pairingTimeoutId)
+          console.log('[DeviceStore] Cleared pairing mode timeout during unpair')
+        }
+        
         set((draft) => {
           draft.isPaired = false
           draft.pairingSecret = undefined
           draft.ephemeralPub = undefined
           draft.sharedSecret = undefined
-          draft.deviceInfo.isPaired = false
           draft.pendingRequests = []
           draft.currentRequest = undefined
           draft.userApprovalRequired = false
           draft.isPairingMode = false
           draft.pairingCode = undefined
           draft.pairingStartTime = undefined
+          draft.pairingTimeoutId = undefined
         })
-        const state = get()
-        emitPairingChanged(state.deviceInfo.deviceId, false)
+        const newState = get()
+        emitPairingChanged(newState.deviceInfo.deviceId, false)
       },
       
       enterPairingMode: () => {
@@ -209,7 +264,7 @@ export const useDeviceStore = create<DeviceStore>()(
         }
         
         // Set up timeout to exit pairing mode after 60 seconds
-        setTimeout(() => {
+        const timeoutId = setTimeout(() => {
           const currentState = get()
           if (currentState.isPairingMode && currentState.pairingStartTime) {
             const elapsed = Date.now() - currentState.pairingStartTime
@@ -219,15 +274,32 @@ export const useDeviceStore = create<DeviceStore>()(
             }
           }
         }, get().pairingTimeoutMs)
+        
+        // Store the timeout ID so we can clear it later
+        set((draft) => {
+          draft.pairingTimeoutId = timeoutId
+        })
       },
       
       exitPairingMode: () => {
         const state = get()
+        console.log('[DeviceStore] exitPairingMode called. Current state:', {
+          isPairingMode: state.isPairingMode,
+          isPaired: state.isPaired,
+          isConnected: state.isConnected
+        })
+        
         if (state.isPairingMode) {
+          // Clear the pairing timeout if it exists
+          if (state.pairingTimeoutId) {
+            clearTimeout(state.pairingTimeoutId)
+            console.log('[DeviceStore] Cleared pairing mode timeout')
+          }
+          
           // Emit device event for SSE clients
           try {
             emitPairingModeEnded(state.deviceInfo.deviceId)
-            emitPairingChanged(state.deviceInfo.deviceId, state.isPaired)
+            emitPairingChanged(state.deviceInfo.deviceId,state.isPaired)
             emitConnectionChanged(state.deviceInfo.deviceId, state.isConnected)
           } catch (error) {
             console.error('[DeviceStore] Failed to emit pairing mode ended event:', error)
@@ -237,7 +309,9 @@ export const useDeviceStore = create<DeviceStore>()(
           draft.isPairingMode = false
           draft.pairingCode = undefined
           draft.pairingStartTime = undefined
+          draft.pairingTimeoutId = undefined
         })
+        console.log('[DeviceStore] exitPairingMode completed')
       },
       
       validatePairingCode: (code: string) => {
@@ -266,14 +340,46 @@ export const useDeviceStore = create<DeviceStore>()(
       
       setConnectionState: (isConnected: boolean, isPaired: boolean) => {
         console.log('[DeviceStore] setConnectionState called:', { isConnected, isPaired })
+        console.log('[DeviceStore] Current environment:', typeof window !== 'undefined' ? 'client' : 'server')
         set((draft) => {
           draft.isConnected = isConnected
           draft.isPaired = isPaired
         })
+        const newState = get()
         console.log('[DeviceStore] setConnectionState completed. New state:', {
-          isConnected: get().isConnected,
-          isPaired: get().isPaired
+          isConnected: newState.isConnected,
+          isPaired: newState.isPaired
         })
+        console.log('[DeviceStore] Full state after setConnectionState:', {
+          isConnected: newState.isConnected,
+          isPaired: newState.isPaired,
+          isPairingMode: newState.isPairingMode,
+          pairingCode: newState.pairingCode
+        })
+        
+        // Force a manual localStorage save to test if persistence is working
+        if (typeof window !== 'undefined') {
+          try {
+            const stateToSave = {
+              deviceInfo: {
+                ...newState.deviceInfo,
+                firmwareVersion: newState.deviceInfo.firmwareVersion ? Array.from(newState.deviceInfo.firmwareVersion) : null,
+              },
+              isConnected: newState.isConnected,
+              isPaired: newState.isPaired,
+              isPairingMode: newState.isPairingMode,
+              pairingCode: newState.pairingCode,
+              pairingStartTime: newState.pairingStartTime,
+              config: newState.config,
+              kvRecords: newState.kvRecords,
+            }
+            console.log('[DeviceStore] Manually saving to localStorage:', stateToSave)
+            localStorage.setItem('lattice-device-store', JSON.stringify(stateToSave))
+            console.log('[DeviceStore] Manual localStorage save completed')
+          } catch (error) {
+            console.error('[DeviceStore] Manual localStorage save failed:', error)
+          }
+        }
       },
       
       syncStoreToDeviceManager: async (deviceId: string) => {
@@ -442,33 +548,48 @@ export const useDeviceStore = create<DeviceStore>()(
         }
       },
     }))
-    ),
-    {
-      name: 'lattice-device-store',
-      // Only persist essential state, not sensitive or temporary data
-      partialize: (state) => ({
-        deviceInfo: {
-          ...state.deviceInfo,
-          // Convert Buffer to array for serialization
-          firmwareVersion: state.deviceInfo.firmwareVersion ? Array.from(state.deviceInfo.firmwareVersion) : null,
-        },
-        isConnected: state.isConnected,
-        isPaired: state.isPaired,
-        isPairingMode: state.isPairingMode,
-        pairingCode: state.pairingCode,
-        pairingStartTime: state.pairingStartTime,
-        config: state.config,
-        kvRecords: state.kvRecords,
-      }),
-      // Custom deserializer to convert arrays back to Buffers
-      onRehydrateStorage: () => (state) => {
-        if (state?.deviceInfo?.firmwareVersion && Array.isArray(state.deviceInfo.firmwareVersion)) {
-          state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
-        }
-        console.log('[DeviceStore] Rehydrated state:', state)
-      },
-    }
   )
+
+// Create the store with or without persistence based on environment
+export const useDeviceStore = create<DeviceStore>()(
+  (typeof window !== 'undefined'
+    ? persist(
+        createBaseStore(),
+        {
+          name: 'lattice-device-store',
+          storage: createStorage(),
+          // Only persist essential state, not sensitive or temporary data
+          partialize: (state) => ({
+            deviceInfo: {
+              ...state.deviceInfo,
+              // Convert Buffer to array for serialization
+              firmwareVersion: state.deviceInfo.firmwareVersion ? Array.from(state.deviceInfo.firmwareVersion) : null,
+            },
+            isConnected: state.isConnected,
+            isPaired: state.isPaired,
+            isPairingMode: state.isPairingMode,
+            pairingCode: state.pairingCode,
+            pairingStartTime: state.pairingStartTime,
+            config: state.config,
+            kvRecords: state.kvRecords,
+          }),
+          // Custom deserializer to convert arrays back to Buffers
+          onRehydrateStorage: () => (state) => {
+            if (typeof window === 'undefined') {
+              console.log('[DeviceStore] Server-side: Skipping rehydration callback')
+              return
+            }
+            
+            if (state?.deviceInfo?.firmwareVersion && Array.isArray(state.deviceInfo.firmwareVersion)) {
+              state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
+            }
+            console.log('[DeviceStore] Rehydrated state:', state)
+            console.log('[DeviceStore] Rehydration timestamp:', new Date().toISOString())
+            console.log('[DeviceStore] Current localStorage content:', typeof window !== 'undefined' ? localStorage.getItem('lattice-device-store') : 'N/A')
+          },
+        }
+      )
+    : createBaseStore()) as any
 )
 
 // Selectors for commonly used state slices

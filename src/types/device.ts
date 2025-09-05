@@ -22,7 +22,6 @@ export interface DeviceInfo {
   deviceId: string
   name: string
   firmwareVersion: Buffer // Buffer for consistency with other parts of the codebase
-  isPaired: boolean
   isLocked: boolean
   pairingTimeoutMs?: number
 }
@@ -54,6 +53,7 @@ export interface DeviceState {
   pairingCode?: string
   pairingTimeoutMs: number
   pairingStartTime?: number
+  pairingTimeoutId?: NodeJS.Timeout // Store timeout ID to clear it later
   
   // Pending Requests
   pendingRequests: PendingRequest[]

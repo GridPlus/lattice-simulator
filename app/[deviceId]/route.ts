@@ -107,7 +107,7 @@ export async function POST(
       // Parse the protocol message
       const parsedMessage = parseProtocolMessage(buffer)
 
-      console.log(`Parsed message:`, JSON.stringify(parsedMessage, null, 2))
+      // console.log(`Parsed message:`, JSON.stringify(parsedMessage, null, 2))
       
       // Create protocol handler for this device
       const protocolHandler = new ProtocolHandler(deviceManager.getSimulator())
