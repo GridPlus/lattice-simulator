@@ -551,6 +551,7 @@ const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWi
   )
 
 // Create the store with or without persistence based on environment
+console.log('[DeviceStore] Creating store instance...', typeof window !== 'undefined' ? 'client' : 'server')
 export const useDeviceStore = create<DeviceStore>()(
   (typeof window !== 'undefined'
     ? persist(
@@ -575,6 +576,9 @@ export const useDeviceStore = create<DeviceStore>()(
           }),
           // Custom deserializer to convert arrays back to Buffers
           onRehydrateStorage: () => (state) => {
+            console.log('[DeviceStore] onRehydrateStorage called!', typeof window !== 'undefined' ? 'client' : 'server')
+            console.log('[DeviceStore] Stack trace:', new Error().stack)
+            
             if (typeof window === 'undefined') {
               console.log('[DeviceStore] Server-side: Skipping rehydration callback')
               return
