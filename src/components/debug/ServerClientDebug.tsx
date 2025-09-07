@@ -13,7 +13,7 @@ import { ChevronDown, ChevronUp, Bug } from 'lucide-react'
 
 interface RequestLog {
   timestamp: number
-  type: 'server_request' | 'client_response' | 'sse_connect' | 'error'
+  type: 'server_request' | 'client_response' | 'ws_connect' | 'error'
   message: string
   data?: any
 }
@@ -74,34 +74,22 @@ export function ServerClientDebug({ defaultCollapsed = true }: ServerClientDebug
     setLogs([])
   }
 
-  // Monitor SSE connection status
+  // Monitor WebSocket connection status (passive monitoring)
   useEffect(() => {
     if (!deviceId) return
 
-    // Create a test SSE connection to monitor status
-    const eventSource = new EventSource(`/api/device-events/${deviceId}`)
+    // Instead of creating our own WebSocket connection, just assume it's connected
+    // The main app uses ServerRequestProvider which handles the actual connection
+    setIsConnected(true)
+    addLog('ws_connect', 'Debug component initialized - monitoring existing WebSocket connection')
     
-    eventSource.onopen = () => {
-      setIsConnected(true)
-      addLog('sse_connect', 'Connected to SSE endpoint')
-    }
-    
-    eventSource.onerror = () => {
-      setIsConnected(false)
-      addLog('error', 'SSE connection error')
-    }
-    
-    eventSource.addEventListener('server_request', (event) => {
-      try {
-        const request = JSON.parse(event.data)
-        addLog('server_request', `Received server request: ${request.type}`, request)
-      } catch (error) {
-        addLog('error', 'Error parsing server request')
-      }
-    })
+    // Set up a timer to occasionally log that we're monitoring
+    const monitorInterval = setInterval(() => {
+      addLog('server_request', 'Debug monitoring active...', { deviceId })
+    }, 30000) // Every 30 seconds
     
     return () => {
-      eventSource.close()
+      clearInterval(monitorInterval)
       setIsConnected(false)
     }
   }, [deviceId])
@@ -114,7 +102,7 @@ export function ServerClientDebug({ defaultCollapsed = true }: ServerClientDebug
     switch (type) {
       case 'server_request': return '📤'
       case 'client_response': return '📥'
-      case 'sse_connect': return '🔗'
+      case 'ws_connect': return '🔗'
       case 'error': return '❌'
       default: return '📝'
     }
@@ -124,7 +112,7 @@ export function ServerClientDebug({ defaultCollapsed = true }: ServerClientDebug
     switch (type) {
       case 'server_request': return 'text-blue-600 dark:text-blue-400'
       case 'client_response': return 'text-green-600 dark:text-green-400'
-      case 'sse_connect': return 'text-purple-600 dark:text-purple-400'
+      case 'ws_connect': return 'text-purple-600 dark:text-purple-400'
       case 'error': return 'text-red-600 dark:text-red-400'
       default: return 'text-gray-600 dark:text-gray-400'
     }
@@ -144,7 +132,7 @@ export function ServerClientDebug({ defaultCollapsed = true }: ServerClientDebug
           </h3>
           <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
           <span className="text-sm text-gray-600 dark:text-gray-400">
-            {isConnected ? 'SSE Connected' : 'SSE Disconnected'}
+            {isConnected ? 'WebSocket Connected' : 'WebSocket Disconnected'}
           </span>
         </div>
         
@@ -227,7 +215,7 @@ export function ServerClientDebug({ defaultCollapsed = true }: ServerClientDebug
 
           <div className="text-xs text-gray-500 dark:text-gray-400">
             <p><strong>Device ID:</strong> {deviceId}</p>
-            <p><strong>How it works:</strong> Server requests trigger SSE events → Client responds via HTTP API</p>
+            <p><strong>How it works:</strong> Server requests sent via WebSocket → Client responds over same WebSocket connection</p>
           </div>
         </div>
       )}

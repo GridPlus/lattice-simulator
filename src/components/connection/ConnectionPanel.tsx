@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/store'
 import { useWalletStore } from '@/store/walletStore'
 import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check, Wallet, Trash2, AlertTriangle } from 'lucide-react'
-import { useDeviceEvents } from '@/hooks/useDeviceEvents'
 import { WalletSetup } from '@/components/setup'
 
 /**
@@ -18,9 +17,7 @@ function ConnectionStatus() {
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
   const [isCopied, setIsCopied] = useState(false)
   
-  // Enable SSE connection for real-time updates from server
-  // Connect to SSE when we have a device ID, regardless of connection status
-  useDeviceEvents(deviceId || 'SD0001', true)
+  // WebSocket connection is handled by ServerRequestProvider at the app level
   
   // Sync store state to device manager when component mounts
   useEffect(() => {

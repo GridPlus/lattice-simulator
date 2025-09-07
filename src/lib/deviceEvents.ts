@@ -1,6 +1,6 @@
 /**
  * Simple event system for device state changes
- * This allows the simulator to broadcast events that the SSE endpoint can listen to
+ * This allows the simulator to broadcast events via WebSocket connections
  */
 
 type DeviceEventType = 
@@ -70,6 +70,7 @@ class DeviceEventEmitter {
 
     console.log(`[DeviceEvents] Emitting event:`, event)
 
+    // Emit to local listeners (for backward compatibility)
     const listeners = this.listeners.get(deviceId) || []
     listeners.forEach(listener => {
       try {
@@ -78,6 +79,15 @@ class DeviceEventEmitter {
         console.error(`[DeviceEvents] Error in event listener:`, error)
       }
     })
+
+    // Also broadcast to WebSocket clients
+    try {
+      // Import here to avoid circular dependencies
+      const { wsManager } = require('./wsManager')
+      wsManager.broadcastDeviceEvent(deviceId, type, data)
+    } catch (error) {
+      console.error(`[DeviceEvents] Error broadcasting to WebSocket:`, error)
+    }
   }
 
   /**

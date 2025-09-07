@@ -1,9 +1,9 @@
 /**
  * Client-side handler for server requests
  * 
- * This hook listens for server requests via SSE and responds with data from
- * the client-side Zustand stores. It bridges the gap between server protocol
- * handlers and client-side state management.
+ * This hook connects to the WebSocket server and handles server requests,
+ * responding with data from the client-side Zustand stores. It bridges the gap
+ * between server protocol handlers and client-side state management.
  */
 
 import { useEffect, useRef, useCallback } from 'react'
@@ -11,8 +11,13 @@ import { useDeviceStore } from '@/store/deviceStore'
 
 interface ServerRequest {
   requestId: string
-  type: string
+  requestType: string
   payload: any
+}
+
+interface WebSocketMessage {
+  type: string
+  data: any
   timestamp: number
 }
 
@@ -21,9 +26,36 @@ export function useServerRequestHandler(deviceId: string) {
   const getKvRecord = useDeviceStore(state => state.getKvRecord)
   const setKvRecord = useDeviceStore(state => state.setKvRecord) 
   const removeKvRecord = useDeviceStore(state => state.removeKvRecord)
+  const setConnectionState = useDeviceStore(state => state.setConnectionState)
+  const exitPairingMode = useDeviceStore(state => state.exitPairingMode)
   
   // Keep track of processed requests to avoid duplicates
   const processedRequests = useRef(new Set<string>())
+  // WebSocket connection reference
+  const wsRef = useRef<WebSocket | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  const sendResponse = useCallback((request: ServerRequest, responseData: any, error?: string) => {
+    const ws = wsRef.current
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.error('[ServerRequestHandler] WebSocket not connected, cannot send response')
+      return
+    }
+
+    const response: WebSocketMessage = {
+      type: 'client_response',
+      data: {
+        requestId: request.requestId,
+        requestType: request.requestType,
+        data: responseData,
+        error: error
+      },
+      timestamp: Date.now()
+    }
+
+    ws.send(JSON.stringify(response))
+    console.log(`[ServerRequestHandler] Sent WebSocket response for: ${request.requestId}`)
+  }, [])
 
   const handleServerRequest = useCallback(async (request: ServerRequest) => {
     // Avoid processing duplicate requests
@@ -41,7 +73,7 @@ export function useServerRequestHandler(deviceId: string) {
       let success = true
       let error: string | undefined
 
-      switch (request.type) {
+      switch (request.requestType) {
         case 'get_kv_records':
           responseData = await handleGetKvRecords(request.payload)
           break
@@ -56,45 +88,20 @@ export function useServerRequestHandler(deviceId: string) {
 
         default:
           success = false
-          error = `Unknown request type: ${request.type}`
-          console.warn(`[ServerRequestHandler] Unknown request type: ${request.type}`)
+          error = `Unknown request type: ${request.requestType}`
+          console.warn(`[ServerRequestHandler] Unknown request type: ${request.requestType}`)
       }
 
-      // Send response back to server
-      const response = {
-        requestId: request.requestId,
-        type: request.type,
-        data: responseData,
-        error: error
-      }
-
-      await fetch('/api/client-response', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(response)
-      })
-
-      console.log(`[ServerRequestHandler] Sent response for: ${request.requestId}`)
+      // Send response back to server via WebSocket
+      sendResponse(request, responseData, error)
 
     } catch (error) {
       console.error('[ServerRequestHandler] Error processing server request:', error)
       
-      // Send error response
-      await fetch('/api/client-response', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          requestId: request.requestId,
-          type: request.type,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        })
-      })
+      // Send error response via WebSocket
+      sendResponse(request, undefined, error instanceof Error ? error.message : 'Unknown error')
     }
-  }, [getAllKvRecords, getKvRecord, setKvRecord, removeKvRecord])
+  }, [getAllKvRecords, getKvRecord, setKvRecord, removeKvRecord, sendResponse])
 
   const handleGetKvRecords = useCallback(async (payload: { type: number; n: number; start: number }) => {
     const { type, n, start } = payload
@@ -171,41 +178,183 @@ export function useServerRequestHandler(deviceId: string) {
     }
   }, [getAllKvRecords, removeKvRecord])
 
-  // Set up event listener for server requests
+  // Device event handlers
+  const handleDeviceStateUpdate = useCallback((data: any) => {
+    console.log('[ServerRequestHandler] Device state update:', data)
+    
+    // Get current store state to check for conflicts  
+    const currentState = useDeviceStore.getState()
+    
+    // Prevent overwriting client state with older server state
+    if (currentState.isConnected && !data.isConnected) {
+      console.log('[ServerRequestHandler] Ignoring disconnect event - client is already connected')
+      return
+    }
+    
+    if (currentState.isPaired && !data.isPaired) {
+      console.log('[ServerRequestHandler] Ignoring unpaired event - client is already paired')
+      return
+    }
+
+    // Update connection state
+    setConnectionState(data.isConnected, data.isPaired)
+
+    // Handle pairing mode state  
+    if (data.isPairingMode && data.pairingCode) {
+      const store = useDeviceStore.getState()
+      if (!store.isPairingMode) {
+        store.enterPairingMode()
+        console.log('[ServerRequestHandler] Entered pairing mode from server event')
+      }
+    } else if (!data.isPairingMode && currentState.isPairingMode) {
+      exitPairingMode()
+      console.log('[ServerRequestHandler] Exited pairing mode from server event')
+    }
+  }, [setConnectionState, exitPairingMode])
+
+  const handlePairingModeStarted = useCallback((data: any) => {
+    console.log('[ServerRequestHandler] Pairing mode started:', data)
+    const store = useDeviceStore.getState()
+    if (!store.isPairingMode) {
+      store.enterPairingMode()
+      console.log('[ServerRequestHandler] Entered pairing mode from server event')
+    }
+  }, [])
+
+  const handlePairingModeEnded = useCallback((data: any) => {
+    console.log('[ServerRequestHandler] Pairing mode ended:', data)
+    exitPairingMode()
+  }, [exitPairingMode])
+
+  const handleConnectionChanged = useCallback((data: any) => {
+    console.log('[ServerRequestHandler] Connection changed:', data.isConnected)
+    const currentState = useDeviceStore.getState()
+    setConnectionState(data.isConnected, currentState.isPaired)
+  }, [setConnectionState])
+
+  const handlePairingChanged = useCallback((data: any) => {
+    console.log('[ServerRequestHandler] Pairing changed:', data.isPaired)
+    const currentState = useDeviceStore.getState()
+    setConnectionState(currentState.isConnected, data.isPaired)
+  }, [setConnectionState])
+
+  // WebSocket connection with auto-reconnection
   useEffect(() => {
     if (!deviceId) return
 
-    let eventSource: EventSource | null = null
+    const connectWebSocket = () => {
+      // Clear any existing reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
 
-    const connectToServerRequests = () => {
-      eventSource = new EventSource(`/api/device-events/${deviceId}`)
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const wsUrl = `${protocol}//${window.location.host}/ws/device/${deviceId}`
       
-      eventSource.addEventListener('server_request', (event) => {
+      console.log(`[ServerRequestHandler] Connecting to WebSocket: ${wsUrl}`)
+      
+      const ws = new WebSocket(wsUrl)
+      wsRef.current = ws
+
+      ws.onopen = () => {
+        console.log(`[ServerRequestHandler] WebSocket connected for device: ${deviceId}`)
+        
+        // Send heartbeat to keep connection alive
+        const heartbeat = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'heartbeat',
+              data: { deviceId },
+              timestamp: Date.now()
+            }))
+          } else {
+            clearInterval(heartbeat)
+          }
+        }, 30000) // Every 30 seconds
+
+        // Store heartbeat interval for cleanup
+        ;(ws as any).heartbeatInterval = heartbeat
+      }
+
+      ws.onmessage = (event) => {
         try {
-          const request: ServerRequest = JSON.parse(event.data)
-          handleServerRequest(request)
+          const message: WebSocketMessage = JSON.parse(event.data)
+          
+          if (message.type === 'server_request') {
+            const request: ServerRequest = message.data
+            handleServerRequest(request)
+          } else if (message.type === 'device_state') {
+            handleDeviceStateUpdate(message.data)
+          } else if (message.type === 'pairing_mode_started') {
+            handlePairingModeStarted(message.data)
+          } else if (message.type === 'pairing_mode_ended') {
+            handlePairingModeEnded(message.data)
+          } else if (message.type === 'connection_changed') {
+            handleConnectionChanged(message.data)
+          } else if (message.type === 'pairing_changed') {
+            handlePairingChanged(message.data)
+          } else if (message.type === 'heartbeat_response') {
+            // Heartbeat acknowledgment - silent
+          } else {
+            console.log(`[ServerRequestHandler] Received message of type: ${message.type}`, message.data)
+          }
         } catch (error) {
-          console.error('[ServerRequestHandler] Error parsing server request:', error)
+          console.error('[ServerRequestHandler] Error parsing WebSocket message:', error)
         }
-      })
+      }
 
-      eventSource.addEventListener('error', (error) => {
-        console.error('[ServerRequestHandler] SSE error:', error)
-        // Will automatically reconnect
-      })
+      ws.onclose = (event) => {
+        console.log(`[ServerRequestHandler] WebSocket closed for device: ${deviceId}, code: ${event.code}`)
+        
+        // Clean up heartbeat interval
+        if ((ws as any).heartbeatInterval) {
+          clearInterval((ws as any).heartbeatInterval)
+        }
+        
+        // Clear the reference if this was the current connection
+        if (wsRef.current === ws) {
+          wsRef.current = null
+        }
+        
+        // Attempt to reconnect after a delay (unless explicitly closed)
+        if (event.code !== 1000) { // 1000 = normal closure
+          console.log('[ServerRequestHandler] Attempting to reconnect in 3 seconds...')
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connectWebSocket()
+          }, 3000)
+        }
+      }
 
-      console.log(`[ServerRequestHandler] Connected to server requests for device: ${deviceId}`)
-    }
-
-    connectToServerRequests()
-
-    return () => {
-      if (eventSource) {
-        eventSource.close()
-        console.log(`[ServerRequestHandler] Disconnected from server requests for device: ${deviceId}`)
+      ws.onerror = (error) => {
+        console.error(`[ServerRequestHandler] WebSocket error for device: ${deviceId}`, error)
       }
     }
-  }, [deviceId, handleServerRequest])
+
+    connectWebSocket()
+
+    return () => {
+      // Clear reconnect timeout
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+      
+      // Close WebSocket connection
+      const ws = wsRef.current
+      if (ws) {
+        console.log(`[ServerRequestHandler] Closing WebSocket for device: ${deviceId}`)
+        
+        // Clean up heartbeat interval
+        if ((ws as any).heartbeatInterval) {
+          clearInterval((ws as any).heartbeatInterval)
+        }
+        
+        ws.close(1000, 'Component unmounting')
+        wsRef.current = null
+      }
+    }
+  }, [deviceId, handleServerRequest, handleDeviceStateUpdate, handlePairingModeStarted, handlePairingModeEnded, handleConnectionChanged, handlePairingChanged])
 
   // Clean up old processed requests periodically
   useEffect(() => {

@@ -76,7 +76,7 @@ class RequestManager {
       
       console.log(`[RequestManager] Created request: ${requestId} (${type}) for device: ${deviceId}`)
       
-      // Emit event that client can listen to via SSE
+      // Send request that client can receive via WebSocket
       this.notifyNewRequest(pendingRequest)
     })
   }
@@ -178,23 +178,23 @@ class RequestManager {
   }
 
   /**
-   * Notify about new request - this will be picked up by the SSE endpoint
-   * and broadcast to connected clients
+   * Notify about new request - this will be sent via WebSocket
+   * to connected clients
    */
   private notifyNewRequest(request: PendingRequest) {
     try {
       // Import here to avoid circular dependencies
-      const { deviceEvents } = require('./deviceEvents')
+      const { wsManager } = require('./wsManager')
       
-      // Emit a special event that the client can listen for
-      deviceEvents.emit(request.deviceId, 'server_request', {
-        requestId: request.requestId,
-        type: request.type,
-        payload: request.payload,
-        timestamp: request.createdAt
-      })
+      // Send server request via WebSocket
+      wsManager.sendServerRequest(
+        request.deviceId,
+        request.requestId,
+        request.type,
+        request.payload
+      )
       
-      console.log(`[RequestManager] Emitted server_request event for: ${request.requestId}`)
+      console.log(`[RequestManager] Sent server_request via WebSocket for: ${request.requestId}`)
     } catch (error) {
       console.error('[RequestManager] Error notifying about new request:', error)
     }
