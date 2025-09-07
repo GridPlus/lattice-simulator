@@ -122,3 +122,8 @@ playwright/.cache/
 # Turbo
 .turbo
 
+# Repomix output files
+repomix-output.xml
+repomix-output.json
+repomix-output.md
+
