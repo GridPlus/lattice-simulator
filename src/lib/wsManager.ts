@@ -62,19 +62,40 @@ class WSManager {
       }
     })
 
-    // Send initial connection state
-    this.sendMessage(ws, {
-      type: 'device_state',
-      data: {
-        deviceId,
-        isPairingMode: false,
-        pairingCode: undefined,
-        pairingTimeRemaining: 0,
-        isConnected: true,
-        isPaired: false
-      },
-      timestamp: Date.now()
-    })
+    // Send initial device state (get actual state from device store if available)
+    try {
+      // Import here to avoid circular dependencies
+      const { useDeviceStore } = require('../store/deviceStore')
+      const currentState = useDeviceStore.getState()
+      
+      this.sendMessage(ws, {
+        type: 'device_state',
+        data: {
+          deviceId,
+          isPairingMode: currentState.isPairingMode || false,
+          pairingCode: currentState.pairingCode || undefined,
+          pairingTimeRemaining: 0,
+          isConnected: currentState.isConnected || false,  // Use actual store state
+          isPaired: currentState.isPaired || false
+        },
+        timestamp: Date.now()
+      })
+    } catch (error) {
+      console.error('[WSManager] Error getting device state:', error)
+      // Fallback to default state
+      this.sendMessage(ws, {
+        type: 'device_state',
+        data: {
+          deviceId,
+          isPairingMode: false,
+          pairingCode: undefined,
+          pairingTimeRemaining: 0,
+          isConnected: false,  // Default to false if we can't get state
+          isPaired: false
+        },
+        timestamp: Date.now()
+      })
+    }
   }
 
   /**

@@ -250,7 +250,9 @@ export function useServerRequestHandler(deviceId: string) {
       }
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-      const wsUrl = `${protocol}//${window.location.host}/ws/device/${deviceId}`
+      const host = window.location.hostname
+      const wsPort = parseInt(window.location.port || '3000') + 443 // Use separate port for WebSocket (3443)
+      const wsUrl = `${protocol}//${host}:${wsPort}/ws/device/${deviceId}`
       
       console.log(`[ServerRequestHandler] Connecting to WebSocket: ${wsUrl}`)
       
@@ -258,17 +260,21 @@ export function useServerRequestHandler(deviceId: string) {
       wsRef.current = ws
 
       ws.onopen = () => {
-        console.log(`[ServerRequestHandler] WebSocket connected for device: ${deviceId}`)
+        console.log(`[ServerRequestHandler] WebSocket connected successfully for device: ${deviceId}`)
+        console.log(`[ServerRequestHandler] WebSocket readyState: ${ws.readyState}`)
+        console.log(`[ServerRequestHandler] WebSocket URL: ${wsUrl}`)
         
         // Send heartbeat to keep connection alive
         const heartbeat = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
+            console.log(`[ServerRequestHandler] Sending heartbeat for device: ${deviceId}`)
             ws.send(JSON.stringify({
               type: 'heartbeat',
               data: { deviceId },
               timestamp: Date.now()
             }))
           } else {
+            console.log(`[ServerRequestHandler] Stopping heartbeat, WebSocket not open. ReadyState: ${ws.readyState}`)
             clearInterval(heartbeat)
           }
         }, 30000) // Every 30 seconds
@@ -279,6 +285,7 @@ export function useServerRequestHandler(deviceId: string) {
 
       ws.onmessage = (event) => {
         try {
+          console.log('[ServerRequestHandler] Received message:', event.data)
           const message: WebSocketMessage = JSON.parse(event.data)
           
           if (message.type === 'server_request') {
@@ -305,29 +312,38 @@ export function useServerRequestHandler(deviceId: string) {
       }
 
       ws.onclose = (event) => {
-        console.log(`[ServerRequestHandler] WebSocket closed for device: ${deviceId}, code: ${event.code}`)
+        console.log(`[ServerRequestHandler] WebSocket closed for device: ${deviceId}`)
+        console.log(`[ServerRequestHandler] Close details - Code: ${event.code}, Reason: "${event.reason}", WasClean: ${event.wasClean}`)
+        console.log(`[ServerRequestHandler] Close codes reference - 1000: Normal, 1001: Going away, 1006: Abnormal`)
         
         // Clean up heartbeat interval
         if ((ws as any).heartbeatInterval) {
           clearInterval((ws as any).heartbeatInterval)
+          console.log(`[ServerRequestHandler] Cleared heartbeat interval`)
         }
         
         // Clear the reference if this was the current connection
         if (wsRef.current === ws) {
           wsRef.current = null
+          console.log(`[ServerRequestHandler] Cleared WebSocket reference`)
         }
         
         // Attempt to reconnect after a delay (unless explicitly closed)
         if (event.code !== 1000) { // 1000 = normal closure
-          console.log('[ServerRequestHandler] Attempting to reconnect in 3 seconds...')
+          console.log(`[ServerRequestHandler] Abnormal closure, attempting to reconnect in 3 seconds...`)
           reconnectTimeoutRef.current = setTimeout(() => {
+            console.log(`[ServerRequestHandler] Reconnecting WebSocket for device: ${deviceId}`)
             connectWebSocket()
           }, 3000)
+        } else {
+          console.log(`[ServerRequestHandler] Normal closure, not reconnecting`)
         }
       }
 
       ws.onerror = (error) => {
         console.error(`[ServerRequestHandler] WebSocket error for device: ${deviceId}`, error)
+        console.log(`[ServerRequestHandler] WebSocket readyState on error: ${ws.readyState}`)
+        console.log(`[ServerRequestHandler] Error occurred for URL: ${wsUrl}`)
       }
     }
 

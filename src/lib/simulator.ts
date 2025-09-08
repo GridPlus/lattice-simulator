@@ -165,32 +165,48 @@ export class LatticeSimulator {
     this.ephemeralKeyPair = generateKeyPair()
     
     // If device is not paired, enter pairing mode for 60 seconds
-    // Only manage pairing mode on client-side, not server-side
-    if (!this.isPaired && typeof window !== 'undefined') {
-      console.log('[Simulator] Device not paired, entering pairing mode (client-side only)...')
+    if (!this.isPaired) {
+      console.log('[Simulator] Device not paired, entering pairing mode...')
       try {
-        // Trigger pairing mode using the device store (client-side only)
-        const deviceStore = useDeviceStore.getState()
-        console.log('[Simulator] Current pairing mode state before:', deviceStore.isPairingMode)
-        deviceStore.enterPairingMode()
-        console.log('[Simulator] Pairing mode triggered successfully')
-        console.log('[Simulator] New pairing mode state:', useDeviceStore.getState().isPairingMode)
-        console.log('[Simulator] Pairing code:', useDeviceStore.getState().pairingCode)
+        if (typeof window !== 'undefined') {
+          // Client-side: use device store directly
+          const deviceStore = useDeviceStore.getState()
+          console.log('[Simulator] Current pairing mode state before:', deviceStore.isPairingMode)
+          deviceStore.enterPairingMode()
+          console.log('[Simulator] Pairing mode triggered successfully (client-side)')
+          console.log('[Simulator] New pairing mode state:', useDeviceStore.getState().isPairingMode)
+          console.log('[Simulator] Pairing code:', useDeviceStore.getState().pairingCode)
 
-        // Emit device event for SSE clients
-        const newState = useDeviceStore.getState()
-        if (newState.isPairingMode && newState.pairingCode) {
+          // Emit device event for SSE clients
+          const newState = useDeviceStore.getState()
+          if (newState.isPairingMode && newState.pairingCode) {
+            try {
+              emitPairingModeStarted(this.deviceId, newState.pairingCode, newState.pairingTimeoutMs)
+            } catch (error) {
+              console.error('[Simulator] Failed to emit pairing mode started event:', error)
+            }
+          }
+        } else {
+          // Server-side: broadcast pairing mode via WebSocket
+          console.log('[Simulator] Entering pairing mode (server-side)')
+          const pairingCode = 12345678 // 8-digit code
+          console.log('[Simulator] Generated pairing code:', pairingCode)
+          
+          // Broadcast pairing mode started event via WebSocket
           try {
-            emitPairingModeStarted(this.deviceId, newState.pairingCode, newState.pairingTimeoutMs)
+            const { wsManager } = require('./wsManager')
+            wsManager.broadcastDeviceEvent(this.deviceId, 'pairing_mode_started', {
+              pairingCode: pairingCode.toString(),
+              pairingTimeRemaining: 60000 // 60 seconds
+            })
+            console.log('[Simulator] Broadcasted pairing_mode_started via WebSocket')
           } catch (error) {
-            console.error('[Simulator] Failed to emit pairing mode started event:', error)
+            console.error('[Simulator] Failed to broadcast pairing mode started:', error)
           }
         }
       } catch (error) {
         console.error('[Simulator] Error entering pairing mode:', error)
       }
-    } else if (!this.isPaired) {
-      console.log('[Simulator] Device not paired, but pairing mode is managed by client-side store (server-side)')
     }
     
     const response: ConnectResponse = {
@@ -879,7 +895,12 @@ export class LatticeSimulator {
    */
   setDeviceInfo(deviceInfo: any): void {
     if (deviceInfo.deviceId) this.deviceId = deviceInfo.deviceId
-    if (deviceInfo.firmwareVersion) this.firmwareVersion = deviceInfo.firmwareVersion
+    if (deviceInfo.firmwareVersion) {
+      // Ensure firmwareVersion is a Buffer (handle case where it's serialized as Array)
+      this.firmwareVersion = Buffer.isBuffer(deviceInfo.firmwareVersion) 
+        ? deviceInfo.firmwareVersion 
+        : Buffer.from(deviceInfo.firmwareVersion)
+    }
     if (deviceInfo.isLocked !== undefined) this.isLocked = deviceInfo.isLocked
     console.log('[Simulator] Set device info:', deviceInfo)
   }
