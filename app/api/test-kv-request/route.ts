@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requestKvRecords } from '@/lib/requestManager'
+import { requestKvRecords } from '@/server/serverRequestManager'
 
 /**
  * Test endpoint to trigger a KV records request

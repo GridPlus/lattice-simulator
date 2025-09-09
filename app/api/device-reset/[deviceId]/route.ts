@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDeviceManager, resetDeviceManager } from '@/lib/deviceManager'
+import { getDeviceManager, resetDeviceManager } from '@/server/serverDeviceManager'
 
 /**
  * POST handler for resetting device state
@@ -31,7 +31,6 @@ export async function POST(
       console.log(`[API] Resetting connection state only for: ${deviceId}`)
       
       // Reset connection/pairing state in simulator
-      simulator.setIsPaired(false)
       simulator.unpair()
       
       // Clear ephemeral keys and connection state

@@ -34,11 +34,11 @@ import {
   CreateAccountParams, 
   WalletDerivationResult,
   WalletAccountType 
-} from '../types/wallet'
+} from '@/shared/types/wallet'
 import { 
   deriveMultipleKeys, 
   getDerivationInfo 
-} from '../utils/hdWallet'
+} from '@/shared/utils/hdWallet'
 
 /**
  * Bitcoin networks supported by the wallet

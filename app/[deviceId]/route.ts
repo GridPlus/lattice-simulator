@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDeviceManager } from '@/lib/deviceManager'
-import { useDeviceStore } from '@/store'
-import { ProtocolHandler } from '@/lib/protocolHandler'
-import { parseProtocolMessage, ParsedProtocolMessage } from '@/lib/protocolParser'
+import { getDeviceManager } from '@/server/serverDeviceManager'
+import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { parseProtocolMessage } from '@/shared/protocolParser'
 import { randomBytes } from 'crypto'
 import crc32 from 'crc-32'
 
@@ -251,57 +250,6 @@ export async function POST(
       {
         status: 500,
         message: latticeResponse
-      },
-      { status: 500 }
-    )
-  }
-}
-
-/**
- * GET handler for device status requests
- * 
- * Returns the current status of the specified device.
- * 
- * @param request - The incoming request
- * @param params - Route parameters containing the deviceId
- * @returns Response with device status information
- */
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { deviceId: string } }
-) {
-  try {
-    const { deviceId } = params
-
-    // Get or create device manager for this deviceId
-    const deviceManager = getDeviceManager(deviceId)
-    
-    // Get connection status from store
-    const storeState = useDeviceStore.getState()
-    
-    const deviceStatus = {
-      deviceId: deviceManager.getDeviceId(),
-      isConnected: storeState.isConnected,
-      isPaired: deviceManager.getIsPaired(),
-      isLocked: deviceManager.getIsLocked(),
-      firmwareVersion: Array.from(deviceManager.getFirmwareVersion()).join('.'),
-      name: 'Lattice1 Simulator',
-      userApprovalRequired: deviceManager.getUserApprovalRequired()
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: deviceStatus
-    })
-
-  } catch (error) {
-    console.error('Error getting device status:', error)
-    
-    return NextResponse.json(
-      {
-        success: false,
-        error: 'Failed to get device status',
-        details: error instanceof Error ? error.message : 'Unknown error'
       },
       { status: 500 }
     )

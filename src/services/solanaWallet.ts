@@ -10,11 +10,11 @@ import {
   CreateAccountParams, 
   WalletDerivationResult,
   WalletAccountType 
-} from '../types/wallet'
+} from '@/shared/types/wallet'
 import { 
   deriveMultipleKeys, 
   getDerivationInfo 
-} from '../utils/hdWallet'
+} from '@/shared/utils/hdWallet'
 
 /**
  * Creates a Solana wallet account from HD key

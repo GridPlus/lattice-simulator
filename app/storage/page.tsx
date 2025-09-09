@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { useDeviceStore } from '@/store/deviceStore'
+import { useDeviceStore } from '@/client/store/clientDeviceStore'
 import { KvRecordsTable } from '@/components/storage/KvRecordsTable'
 import { AddKvRecordModal } from '@/components/storage/AddKvRecordModal'
 import { ServerClientDebug } from '@/components/debug/ServerClientDebug'

@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from '@radix-ui/react-select'
 import { Search, Copy, ChevronDown, Plus, Star, Loader2, AlertCircle } from 'lucide-react'
-import { useWalletStore, useWalletStats } from '@/store/walletStore'
+import { useWalletStore, useWalletStats } from '@/client/store/clientWalletStore'
 import type { WalletCoinType, WalletAccount } from '@/types/wallet'
 
 interface DisplayWalletAccount {

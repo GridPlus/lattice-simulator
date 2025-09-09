@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDeviceManager } from '@/lib/deviceManager'
+import { getDeviceManager } from '@/server/serverDeviceManager'
 
 /**
  * API endpoint to sync client-side state to server-side simulator
