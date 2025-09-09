@@ -38,7 +38,7 @@ export function useServerRequestHandler(deviceId: string) {
   const sendResponse = useCallback((request: ServerRequest, responseData: any, error?: string) => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.error('[ServerRequestHandler] WebSocket not connected, cannot send response')
+      console.error('[ClientWebSocketHandler] WebSocket not connected, cannot send response')
       return
     }
 
@@ -54,19 +54,19 @@ export function useServerRequestHandler(deviceId: string) {
     }
 
     ws.send(JSON.stringify(response))
-    console.log(`[ServerRequestHandler] Sent WebSocket response for: ${request.requestId}`)
+    console.log(`[ClientWebSocketHandler] Sent WebSocket response for: ${request.requestId}`)
   }, [])
 
   const handleServerRequest = useCallback(async (request: ServerRequest) => {
     // Avoid processing duplicate requests
     if (processedRequests.current.has(request.requestId)) {
-      console.log(`[ServerRequestHandler] Skipping duplicate request: ${request.requestId}`)
+      console.log(`[ClientWebSocketHandler] Skipping duplicate request: ${request.requestId}`)
       return
     }
 
     processedRequests.current.add(request.requestId)
     
-    console.log(`[ServerRequestHandler] Processing server request:`, request)
+    console.log(`[ClientWebSocketHandler] Processing server request:`, request)
 
     try {
       let responseData: any
@@ -89,14 +89,14 @@ export function useServerRequestHandler(deviceId: string) {
         default:
           success = false
           error = `Unknown request type: ${request.requestType}`
-          console.warn(`[ServerRequestHandler] Unknown request type: ${request.requestType}`)
+          console.warn(`[ClientWebSocketHandler] Unknown request type: ${request.requestType}`)
       }
 
       // Send response back to server via WebSocket
       sendResponse(request, responseData, error)
 
     } catch (error) {
-      console.error('[ServerRequestHandler] Error processing server request:', error)
+      console.error('[ClientWebSocketHandler] Error processing server request:', error)
       
       // Send error response via WebSocket
       sendResponse(request, undefined, error instanceof Error ? error.message : 'Unknown error')
@@ -106,7 +106,7 @@ export function useServerRequestHandler(deviceId: string) {
   const handleGetKvRecords = useCallback(async (payload: { type: number; n: number; start: number }) => {
     const { type, n, start } = payload
     
-    console.log(`[ServerRequestHandler] Getting KV records: type=${type}, n=${n}, start=${start}`)
+    console.log(`[ClientWebSocketHandler] Getting KV records: type=${type}, n=${n}, start=${start}`)
     
     // Get all records from the store
     const allRecords = getAllKvRecords()
@@ -132,7 +132,7 @@ export function useServerRequestHandler(deviceId: string) {
   const handleAddKvRecords = useCallback(async (payload: { records: Record<string, string> }) => {
     const { records } = payload
     
-    console.log(`[ServerRequestHandler] Adding KV records:`, records)
+    console.log(`[ClientWebSocketHandler] Adding KV records:`, records)
     
     try {
       // Add each record to the store
@@ -142,7 +142,7 @@ export function useServerRequestHandler(deviceId: string) {
       
       return { success: true }
     } catch (error) {
-      console.error('[ServerRequestHandler] Error adding KV records:', error)
+      console.error('[ClientWebSocketHandler] Error adding KV records:', error)
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Failed to add records' 
@@ -153,7 +153,7 @@ export function useServerRequestHandler(deviceId: string) {
   const handleRemoveKvRecords = useCallback(async (payload: { type: number; ids: number[] }) => {
     const { type, ids } = payload
     
-    console.log(`[ServerRequestHandler] Removing KV records: type=${type}, ids=${ids}`)
+    console.log(`[ClientWebSocketHandler] Removing KV records: type=${type}, ids=${ids}`)
     
     try {
       // Get all records to find which ones to remove based on IDs
@@ -170,7 +170,7 @@ export function useServerRequestHandler(deviceId: string) {
       
       return { success: true }
     } catch (error) {
-      console.error('[ServerRequestHandler] Error removing KV records:', error)
+      console.error('[ClientWebSocketHandler] Error removing KV records:', error)
       return { 
         success: false, 
         error: error instanceof Error ? error.message : 'Failed to remove records' 
@@ -180,19 +180,19 @@ export function useServerRequestHandler(deviceId: string) {
 
   // Device event handlers
   const handleDeviceStateUpdate = useCallback((data: any) => {
-    console.log('[ServerRequestHandler] Device state update:', data)
+    console.log('[ClientWebSocketHandler] Device state update:', data)
     
     // Get current store state to check for conflicts  
     const currentState = useDeviceStore.getState()
     
     // Prevent overwriting client state with older server state
     if (currentState.isConnected && !data.isConnected) {
-      console.log('[ServerRequestHandler] Ignoring disconnect event - client is already connected')
+      console.log('[ClientWebSocketHandler] Ignoring disconnect event - client is already connected')
       return
     }
     
     if (currentState.isPaired && !data.isPaired) {
-      console.log('[ServerRequestHandler] Ignoring unpaired event - client is already paired')
+      console.log('[ClientWebSocketHandler] Ignoring unpaired event - client is already paired')
       return
     }
 
@@ -203,37 +203,37 @@ export function useServerRequestHandler(deviceId: string) {
     if (data.isPairingMode && data.pairingCode) {
       const store = useDeviceStore.getState()
       if (!store.isPairingMode) {
-        store.enterPairingMode()
-        console.log('[ServerRequestHandler] Entered pairing mode from server event')
+        store.enterPairingMode(data)
+        console.log('[ClientWebSocketHandler] Entered pairing mode from server event')
       }
     } else if (!data.isPairingMode && currentState.isPairingMode) {
       exitPairingMode()
-      console.log('[ServerRequestHandler] Exited pairing mode from server event')
+      console.log('[ClientWebSocketHandler] Exited pairing mode from server event')
     }
   }, [setConnectionState, exitPairingMode])
 
   const handlePairingModeStarted = useCallback((data: any) => {
-    console.log('[ServerRequestHandler] Pairing mode started:', data)
+    console.log('[ClientWebSocketHandler] Pairing mode started:', data)
     const store = useDeviceStore.getState()
     if (!store.isPairingMode) {
-      store.enterPairingMode()
-      console.log('[ServerRequestHandler] Entered pairing mode from server event')
+      store.enterPairingMode(data)
+      console.log('[ClientWebSocketHandler] Entered pairing mode from server event')
     }
   }, [])
 
   const handlePairingModeEnded = useCallback((data: any) => {
-    console.log('[ServerRequestHandler] Pairing mode ended:', data)
+    console.log('[ClientWebSocketHandler] Pairing mode ended:', data)
     exitPairingMode()
   }, [exitPairingMode])
 
   const handleConnectionChanged = useCallback((data: any) => {
-    console.log('[ServerRequestHandler] Connection changed:', data.isConnected)
+    console.log('[ClientWebSocketHandler] Connection changed:', data.isConnected)
     const currentState = useDeviceStore.getState()
     setConnectionState(data.isConnected, currentState.isPaired)
   }, [setConnectionState])
 
   const handlePairingChanged = useCallback((data: any) => {
-    console.log('[ServerRequestHandler] Pairing changed:', data.isPaired)
+    console.log('[ClientWebSocketHandler] Pairing changed:', data.isPaired)
     const currentState = useDeviceStore.getState()
     setConnectionState(currentState.isConnected, data.isPaired)
   }, [setConnectionState])
@@ -258,10 +258,10 @@ export function useServerRequestHandler(deviceId: string) {
           timestamp: Date.now()
         }
         
-        console.log(`[ServerRequestHandler] Forwarding device event to server:`, message)
+        console.log(`[ClientWebSocketHandler] Forwarding device event to server:`, message)
         wsRef.current.send(JSON.stringify(message))
       } else {
-        console.warn(`[ServerRequestHandler] Cannot forward device event - WebSocket not connected`)
+        console.warn(`[ClientWebSocketHandler] Cannot forward device event - WebSocket not connected`)
       }
     }
 
@@ -293,10 +293,10 @@ export function useServerRequestHandler(deviceId: string) {
           timestamp: Date.now()
         }
         
-        console.log(`[ServerRequestHandler] Sending device command to server:`, message)
+        console.log(`[ClientWebSocketHandler] Sending device command to server:`, message)
         wsRef.current.send(JSON.stringify(message))
       } else {
-        console.warn(`[ServerRequestHandler] Cannot send device command - WebSocket not connected`)
+        console.warn(`[ClientWebSocketHandler] Cannot send device command - WebSocket not connected`)
       }
     }
 
@@ -323,27 +323,27 @@ export function useServerRequestHandler(deviceId: string) {
       const wsPort = parseInt(window.location.port || '3000') + 443 // Use separate port for WebSocket (3443)
       const wsUrl = `${protocol}//${host}:${wsPort}/ws/device/${deviceId}`
       
-      console.log(`[ServerRequestHandler] Connecting to WebSocket: ${wsUrl}`)
+      console.log(`[ClientWebSocketHandler] Connecting to WebSocket: ${wsUrl}`)
       
       const ws = new WebSocket(wsUrl)
       wsRef.current = ws
 
       ws.onopen = () => {
-        console.log(`[ServerRequestHandler] WebSocket connected successfully for device: ${deviceId}`)
-        console.log(`[ServerRequestHandler] WebSocket readyState: ${ws.readyState}`)
-        console.log(`[ServerRequestHandler] WebSocket URL: ${wsUrl}`)
+        console.log(`[ClientWebSocketHandler] WebSocket connected successfully for device: ${deviceId}`)
+        console.log(`[ClientWebSocketHandler] WebSocket readyState: ${ws.readyState}`)
+        console.log(`[ClientWebSocketHandler] WebSocket URL: ${wsUrl}`)
         
         // Send heartbeat to keep connection alive
         const heartbeat = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
-            console.log(`[ServerRequestHandler] Sending heartbeat for device: ${deviceId}`)
+            console.log(`[ClientWebSocketHandler] Sending heartbeat for device: ${deviceId}`)
             ws.send(JSON.stringify({
               type: 'heartbeat',
               data: { deviceId },
               timestamp: Date.now()
             }))
           } else {
-            console.log(`[ServerRequestHandler] Stopping heartbeat, WebSocket not open. ReadyState: ${ws.readyState}`)
+            console.log(`[ClientWebSocketHandler] Stopping heartbeat, WebSocket not open. ReadyState: ${ws.readyState}`)
             clearInterval(heartbeat)
           }
         }, 30000) // Every 30 seconds
@@ -354,7 +354,7 @@ export function useServerRequestHandler(deviceId: string) {
 
       ws.onmessage = (event) => {
         try {
-          console.log('[ServerRequestHandler] Received message:', event.data)
+          console.log('[ClientWebSocketHandler] Received message:', event.data)
           const message: WebSocketMessage = JSON.parse(event.data)
           
           if (message.type === 'server_request') {
@@ -373,46 +373,46 @@ export function useServerRequestHandler(deviceId: string) {
           } else if (message.type === 'heartbeat_response') {
             // Heartbeat acknowledgment - silent
           } else {
-            console.log(`[ServerRequestHandler] Received message of type: ${message.type}`, message.data)
+            console.log(`[ClientWebSocketHandler] Received message of type: ${message.type}`, message.data)
           }
         } catch (error) {
-          console.error('[ServerRequestHandler] Error parsing WebSocket message:', error)
+          console.error('[ClientWebSocketHandler] Error parsing WebSocket message:', error)
         }
       }
 
       ws.onclose = (event) => {
-        console.log(`[ServerRequestHandler] WebSocket closed for device: ${deviceId}`)
-        console.log(`[ServerRequestHandler] Close details - Code: ${event.code}, Reason: "${event.reason}", WasClean: ${event.wasClean}`)
-        console.log(`[ServerRequestHandler] Close codes reference - 1000: Normal, 1001: Going away, 1006: Abnormal`)
+        console.log(`[ClientWebSocketHandler] WebSocket closed for device: ${deviceId}`)
+        console.log(`[ClientWebSocketHandler] Close details - Code: ${event.code}, Reason: "${event.reason}", WasClean: ${event.wasClean}`)
+        console.log(`[ClientWebSocketHandler] Close codes reference - 1000: Normal, 1001: Going away, 1006: Abnormal`)
         
         // Clean up heartbeat interval
         if ((ws as any).heartbeatInterval) {
           clearInterval((ws as any).heartbeatInterval)
-          console.log(`[ServerRequestHandler] Cleared heartbeat interval`)
+          console.log(`[ClientWebSocketHandler] Cleared heartbeat interval`)
         }
         
         // Clear the reference if this was the current connection
         if (wsRef.current === ws) {
           wsRef.current = null
-          console.log(`[ServerRequestHandler] Cleared WebSocket reference`)
+          console.log(`[ClientWebSocketHandler] Cleared WebSocket reference`)
         }
         
         // Attempt to reconnect after a delay (unless explicitly closed)
         if (event.code !== 1000) { // 1000 = normal closure
-          console.log(`[ServerRequestHandler] Abnormal closure, attempting to reconnect in 3 seconds...`)
+          console.log(`[ClientWebSocketHandler] Abnormal closure, attempting to reconnect in 3 seconds...`)
           reconnectTimeoutRef.current = setTimeout(() => {
-            console.log(`[ServerRequestHandler] Reconnecting WebSocket for device: ${deviceId}`)
+            console.log(`[ClientWebSocketHandler] Reconnecting WebSocket for device: ${deviceId}`)
             connectWebSocket()
           }, 3000)
         } else {
-          console.log(`[ServerRequestHandler] Normal closure, not reconnecting`)
+          console.log(`[ClientWebSocketHandler] Normal closure, not reconnecting`)
         }
       }
 
       ws.onerror = (error) => {
-        console.error(`[ServerRequestHandler] WebSocket error for device: ${deviceId}`, error)
-        console.log(`[ServerRequestHandler] WebSocket readyState on error: ${ws.readyState}`)
-        console.log(`[ServerRequestHandler] Error occurred for URL: ${wsUrl}`)
+        console.error(`[ClientWebSocketHandler] WebSocket error for device: ${deviceId}`, error)
+        console.log(`[ClientWebSocketHandler] WebSocket readyState on error: ${ws.readyState}`)
+        console.log(`[ClientWebSocketHandler] Error occurred for URL: ${wsUrl}`)
       }
     }
 
@@ -428,7 +428,7 @@ export function useServerRequestHandler(deviceId: string) {
       // Close WebSocket connection
       const ws = wsRef.current
       if (ws) {
-        console.log(`[ServerRequestHandler] Closing WebSocket for device: ${deviceId}`)
+        console.log(`[ClientWebSocketHandler] Closing WebSocket for device: ${deviceId}`)
         
         // Clean up heartbeat interval
         if ((ws as any).heartbeatInterval) {

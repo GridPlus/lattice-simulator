@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/client/store'
 import { useWalletStore } from '@/client/store/clientWalletStore'
 import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check, Wallet, Trash2, AlertTriangle } from 'lucide-react'
-import { WalletSetup } from '@/components/setup'
+import { WalletSetup } from '@/client/components/setup'
 
 /**
  * Connection status indicator component
@@ -449,7 +449,7 @@ function ConnectionInfo() {
  */
 export function ConnectionPanel() {
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
           Device Connection

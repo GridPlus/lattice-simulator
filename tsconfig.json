@@ -22,7 +22,6 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@/components/*": ["./src/client/components/*"],
       "@/lib/*": ["./src/lib/*"],
       "@/server/*": ["./src/server/*"],
       "@/client/*": ["./src/client/*"],

@@ -110,7 +110,7 @@ interface DeviceStore extends DeviceState {
   /** Unpairs from the current device */
   unpair: () => void
   /** Enters pairing mode with a 8-digit code for 60 seconds */
-  enterPairingMode: () => void
+  enterPairingMode: ({ deviceId, pairingCode, timeoutMs, pairingStartTime }: { deviceId: string; pairingCode: string, timeoutMs: number, pairingStartTime: number}) => void
   /** Exits pairing mode */
   exitPairingMode: () => void
   /** Validates a pairing code */
@@ -264,14 +264,22 @@ const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWi
         sendPairingChangedCommand(newState.deviceInfo.deviceId, false)
       },
       
-      enterPairingMode: () => {
-        const state = get()
-        sendEnterPairingModeCommand(state.deviceInfo.deviceId)
+      enterPairingMode: ({ deviceId, pairingCode, timeoutMs, pairingStartTime }: { deviceId: string; pairingCode: string, timeoutMs: number, pairingStartTime: number}) => {
+        console.log(`[deviceStore.enterPairingMode]: pairingCode: ${pairingCode}, isPairingmode: true }]`)
+        set((draft) => {
+          draft.isConnected = true
+          draft.isPairingMode = true
+          draft.pairingStartTime = pairingStartTime
+          draft.pairingCode = pairingCode
+          draft.pairingTimeoutMs = timeoutMs
+        })
       },
       
       exitPairingMode: () => {
-        const state = get()
-        sendExitPairingModeCommand(state.deviceInfo.deviceId)
+        set((draft) => {
+          draft.isPairingMode = false
+        })
+        // sendExitPairingModeCommand(state.deviceInfo.deviceId)
       },
       
       validatePairingCode: (code: string) => {
@@ -575,7 +583,6 @@ const createStore = () => {
           // Custom deserializer to convert arrays back to Buffers
           onRehydrateStorage: () => (state) => {
             console.log('[DeviceStore] onRehydrateStorage called!', typeof window !== 'undefined' ? 'client' : 'server')
-            console.log('[DeviceStore] Stack trace:', new Error().stack)
             
             if (typeof window === 'undefined') {
               console.log('[DeviceStore] Server-side: Skipping rehydration callback')

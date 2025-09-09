@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { MainLayout } from '@/components/layout'
+import { MainLayout } from '@/client/components/layout'
 import { 
   Select,
   SelectContent,
@@ -137,7 +137,7 @@ export default function WalletsPage() {
   if (!isInitialized && isLoading) {
     return (
       <MainLayout>
-        <div className="p-6">
+        <div>
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="text-center">
               <Loader2 className="w-12 h-12 text-blue-500 mx-auto mb-4 animate-spin" />
@@ -158,7 +158,7 @@ export default function WalletsPage() {
   if (!isInitialized && error) {
     return (
       <MainLayout>
-        <div className="p-6">
+        <div>
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="text-center">
               <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
@@ -185,7 +185,7 @@ export default function WalletsPage() {
   if (!isInitialized) {
     return (
       <MainLayout>
-        <div className="p-6">
+        <div>
           <div className="flex items-center justify-center min-h-[400px]">
             <div className="text-center">
               <AlertCircle className="w-12 h-12 text-orange-500 mx-auto mb-4" />
@@ -210,7 +210,7 @@ export default function WalletsPage() {
 
   return (
     <MainLayout>
-      <div className="p-6">
+      <div>
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
             Wallet Accounts

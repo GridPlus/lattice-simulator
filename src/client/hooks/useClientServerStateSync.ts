@@ -10,7 +10,9 @@ import { useDeviceStore } from '@/client/store/clientDeviceStore'
 
 export function useClientStateSync() {
   // TODO remove this line
-  return
+  return {
+    hasSynced: false
+  }
 
   const hasSynced = useRef(false)
   const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)

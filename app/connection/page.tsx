@@ -1,5 +1,5 @@
-import { ConnectionPanel } from '@/components/connection/ConnectionPanel'
-import { MainLayout } from '@/components/layout'
+import { ConnectionPanel } from '@/client/components/connection/ConnectionPanel'
+import { MainLayout } from '@/client/components/layout'
 
 /**
  * Connection page component

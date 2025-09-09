@@ -9,9 +9,9 @@
 
 import React from 'react'
 import { useDeviceConnection, useDeviceStatus } from '@/client/store'
-import { Header } from '@/components/layout/Header'
-import { Sidebar } from '@/components/layout/Sidebar'
-import ServerRequestProvider from '@/components/ServerRequestProvider'
+import { Header } from '@/client/components/layout/Header'
+import { Sidebar } from '@/client/components/layout/Sidebar'
+import ServerRequestProvider from '@/client/components/ServerRequestProvider'
 import { useClientStateSync } from '@/client/hooks/useClientServerStateSync'
 
 interface MainLayoutProps {
@@ -96,7 +96,7 @@ export function MainLayout({ children }: MainLayoutProps) {
               </div>
               
               {/* Page Content */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
                 {children}
               </div>
             </div>
