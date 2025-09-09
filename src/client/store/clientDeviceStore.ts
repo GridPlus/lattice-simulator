@@ -265,7 +265,11 @@ const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWi
       },
       
       enterPairingMode: ({ deviceId, pairingCode, timeoutMs, pairingStartTime }: { deviceId: string; pairingCode: string, timeoutMs: number, pairingStartTime: number}) => {
-        console.log(`[deviceStore.enterPairingMode]: pairingCode: ${pairingCode}, isPairingmode: true }]`)
+        const state = get()
+        if (state.deviceInfo.deviceId != deviceId) {
+          console.log(`[DeviceStore] Ignoring pairing mode event for deviceId: ${deviceId} - current deviceId: ${state.deviceInfo.deviceId}`)
+          return
+        }
         set((draft) => {
           draft.isConnected = true
           draft.isPairingMode = true

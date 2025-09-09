@@ -116,10 +116,11 @@ export const deviceEvents =
   (globalForDeviceEvents.deviceEvents = new DeviceEventEmitter())
 
 // Helper functions for common events
-export const emitPairingModeStarted = (deviceId: string, pairingCode: string, timeoutMs: number = 60000) => {
+export const emitPairingModeStarted = (deviceId: string, pairingCode: string, timeoutMs: number = 60000, pairingStartTime = Date.now()) => {
   deviceEvents.emit(deviceId, 'pairing_mode_started', {
     pairingCode,
     timeoutMs,
+    pairingStartTime
   })
 }
 

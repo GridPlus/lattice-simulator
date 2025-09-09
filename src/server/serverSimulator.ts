@@ -954,7 +954,7 @@ export class ServerLatticeSimulator {
     console.log('[Simulator] Pairing mode will timeout in 60 seconds')
 
     // Emit pairing mode started event (fire-and-forget)
-    emitPairingModeStarted(this.deviceId, this.pairingCode, this.pairingTimeoutMs)
+    emitPairingModeStarted(this.deviceId, this.pairingCode, this.pairingTimeoutMs, this.pairingStartTime)
 
     // Set up timeout to exit pairing mode after 60 seconds
     this.pairingTimeoutId = setTimeout(() => {
