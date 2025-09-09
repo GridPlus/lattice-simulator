@@ -80,3 +80,10 @@ export function sendResetDeviceCommand(deviceId: string, resetType: 'connection'
 export function sendUpdateConfigCommand(deviceId: string, config: any) {
   sendDeviceCommand(deviceId, 'update_config', { config })
 }
+
+/**
+ * Sends a client state sync command to server
+ */
+export function sendSyncClientStateCommand(deviceId: string, clientState: any) {
+  sendDeviceCommand(deviceId, 'sync_client_state', { clientState })
+}

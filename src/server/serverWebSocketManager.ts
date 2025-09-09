@@ -371,6 +371,59 @@ class ServerWebSocketManager {
             })
           }
           break
+        
+        case 'sync_client_state':
+          const { clientState } = data || {}
+          console.log(`[ServerWsManager] Syncing client state for device: ${deviceId}`)
+          console.log(`[ServerWsManager] Received client state:`, {
+            deviceId: clientState?.deviceInfo?.deviceId,
+            isPaired: clientState?.isPaired,
+            isConnected: clientState?.isConnected,
+            kvRecordsCount: clientState?.kvRecords ? Object.keys(clientState.kvRecords).length : 0
+          })
+          
+          try {
+            // Get the device manager for this device
+            const deviceManager = getDeviceManager(deviceId)
+            
+            // Use the restoreFromClientState method to properly sync from client (source of truth)
+            deviceManager.restoreFromClientState(clientState)
+            
+            // Also sync configuration separately
+            const simulator = deviceManager.getSimulator()
+            if (clientState.config) {
+              simulator.setAutoApprove(clientState.config.autoApproveRequests || false)
+            }
+
+            console.log(`[ServerWsManager] Client state synced successfully to server for device: ${deviceId}`)
+
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: { 
+                command, 
+                success: true, 
+                message: 'Client state synced to server successfully',
+                syncedData: {
+                  deviceId: clientState.deviceInfo.deviceId,
+                  isPaired: clientState.isPaired,
+                  kvRecordsCount: Object.keys(clientState.kvRecords).length
+                }
+              },
+              timestamp: Date.now()
+            })
+          } catch (error) {
+            console.error(`[ServerWsManager] Error syncing client state for device ${deviceId}:`, error)
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: { 
+                command, 
+                success: false, 
+                error: error instanceof Error ? error.message : 'Unknown error'
+              },
+              timestamp: Date.now()
+            })
+          }
+          break
           
         default:
           console.warn(`[ServerWsManager] Unknown command: ${command}`)

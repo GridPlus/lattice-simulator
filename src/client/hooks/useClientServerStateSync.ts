@@ -7,13 +7,9 @@
 
 import { useEffect, useRef } from 'react'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
+import { sendSyncClientStateCommand } from '../clientWebSocketCommands'
 
 export function useClientStateSync() {
-  // TODO remove this line, verify the logic!
-  return {
-    hasSynced: false
-  }
-
   const hasSynced = useRef(false)
   const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)
 
@@ -32,6 +28,7 @@ export function useClientStateSync() {
         
         // Get current client state from Zustand store
         const clientState = useDeviceStore.getState()
+        console.log(`hereis clientState: ${JSON.stringify(clientState)}`)
         
         // Always sync state to ensure server has correct initial state
         // Even if device is not paired, we need to sync the initial state
@@ -67,22 +64,9 @@ export function useClientStateSync() {
           kvRecords: clientState.kvRecords
         }
 
-        // Send state to server
-        const response = await fetch('/api/sync-client-state', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(stateToSync)
-        })
-
-        if (response.ok) {
-          const result = await response.json()
-          console.log('[ClientStateSync] Successfully synced state to server:', result.syncedData)
-        } else {
-          const error = await response.json()
-          console.error('[ClientStateSync] Failed to sync state to server:', error)
-        }
+        // Send state to server via WebSocket command
+        sendSyncClientStateCommand(clientState.deviceInfo.deviceId, stateToSync)
+        console.log('[ClientStateSync] Sync command sent to server via WebSocket')
 
       } catch (error) {
         console.error('[ClientStateSync] Error during state sync:', error)
