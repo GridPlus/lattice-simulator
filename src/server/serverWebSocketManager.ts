@@ -59,7 +59,7 @@ class ServerWebSocketManager {
     }
 
     this.connections.get(deviceId)!.add(ws)
-    console.log(`[WSManager] Added connection for device: ${deviceId} (total: ${this.connections.get(deviceId)!.size})`)
+    console.log(`[ServerWsManager] Added connection for device: ${deviceId} (total: ${this.connections.get(deviceId)!.size})`)
 
     // Set up message handling for this connection
     ws.on('message', (data) => {
@@ -67,7 +67,7 @@ class ServerWebSocketManager {
         const message: WebSocketMessage = JSON.parse(data.toString())
         this.handleMessage(message, deviceId, ws)
       } catch (error) {
-        console.error(`[WSManager] Error parsing message from device ${deviceId}:`, error)
+        console.error(`[ServerWsManager] Error parsing message from device ${deviceId}:`, error)
         this.sendError(ws, 'Invalid message format')
       }
     })
@@ -80,12 +80,12 @@ class ServerWebSocketManager {
     const connections = this.connections.get(deviceId)
     if (connections) {
       connections.delete(ws)
-      console.log(`[WSManager] Removed connection for device: ${deviceId} (remaining: ${connections.size})`)
-      console.log(`[WSManager] WebSocket readyState when removing: ${ws.readyState}`)
+      console.log(`[ServerWsManager] Removed connection for device: ${deviceId} (remaining: ${connections.size})`)
+      console.log(`[ServerWsManager] WebSocket readyState when removing: ${ws.readyState}`)
       
       if (connections.size === 0) {
         this.connections.delete(deviceId)
-        console.log(`[WSManager] No more connections for device: ${deviceId}`)
+        console.log(`[ServerWsManager] No more connections for device: ${deviceId}`)
       }
     }
   }
@@ -105,7 +105,7 @@ class ServerWebSocketManager {
     }
 
     this.broadcast(deviceId, message)
-    console.log(`[WSManager] Sent server request: ${requestId} (${requestType}) to device: ${deviceId}`)
+    console.log(`[ServerWsManager] Sent server request: ${requestId} (${requestType}) to device: ${deviceId}`)
   }
 
   /**
@@ -114,9 +114,9 @@ class ServerWebSocketManager {
   broadcast(deviceId: string, message: WebSocketMessage): void {
     const connections = this.connections.get(deviceId)
     if (!connections || connections.size === 0) {
-      console.warn(`[WSManager] No connections available for device: ${deviceId}`)
-      console.log(`[WSManager] Current connections map:`, Array.from(this.connections.keys()))
-      console.log(`[WSManager] Total devices with connections: ${this.connections.size}`)
+      console.warn(`[ServerWsManager] No connections available for device: ${deviceId}`)
+      console.log(`[ServerWsManager] Current connections map:`, Array.from(this.connections.keys()))
+      console.log(`[ServerWsManager] Total devices with connections: ${this.connections.size}`)
       return
     }
 
@@ -128,7 +128,7 @@ class ServerWebSocketManager {
         try {
           ws.send(messageStr)
         } catch (error) {
-          console.error(`[WSManager] Error sending message to device ${deviceId}:`, error)
+          console.error(`[ServerWsManager] Error sending message to device ${deviceId}:`, error)
           closedConnections.push(ws)
         }
       } else {
@@ -156,7 +156,7 @@ class ServerWebSocketManager {
     }
 
     this.broadcast(deviceId, message)
-    console.log(`[WSManager] Broadcasted device event: ${eventType} to device: ${deviceId}`)
+    console.log(`[ServerWsManager] Broadcasted device event: ${eventType} to device: ${deviceId}`)
   }
 
   /**
@@ -164,7 +164,7 @@ class ServerWebSocketManager {
    */
   registerHandler(messageType: string, handler: (message: WebSocketMessage, deviceId: string, ws: WebSocket) => void): void {
     this.messageHandlers.set(messageType, handler)
-    console.log(`[WSManager] Registered handler for message type: ${messageType}`)
+    console.log(`[ServerWsManager] Registered handler for message type: ${messageType}`)
   }
 
   /**
@@ -185,18 +185,18 @@ class ServerWebSocketManager {
    * Handle incoming messages from clients
    */
   private handleMessage(message: WebSocketMessage, deviceId: string, ws: WebSocket): void {
-    console.log(`[WSManager] Received message from device ${deviceId}:`, JSON.stringify(message))
+    console.log(`[ServerWsManager] Received message from device ${deviceId}:`, JSON.stringify(message))
 
     const handler = this.messageHandlers.get(message.type)
     if (handler) {
       try {
         handler(message, deviceId, ws)
       } catch (error) {
-        console.error(`[WSManager] Error in handler for ${message.type}:`, error)
+        console.error(`[ServerWsManager] Error in handler for ${message.type}:`, error)
         this.sendError(ws, `Error processing ${message.type}`)
       }
     } else {
-      console.warn(`[WSManager] No handler registered for message type: ${message.type}`)
+      console.warn(`[ServerWsManager] No handler registered for message type: ${message.type}`)
       this.sendError(ws, `Unknown message type: ${message.type}`)
     }
   }
@@ -208,7 +208,7 @@ class ServerWebSocketManager {
     const response = message as ClientResponse
     const { requestId, requestType, data, error } = response.data
 
-    console.log(`[WSManager] Received client response:`, {
+    console.log(`[ServerWsManager] Received client response:`, {
       requestId,
       requestType,
       hasData: !!data,
@@ -226,11 +226,11 @@ class ServerWebSocketManager {
       })
 
       if (!handled) {
-        console.warn(`[WSManager] No pending request found for: ${requestId}`)
+        console.warn(`[ServerWsManager] No pending request found for: ${requestId}`)
         this.sendError(ws, `No pending request found for: ${requestId}`)
       }
     } catch (error) {
-      console.error('[WSManager] Error handling client response:', error)
+      console.error('[ServerWsManager] Error handling client response:', error)
       this.sendError(ws, 'Error processing response')
     }
   }
@@ -255,14 +255,14 @@ class ServerWebSocketManager {
       // The eventType and data are directly in the message, not nested under message.data
       const { eventType, data } = message as any
       
-      console.log(`[WSManager] Received device event from client: ${eventType} for device: ${deviceId}`)
+      console.log(`[ServerWsManager] Received device event from client: ${eventType} for device: ${deviceId}`)
       
       // Handle the event on the server-side instead of rebroadcasting
       // This prevents infinite loops and allows the server to update its state
       this.handleServerSideEvent(deviceId, eventType, data)
       
     } catch (error) {
-      console.error('[WSManager] Error handling device event:', error)
+      console.error('[ServerWsManager] Error handling device event:', error)
     }
   }
 
@@ -271,7 +271,7 @@ class ServerWebSocketManager {
    */
   private handleServerSideEvent(deviceId: string, eventType: string, data: any): void {
     try {
-      console.log(`[WSManager] Handling server-side event: ${eventType} for device: ${deviceId}`)
+      console.log(`[ServerWsManager] Handling server-side event: ${eventType} for device: ${deviceId}`)
       
       // Import deviceEvents to handle the event on server-side
       const { deviceEvents } = require('./serverDeviceEvents')
@@ -281,7 +281,7 @@ class ServerWebSocketManager {
       deviceEvents.emit(deviceId, eventType, data, { skipWebSocketBroadcast: true })
       
     } catch (error) {
-      console.error('[WSManager] Error handling server-side event:', error)
+      console.error('[ServerWsManager] Error handling server-side event:', error)
     }
   }
 
@@ -292,7 +292,7 @@ class ServerWebSocketManager {
     try {
       const { command, data } = message.data || {}
       
-      console.log(`[WSManager] Received device command from client: ${command} for device: ${deviceId}`)
+      console.log(`[ServerWsManager] Received device command from client: ${command} for device: ${deviceId}`)
       
       // Get the device manager and simulator instance
       const { getDeviceManager } = require('./serverDeviceManager')
@@ -300,7 +300,7 @@ class ServerWebSocketManager {
       const simulator = deviceManager.getSimulator()
       
       if (!simulator) {
-        console.error(`[WSManager] No simulator found for device: ${deviceId}`)
+        console.error(`[ServerWsManager] No simulator found for device: ${deviceId}`)
         this.sendError(ws, `No simulator found for device: ${deviceId}`)
         return
       }
@@ -324,15 +324,62 @@ class ServerWebSocketManager {
             timestamp: Date.now()
           })
           break
+        
+        case 'reset_device':
+          const { resetType = 'full' } = data || {}
+          console.log(`[ServerWsManager] Resetting device state for: ${deviceId}, type: ${resetType}`)
+          
+          if (resetType === 'connection') {
+            // Reset only connection and pairing related state
+            console.log(`[ServerWsManager] Resetting connection state only for: ${deviceId}`)
+            simulator.unpair()
+            
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: { 
+                command, 
+                success: true, 
+                message: `Device ${deviceId} connection state reset successfully`,
+                resetType: 'connection'
+              },
+              timestamp: Date.now()
+            })
+          } else {
+            // Full reset (default behavior)
+            console.log(`[ServerWsManager] Performing full device reset for: ${deviceId}`)
+            
+            const { getDeviceManager, resetDeviceManager } = require('./serverDeviceManager')
+            const deviceManager = getDeviceManager(deviceId)
+            
+            // Reset the device manager state
+            deviceManager.reset()
+            
+            // Clear the device manager instance to force a fresh start
+            resetDeviceManager(deviceId)
+            
+            console.log(`[ServerWsManager] Full device reset completed for: ${deviceId}`)
+            
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: { 
+                command, 
+                success: true, 
+                message: `Device ${deviceId} state reset successfully`,
+                resetType: 'full'
+              },
+              timestamp: Date.now()
+            })
+          }
+          break
           
         default:
-          console.warn(`[WSManager] Unknown command: ${command}`)
+          console.warn(`[ServerWsManager] Unknown command: ${command}`)
           this.sendError(ws, `Unknown command: ${command}`)
           break
       }
       
     } catch (error) {
-      console.error('[WSManager] Error handling device command:', error)
+      console.error('[ServerWsManager] Error handling device command:', error)
       this.sendError(ws, 'Error processing command')
     }
   }
@@ -345,7 +392,7 @@ class ServerWebSocketManager {
       try {
         ws.send(JSON.stringify(message))
       } catch (error) {
-        console.error('[WSManager] Error sending message:', error)
+        console.error('[ServerWsManager] Error sending message:', error)
       }
     }
   }

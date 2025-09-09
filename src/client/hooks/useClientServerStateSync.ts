@@ -9,7 +9,7 @@ import { useEffect, useRef } from 'react'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
 
 export function useClientStateSync() {
-  // TODO remove this line
+  // TODO remove this line, verify the logic!
   return {
     hasSynced: false
   }
