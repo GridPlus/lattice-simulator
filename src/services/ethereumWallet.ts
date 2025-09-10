@@ -11,11 +11,11 @@ import {
   CreateAccountParams, 
   WalletDerivationResult,
   WalletAccountType 
-} from '../types/wallet'
+} from '@/shared/types/wallet'
 import { 
   deriveMultipleKeys, 
   getDerivationInfo 
-} from '../utils/hdWallet'
+} from '@/utils/hdWallet'
 
 /**
  * Creates an Ethereum wallet account from HD key

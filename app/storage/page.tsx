@@ -8,11 +8,11 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { useDeviceStore } from '@/store/deviceStore'
-import { KvRecordsTable } from '@/components/storage/KvRecordsTable'
-import { AddKvRecordModal } from '@/components/storage/AddKvRecordModal'
-import { ServerClientDebug } from '@/components/debug/ServerClientDebug'
-import { MainLayout } from '@/components/layout'
+import { useDeviceStore } from '@/client/store/clientDeviceStore'
+import { KvRecordsTable } from '@/client/components/storage/KvRecordsTable'
+import { AddKvRecordModal } from '@/client/components/storage/AddKvRecordModal'
+import { ServerClientDebug } from '@/client/components/debug/ServerClientDebug'
+import { MainLayout } from '@/client/components/layout'
 import { Plus, Database, Tag } from 'lucide-react'
 
 export default function StoragePage() {
@@ -53,9 +53,10 @@ export default function StoragePage() {
     try {
       setIsLoading(true)
       setKvRecord(key, value, type)
-      setIsAddModalVisible(false)
+      // Don't close modal here - let the modal handle its own closing timing
     } catch (error) {
       console.error('Failed to add KV record:', error)
+      throw error // Re-throw so modal can handle the error
     } finally {
       setIsLoading(false)
     }
@@ -79,7 +80,7 @@ export default function StoragePage() {
 
   return (
     <MainLayout>
-      <div className="p-6 space-y-6">
+      <div className="space-y-6">
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>

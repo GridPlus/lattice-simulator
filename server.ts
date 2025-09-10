@@ -2,7 +2,7 @@ import { createServer } from 'http'
 import { parse } from 'url'
 import next from 'next'
 import { WebSocketServer } from 'ws'
-import { wsManager } from './src/lib/wsManager'
+import { wsManager } from '@/server/serverWebSocketManager'
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = 'localhost'
@@ -20,7 +20,7 @@ app.prepare().then(() => {
   const wsServer = createServer()
   const wss = new WebSocketServer({ 
     server: wsServer,
-    verifyClient: (info) => {
+    verifyClient: (info: any) => {
       const url = parse(info.req.url!, true)
       const pathname = url.pathname
       const deviceIdMatch = pathname?.match(/^\/ws\/device\/(.+)$/)
