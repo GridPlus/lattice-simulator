@@ -3,7 +3,14 @@
  */
 
 import { randomBytes } from 'crypto'
-import { LatticeResponseCode, LatticeSecureEncryptedRequestType } from '../types'
+import {
+  LatticeResponseCode,
+  LatticeSecureEncryptedRequestType,
+  type DeviceResponse,
+  type WalletPath,
+  type AddressInfo,
+  type WalletCoinType,
+} from '../types'
 import {
   generateEthereumAddress,
   generateBitcoinAddress,
@@ -12,7 +19,6 @@ import {
   generateSeedFromMnemonic,
 } from './crypto'
 import { DERIVATION_PATHS, SIMULATOR_CONSTANTS } from '../constants'
-import type { DeviceResponse, WalletPath, AddressInfo, WalletCoinType } from '../types'
 
 /**
  * Generates a unique request ID

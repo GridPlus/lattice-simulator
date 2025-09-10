@@ -3,10 +3,17 @@
  * Implements Bitcoin wallet functionality using bitcoinjs-lib
  */
 
-import type { HDKey } from '@scure/bip32'
 import * as bitcoin from 'bitcoinjs-lib'
 import ECPair, { type ECPairInterface } from 'ecpair'
 import * as ecc from 'tiny-secp256k1'
+import { deriveMultipleKeys, getDerivationInfo } from '@/shared/utils/hdWallet'
+import type {
+  BitcoinWalletAccount,
+  CreateAccountParams,
+  WalletDerivationResult,
+  WalletAccountType,
+} from '@/shared/types/wallet'
+import type { HDKey } from '@scure/bip32'
 
 // Lazy initialization to avoid SSR issues
 let isInitialized = false
@@ -29,13 +36,6 @@ function initializeBitcoinLibs() {
     console.error('Failed to initialize Bitcoin crypto libraries:', error)
   }
 }
-import { deriveMultipleKeys, getDerivationInfo } from '@/shared/utils/hdWallet'
-import type {
-  BitcoinWalletAccount,
-  CreateAccountParams,
-  WalletDerivationResult,
-  WalletAccountType,
-} from '@/shared/types/wallet'
 
 /**
  * Bitcoin networks supported by the wallet
@@ -89,7 +89,6 @@ export function createBitcoinAccountFromHDKey(
   })
 
   // Generate address based on type
-  let address: string
   let payment: bitcoin.Payment
 
   switch (addressType) {
@@ -126,7 +125,7 @@ export function createBitcoinAccountFromHDKey(
     throw new Error(`Failed to generate ${addressType} Bitcoin address`)
   }
 
-  address = payment.address
+  const address = payment.address
 
   // Create wallet account
   const account: BitcoinWalletAccount = {

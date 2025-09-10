@@ -39,19 +39,18 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
     try {
       const validation = validateKvRecord(key, editingValue)
       if (!validation.isValid) {
-        alert(validation.error)
+        console.error('Validation error:', validation.error)
         return
       }
 
       if (onUpdate) {
         await onUpdate(key, editingValue)
-        alert('Record updated successfully')
+        console.log('Record updated successfully')
       }
       setEditingKey(null)
       setEditingValue('')
     } catch (error) {
-      alert('Failed to update record')
-      console.error('Update error:', error)
+      console.error('Failed to update record:', error)
     }
   }
 
@@ -63,9 +62,9 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
   const handleCopy = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text)
-      alert('Copied to clipboard')
+      console.log('Copied to clipboard')
     } catch (error) {
-      alert('Failed to copy to clipboard')
+      console.error('Failed to copy to clipboard:', error)
     }
   }
 

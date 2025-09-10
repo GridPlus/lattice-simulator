@@ -11,8 +11,8 @@ import { sendSyncClientStateCommand } from '../clientWebSocketCommands'
 
 export function useClientStateSync() {
   const hasSynced = useRef(false)
-  const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)
-  const hasHydrated = useDeviceStore(state => state._hasHydrated)
+  const deviceId = useDeviceStore((state: any) => state.deviceInfo.deviceId)
+  const hasHydrated = useDeviceStore((state: any) => state._hasHydrated)
 
   useEffect(() => {
     console.log(

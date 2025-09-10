@@ -6,16 +6,19 @@
  * Central orchestrator for device instances and user interactions
  */
 
-import { createRequestProcessor, requiresUserApproval } from './serverRequestProcessor'
+import {
+  createRequestProcessor,
+  requiresUserApproval,
+  type RequestProcessor,
+} from './serverRequestProcessor'
 import { ServerLatticeSimulator } from './serverSimulator'
-import { LatticeSecureEncryptedRequestType } from '../shared/types'
-import type { RequestProcessor } from './serverRequestProcessor'
-import type {
-  DeviceResponse,
-  ConnectRequest,
-  PairRequest,
-  GetAddressesRequest,
-  SignRequest,
+import {
+  LatticeSecureEncryptedRequestType,
+  type DeviceResponse,
+  type ConnectRequest,
+  type PairRequest,
+  type GetAddressesRequest,
+  type SignRequest,
 } from '../shared/types'
 
 /**

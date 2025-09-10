@@ -23,7 +23,7 @@ import { useWalletStore } from '@/client/store/clientWalletStore'
  * Connection status indicator component
  */
 function ConnectionStatus() {
-  const { isConnected, isPaired, isPairingMode, deviceId } = useDeviceConnection()
+  const { isConnected, isPaired, isPairingMode } = useDeviceConnection()
   const { name, firmwareVersion } = useDeviceStatus()
   const { pairingCode, pairingStartTime, pairingTimeoutMs } = useDeviceStore()
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
@@ -182,7 +182,7 @@ function ConnectionStatus() {
 function ConnectionInfo() {
   const router = useRouter()
   const { isConnected, deviceId } = useDeviceConnection()
-  const { resetConnectionState, resetDeviceState, setDeviceInfo } = useDeviceStore()
+  const { resetConnectionState, setDeviceInfo } = useDeviceStore()
   const { isInitialized: walletsInitialized, clearWallets } = useWalletStore()
   const [isResetting, setIsResetting] = useState(false)
   const [showWalletSetup, setShowWalletSetup] = useState(false)

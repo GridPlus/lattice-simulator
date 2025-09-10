@@ -83,6 +83,9 @@ const INITIAL_STATE: DeviceState = {
 
   // Storage
   kvRecords: {},
+
+  // Configuration
+  config: DEFAULT_SIMULATOR_CONFIG,
 }
 
 /**
@@ -297,7 +300,7 @@ const createStore = () => {
           },
 
           // KV Records management
-          setKvRecord: (key: string, value: string, type: number = 0) => {
+          setKvRecord: (key: string, value: string) => {
             set(state => ({
               ...state,
               kvRecords: { ...state.kvRecords, [key.toLowerCase()]: value },
@@ -460,7 +463,7 @@ const createStore = () => {
           kvRecords: state.kvRecords,
           config: state.config,
         }),
-        onRehydrateStorage: () => (state, error) => {
+        onRehydrateStorage: () => state => {
           // Handle Buffer conversion for firmwareVersion
           if (state && state.deviceInfo && Array.isArray(state.deviceInfo.firmwareVersion)) {
             state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
@@ -471,7 +474,39 @@ const createStore = () => {
   )
 }
 
-export const useDeviceStore = createStore()
+export const useDeviceStore =
+  createStore() ||
+  (() => {
+    // Fallback store for SSR - return a minimal store that matches the interface
+    const fallbackStore = {
+      getState: () => INITIAL_STATE,
+      setState: () => {},
+      subscribe: () => () => {},
+      destroy: () => {},
+      // Add the missing methods that components expect
+      getAllKvRecords: () => [],
+      getKvRecord: () => undefined,
+      setKvRecord: () => {},
+      removeKvRecord: () => {},
+      updateKvRecord: () => {},
+      setConnectionState: () => {},
+      exitPairingMode: () => {},
+      enterPairingMode: () => {},
+      resetConnectionState: () => {},
+      setDeviceInfo: () => {},
+      activeWallets: [],
+      config: INITIAL_STATE.config,
+      _hasHydrated: true,
+    }
+
+    // Make it callable like a real Zustand store
+    return ((selector?: (state: DeviceState) => any) => {
+      if (typeof selector === 'function') {
+        return selector(INITIAL_STATE)
+      }
+      return fallbackStore
+    }) as any
+  })()
 
 // Selectors for commonly used state slices
 /**
@@ -480,7 +515,7 @@ export const useDeviceStore = createStore()
  * @returns Object with connection status and device ID
  */
 export const useDeviceConnection = () => {
-  const state = useDeviceStore(state => ({
+  const state = useDeviceStore((state: any) => ({
     isConnected: state.isConnected,
     isPaired: state.isPaired,
     isPairingMode: state.isPairingMode,
@@ -496,7 +531,7 @@ export const useDeviceConnection = () => {
  * @returns Object with lock status, busy state, and firmware info
  */
 export const useDeviceStatus = () =>
-  useDeviceStore(state => ({
+  useDeviceStore((state: any) => ({
     isLocked: state.isLocked,
     isBusy: state.isBusy,
     firmwareVersion: state.deviceInfo.firmwareVersion,
@@ -509,7 +544,7 @@ export const useDeviceStatus = () =>
  * @returns Object with pending requests and current approval state
  */
 export const usePendingRequests = () =>
-  useDeviceStore(state => ({
+  useDeviceStore((state: any) => ({
     pendingRequests: state.pendingRequests,
     currentRequest: state.currentRequest,
     userApprovalRequired: state.userApprovalRequired,
@@ -520,11 +555,11 @@ export const usePendingRequests = () =>
  *
  * @returns Current active wallet data
  */
-export const useActiveWallets = () => useDeviceStore(state => state.activeWallets)
+export const useActiveWallets = () => useDeviceStore((state: any) => state.activeWallets)
 
 /**
  * Selector hook for simulator configuration
  *
  * @returns Current simulator configuration settings
  */
-export const useSimulatorConfig = () => useDeviceStore(state => state.config)
+export const useSimulatorConfig = () => useDeviceStore((state: any) => state.config)

@@ -27,7 +27,7 @@ export function ServerClientDebug({ defaultCollapsed = true }: ServerClientDebug
   const [isConnected, setIsConnected] = useState(false)
   const [testing, setTesting] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed)
-  const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)
+  const deviceId = useDeviceStore((state: any) => state.deviceInfo.deviceId)
 
   const addLog = (type: RequestLog['type'], message: string, data?: any) => {
     setLogs(prev => [

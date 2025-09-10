@@ -1,10 +1,9 @@
 import { randomBytes } from 'crypto'
 import crc32 from 'crc-32'
-import { NextResponse } from 'next/server'
+import { NextResponse, type NextRequest } from 'next/server'
 import { getDeviceManager } from '@/server/serverDeviceManager'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { parseProtocolMessage } from '@/shared/protocolParser'
-import type { NextRequest } from 'next/server'
 
 /**
  * Build a Lattice1 protocol response message

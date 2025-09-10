@@ -13,10 +13,13 @@ import {
   LatticeSecureEncryptedRequestType,
   LatticeResponseCode,
   ProtocolConstants,
+  type ConnectRequest,
+  type PairRequest,
+  type GetAddressesRequest,
+  type SignRequest,
 } from '../shared/types'
 import { aes256_decrypt, aes256_encrypt, generateKeyPair } from '../shared/utils/crypto'
 import type { ServerLatticeSimulator } from './serverSimulator'
-import type { ConnectRequest, PairRequest, GetAddressesRequest, SignRequest } from '../shared/types'
 
 /**
  * Secure request structure for encrypted protocol messages
@@ -141,7 +144,7 @@ export class ProtocolHandler {
 
         case LatticeSecureEncryptedRequestType.fetchEncryptedData:
           console.log('[ProtocolHandler] Handling fetchEncryptedData request')
-          response = await this.handleFetchEncryptedDataRequest(requestData)
+          response = await this.handleFetchEncryptedDataRequest()
           break
 
         case LatticeSecureEncryptedRequestType.test:
@@ -622,7 +625,7 @@ export class ProtocolHandler {
    * @returns Promise resolving to fetch response
    * @private
    */
-  private async handleFetchEncryptedDataRequest(data: Buffer): Promise<SecureResponse> {
+  private async handleFetchEncryptedDataRequest(): Promise<SecureResponse> {
     // Mock implementation - not yet supported
     return {
       code: LatticeResponseCode.disabled,

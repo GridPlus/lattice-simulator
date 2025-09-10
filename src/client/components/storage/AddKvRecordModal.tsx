@@ -93,7 +93,7 @@ export function AddKvRecordModal({ visible, onCancel, onAdd, loading }: AddKvRec
       }
 
       // Add minimum loading time to show the loading state (1.5 seconds)
-      const [addResult] = await Promise.all([
+      await Promise.all([
         onAdd(formData.key, formData.value, formData.type),
         new Promise(resolve => setTimeout(resolve, 1500)),
       ])

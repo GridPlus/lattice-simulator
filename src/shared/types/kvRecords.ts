@@ -132,10 +132,7 @@ export function validateKvRecord(key: string, value: string): { isValid: boolean
 /**
  * Helper function to convert KV record data to the format expected by the device
  */
-export function kvRecordDataToDeviceFormat(
-  record: KvRecordData,
-  type: number = 0,
-): Record<string, string> {
+export function kvRecordDataToDeviceFormat(record: KvRecordData): Record<string, string> {
   return {
     [record.key]: record.value,
   }

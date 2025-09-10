@@ -4,10 +4,14 @@
  */
 
 import { ProtocolHandler } from './serverProtocolHandler'
-import { LatticeSecureEncryptedRequestType, LatticeResponseCode } from '../shared/types'
+import {
+  LatticeSecureEncryptedRequestType,
+  LatticeResponseCode,
+  type PendingRequest,
+  type DeviceResponse,
+} from '../shared/types'
 import { generateRequestId, getRequestTypeName } from '../shared/utils'
 import type { ServerLatticeSimulator } from './serverSimulator'
-import type { PendingRequest, DeviceResponse } from '../shared/types'
 
 /**
  * Configuration options for the request processor
@@ -113,7 +117,7 @@ export class RequestProcessor {
       }
 
       // Wait for user approval
-      const approved = await this.waitForUserApproval(requestId)
+      const approved = await this.waitForUserApproval()
 
       if (!approved) {
         return {
@@ -179,7 +183,7 @@ export class RequestProcessor {
    * @returns Promise resolving to approval status
    * @private
    */
-  private async waitForUserApproval(requestId: string): Promise<boolean> {
+  private async waitForUserApproval(): Promise<boolean> {
     // TODO: Implement server-side user approval waiting
     // This should listen for WebSocket messages from client, not access client store
     return new Promise(resolve => {

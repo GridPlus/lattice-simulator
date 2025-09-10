@@ -91,7 +91,7 @@ export function generateDerivationPath(
  * @returns BIP-44 formatted string (e.g., "m/44'/60'/0'/0/0")
  */
 export function formatDerivationPath(path: number[]): string {
-  const segments = path.map((segment, index) => {
+  const segments = path.map(segment => {
     if (segment >= HARDENED_OFFSET) {
       return `${segment - HARDENED_OFFSET}'`
     }

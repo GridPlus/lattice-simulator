@@ -14,7 +14,19 @@ import {
   emitKvRecordsFetched,
 } from './serverDeviceEvents'
 import { EXTERNAL } from '../shared/constants'
-import { LatticeResponseCode } from '../shared/types'
+import {
+  LatticeResponseCode,
+  type DeviceResponse,
+  type ConnectRequest,
+  type ConnectResponse,
+  type PairRequest,
+  type GetAddressesRequest,
+  type GetAddressesResponse,
+  type SignRequest,
+  type SignResponse,
+  type WalletPath,
+  type ActiveWallets,
+} from '../shared/types'
 import {
   generateDeviceId,
   generateKeyPair,
@@ -29,18 +41,6 @@ import {
   resolveWalletAddresses,
   ensureWalletStoreInitialized,
 } from '../shared/utils/walletAddressResolver'
-import type {
-  DeviceResponse,
-  ConnectRequest,
-  ConnectResponse,
-  PairRequest,
-  GetAddressesRequest,
-  GetAddressesResponse,
-  SignRequest,
-  SignResponse,
-  WalletPath,
-  ActiveWallets,
-} from '../shared/types'
 
 /**
  * SERVER-SIDE ONLY Lattice1 Device Simulator
@@ -303,7 +303,7 @@ export class ServerLatticeSimulator {
 
     // Simulate user approval for pairing (optional, since code validation is the main check)
     if (!this.autoApprove && !request.pairingSecret) {
-      const approved = await this.simulateUserApproval('pairing', 60000)
+      const approved = await this.simulateUserApproval()
       if (!approved) {
         return createDeviceResponse(false, LatticeResponseCode.userDeclined)
       }
@@ -457,7 +457,7 @@ export class ServerLatticeSimulator {
 
     // Check if signing requires user approval
     if (!this.autoApprove) {
-      const approved = await this.simulateUserApproval('signing', 300000) // 5 minutes
+      const approved = await this.simulateUserApproval() // 5 minutes
       if (!approved) {
         return createDeviceResponse(false, LatticeResponseCode.userDeclined)
       }
@@ -578,7 +578,7 @@ export class ServerLatticeSimulator {
 
     // Get all records of the specified type
     const allRecords = Object.entries(this.kvRecords)
-      .filter(([key, value]) => {
+      .filter(() => {
         // For now, we'll return all records regardless of type
         // In a real implementation, type would be used to filter records
         return true
@@ -700,7 +700,7 @@ export class ServerLatticeSimulator {
     }
 
     // Assign stable IDs to new records
-    for (const [key, value] of Object.entries(records)) {
+    for (const [key] of Object.entries(records)) {
       const recordId = this.nextKvRecordId++
       this.kvRecordIdToKey.set(recordId, key)
       console.log(`[Simulator] addKvRecords: Assigned ID ${recordId} to key "${key}"`)
@@ -793,7 +793,7 @@ export class ServerLatticeSimulator {
    * @returns Promise resolving to boolean indicating user approval
    * @private
    */
-  private async simulateUserApproval(type: string, timeoutMs: number): Promise<boolean> {
+  private async simulateUserApproval(): Promise<boolean> {
     this.userApprovalRequired = true
 
     // For testing/demo purposes, auto-approve after a delay
@@ -818,7 +818,7 @@ export class ServerLatticeSimulator {
   private derivePrivateKey(path: WalletPath): Buffer {
     // Simplified mock derivation - in real implementation use proper BIP32
     const pathString = path.join('/')
-    const seed = Buffer.from(pathString + (this.pairingSecret || 'default'))
+    Buffer.from(pathString + (this.pairingSecret || 'default')) // Use path for derivation
     return randomBytes(32) // Mock private key
   }
 

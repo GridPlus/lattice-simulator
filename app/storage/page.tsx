@@ -19,8 +19,7 @@ export default function StoragePage() {
   const [isAddModalVisible, setIsAddModalVisible] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
-  const { kvRecords, getKvRecord, getAllKvRecords, setKvRecord, removeKvRecord, updateKvRecord } =
-    useDeviceStore()
+  const { getAllKvRecords, setKvRecord, removeKvRecord, updateKvRecord } = useDeviceStore()
 
   // Get all KV records
   const allRecords = getAllKvRecords()
@@ -28,7 +27,7 @@ export default function StoragePage() {
 
   // Separate address tags (type 0) from other KV records
   const addressTags = Object.entries(allRecords)
-    .filter(([key, value]) => {
+    .filter(() => {
       // For now, assume all records are address tags
       // In the future, we can add type filtering
       return true
@@ -36,7 +35,7 @@ export default function StoragePage() {
     .map(([address, tag]) => ({ address, tag }))
 
   const otherRecords = Object.entries(allRecords)
-    .filter(([key, value]) => {
+    .filter(() => {
       // Filter out what we consider address tags
       // This is a simple heuristic - could be improved with proper type tracking
       return false // For now, all records are treated as address tags
@@ -136,7 +135,7 @@ export default function StoragePage() {
               <KvRecordsTable
                 records={addressTags.map(({ address, tag }) => ({
                   key: address,
-                  value: tag,
+                  value: String(tag),
                   type: 0,
                   isAddressTag: true,
                 }))}
@@ -165,7 +164,7 @@ export default function StoragePage() {
               <KvRecordsTable
                 records={otherRecords.map(({ key, value }) => ({
                   key,
-                  value,
+                  value: String(value),
                   type: 1,
                   isAddressTag: false,
                 }))}

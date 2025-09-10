@@ -16,7 +16,7 @@ interface ServerRequestProviderProps {
 }
 
 export function ServerRequestProvider({ children }: ServerRequestProviderProps) {
-  const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)
+  const deviceId = useDeviceStore((state: any) => state.deviceInfo.deviceId)
 
   // Initialize the server request handler
   useServerRequestHandler(deviceId)

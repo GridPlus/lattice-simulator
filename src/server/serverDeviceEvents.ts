@@ -7,7 +7,7 @@
  * Client-side components should listen for WebSocket events, not use this directly.
  */
 
-type DeviceEventType =
+export type DeviceEventType =
   | 'pairing_mode_started'
   | 'pairing_mode_ended'
   | 'connection_changed'

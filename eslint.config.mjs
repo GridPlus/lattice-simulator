@@ -33,6 +33,10 @@ export default [
       '*.config.js',
       '*.config.mjs',
       'public/**',
+      'src/__test__/**',
+      'test-pairing-flow.js',
+      'test-pairing-simple.mjs',
+      'temp/**',
     ],
   },
 

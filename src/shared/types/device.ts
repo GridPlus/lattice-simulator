@@ -65,6 +65,9 @@ export interface DeviceState {
 
   // Storage
   kvRecords: Record<string, string>
+
+  // Configuration
+  config: SimulatorConfig
 }
 
 export interface SimulatorConfig {

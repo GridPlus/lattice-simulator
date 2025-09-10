@@ -22,12 +22,12 @@ interface WebSocketMessage {
 }
 
 export function useServerRequestHandler(deviceId: string) {
-  const getAllKvRecords = useDeviceStore(state => state.getAllKvRecords)
-  const getKvRecord = useDeviceStore(state => state.getKvRecord)
-  const setKvRecord = useDeviceStore(state => state.setKvRecord)
-  const removeKvRecord = useDeviceStore(state => state.removeKvRecord)
-  const setConnectionState = useDeviceStore(state => state.setConnectionState)
-  const exitPairingMode = useDeviceStore(state => state.exitPairingMode)
+  const getAllKvRecords = useDeviceStore((state: any) => state.getAllKvRecords)
+  const getKvRecord = useDeviceStore((state: any) => state.getKvRecord)
+  const setKvRecord = useDeviceStore((state: any) => state.setKvRecord)
+  const removeKvRecord = useDeviceStore((state: any) => state.removeKvRecord)
+  const setConnectionState = useDeviceStore((state: any) => state.setConnectionState)
+  const exitPairingMode = useDeviceStore((state: any) => state.exitPairingMode)
 
   // Keep track of processed requests to avoid duplicates
   const processedRequests = useRef(new Set<string>())
@@ -103,7 +103,6 @@ export function useServerRequestHandler(deviceId: string) {
 
       try {
         let responseData: any
-        let success = true
         let error: string | undefined
 
         switch (request.requestType) {
@@ -120,7 +119,6 @@ export function useServerRequestHandler(deviceId: string) {
             break
 
           default:
-            success = false
             error = `Unknown request type: ${request.requestType}`
             console.warn(`[ClientWebSocketHandler] Unknown request type: ${request.requestType}`)
         }
@@ -321,7 +319,7 @@ export function useServerRequestHandler(deviceId: string) {
         wsRef.current.send(JSON.stringify(message))
       } else {
         console.warn(
-          `[ClientWebSocketHandler] Cannot forward device event - WebSocket not connected`,
+          '[ClientWebSocketHandler] Cannot forward device event - WebSocket not connected',
         )
       }
     }
@@ -358,7 +356,7 @@ export function useServerRequestHandler(deviceId: string) {
         wsRef.current.send(JSON.stringify(message))
       } else {
         console.warn(
-          `[ClientWebSocketHandler] Cannot send device command - WebSocket not connected`,
+          '[ClientWebSocketHandler] Cannot send device command - WebSocket not connected',
         )
       }
     }
@@ -501,7 +499,9 @@ export function useServerRequestHandler(deviceId: string) {
         console.log(
           `[ClientWebSocketHandler] Close details - Code: ${event.code}, Reason: "${event.reason}", WasClean: ${event.wasClean}`,
         )
-        console.log('[ClientWebSocketHandler] Close codes reference - 1000: Normal, 1001: Going away, 1006: Abnormal')
+        console.log(
+          '[ClientWebSocketHandler] Close codes reference - 1000: Normal, 1001: Going away, 1006: Abnormal',
+        )
 
         // Clean up heartbeat interval
         if ((ws as any).heartbeatInterval) {
@@ -519,7 +519,7 @@ export function useServerRequestHandler(deviceId: string) {
         if (event.code !== 1000) {
           // 1000 = normal closure
           console.log(
-            `[ClientWebSocketHandler] Abnormal closure, attempting to reconnect in 3 seconds...`,
+            '[ClientWebSocketHandler] Abnormal closure, attempting to reconnect in 3 seconds...',
           )
           reconnectTimeoutRef.current = setTimeout(() => {
             console.log(`[ClientWebSocketHandler] Reconnecting WebSocket for device: ${deviceId}`)

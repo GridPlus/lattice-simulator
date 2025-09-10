@@ -7,6 +7,7 @@
  * Manages WebSocket connections and messages for the server-side simulator.
  */
 import { WebSocket } from 'ws'
+import type { DeviceEventType } from './serverDeviceEvents'
 
 export interface WebSocketMessage {
   type: string
@@ -232,7 +233,11 @@ class ServerWebSocketManager {
   /**
    * Handle client responses to server requests
    */
-  private handleClientResponse(message: WebSocketMessage, deviceId: string, ws: WebSocket): void {
+  private async handleClientResponse(
+    message: WebSocketMessage,
+    deviceId: string,
+    ws: WebSocket,
+  ): Promise<void> {
     const response = message as ClientResponse
     const { requestId, requestType, data, error } = response.data
 
@@ -261,7 +266,7 @@ class ServerWebSocketManager {
 
     // Import here to avoid circular dependencies
     try {
-      const { requestManager } = require('./serverRequestManager')
+      const { requestManager } = await import('./serverRequestManager')
       const handled = requestManager.handleClientResponse({
         requestId,
         type: requestType,
@@ -294,7 +299,7 @@ class ServerWebSocketManager {
   /**
    * Handle device events from client
    */
-  private handleDeviceEvent(message: WebSocketMessage, deviceId: string, ws: WebSocket): void {
+  private handleDeviceEvent(message: WebSocketMessage, deviceId: string): void {
     try {
       // The eventType and data are directly in the message, not nested under message.data
       const { eventType, data } = message as any
@@ -314,18 +319,24 @@ class ServerWebSocketManager {
   /**
    * Handle server-side events (update server state, not broadcast)
    */
-  private handleServerSideEvent(deviceId: string, eventType: string, data: any): void {
+  private async handleServerSideEvent(
+    deviceId: string,
+    eventType: string,
+    data: any,
+  ): Promise<void> {
     try {
       console.log(
         `[ServerWsManager] Handling server-side event: ${eventType} for device: ${deviceId}`,
       )
 
       // Import deviceEvents to handle the event on server-side
-      const { deviceEvents } = require('./serverDeviceEvents')
+      const { deviceEvents } = await import('./serverDeviceEvents')
 
       // Emit the event locally on the server-side with a flag to prevent WebSocket broadcasting
       // This will update server state but not broadcast back to clients
-      deviceEvents.emit(deviceId, eventType, data, { skipWebSocketBroadcast: true })
+      deviceEvents.emit(deviceId, eventType as DeviceEventType, data, {
+        skipWebSocketBroadcast: true,
+      })
     } catch (error) {
       console.error('[ServerWsManager] Error handling server-side event:', error)
     }
@@ -334,7 +345,11 @@ class ServerWebSocketManager {
   /**
    * Handle device commands from client (commands that call simulator methods directly)
    */
-  private handleDeviceCommand(message: WebSocketMessage, deviceId: string, ws: WebSocket): void {
+  private async handleDeviceCommand(
+    message: WebSocketMessage,
+    deviceId: string,
+    ws: WebSocket,
+  ): Promise<void> {
     try {
       const { command, data } = message.data || {}
 
@@ -343,7 +358,7 @@ class ServerWebSocketManager {
       )
 
       // Get the device manager and simulator instance
-      const { getDeviceManager } = require('./serverDeviceManager')
+      const { getDeviceManager } = await import('./serverDeviceManager')
       const deviceManager = getDeviceManager(deviceId)
       const simulator = deviceManager.getSimulator()
 
@@ -398,7 +413,7 @@ class ServerWebSocketManager {
             // Full reset (default behavior)
             console.log(`[ServerWsManager] Performing full device reset for: ${deviceId}`)
 
-            const { getDeviceManager, resetDeviceManager } = require('./serverDeviceManager')
+            const { getDeviceManager, resetDeviceManager } = await import('./serverDeviceManager')
             const deviceManager = getDeviceManager(deviceId)
 
             // Reset the device manager state

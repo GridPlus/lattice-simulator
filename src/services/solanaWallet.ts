@@ -187,8 +187,8 @@ export async function signSolanaMessage(
   }
 
   try {
-    const messageBuffer =
-      typeof message === 'string' ? Buffer.from(message, 'utf8') : Buffer.from(message)
+    // Process message for signing
+    typeof message === 'string' ? Buffer.from(message, 'utf8') : Buffer.from(message)
     const signature = keypair.secretKey.slice(0, 32) // Get the private key part for signing
 
     // For now, return a placeholder signature format
