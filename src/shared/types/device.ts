@@ -2,7 +2,7 @@
  * Device-level types for Lattice1 Device Simulator
  */
 
-import { LatticeResponseCode } from './protocol'
+import type { LatticeResponseCode } from './protocol'
 
 export type WalletPath = number[]
 
@@ -41,11 +41,11 @@ export interface DeviceState {
   pairingSecret?: string
   ephemeralPub?: Buffer
   sharedSecret?: Buffer
-  
+
   // Device Info
   deviceInfo: DeviceInfo
   activeWallets: ActiveWallets
-  
+
   // State Management
   isLocked: boolean
   isBusy: boolean
@@ -54,15 +54,15 @@ export interface DeviceState {
   pairingTimeoutMs: number
   pairingStartTime?: number
   pairingTimeoutId?: NodeJS.Timeout // Store timeout ID to clear it later
-  
+
   // Pending Requests
   pendingRequests: PendingRequest[]
   currentRequest?: PendingRequest
-  
+
   // User Interaction
   userApprovalRequired: boolean
   userApprovalTimeoutMs: number
-  
+
   // Storage
   kvRecords: Record<string, string>
 }
@@ -73,12 +73,12 @@ export interface SimulatorConfig {
   simulateUserDelay: boolean
   userDelayMs: number
   enableTimeouts: boolean
-  
+
   // Feature Flags
   supportedCurves: string[]
   supportedEncodings: string[]
   maxAddressesPerRequest: number
-  
+
   // Firmware Version Simulation
   simulatedFirmwareVersion: [number, number, number] // [major, minor, patch]
 }

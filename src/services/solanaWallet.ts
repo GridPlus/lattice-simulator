@@ -3,22 +3,19 @@
  * Implements Solana wallet functionality using @solana/web3.js
  */
 
-import { HDKey } from '@scure/bip32'
 import { Keypair, PublicKey } from '@solana/web3.js'
-import { 
-  SolanaWalletAccount, 
-  CreateAccountParams, 
+import { deriveMultipleKeys, getDerivationInfo } from '@/shared/utils/hdWallet'
+import type {
+  SolanaWalletAccount,
+  CreateAccountParams,
   WalletDerivationResult,
-  WalletAccountType 
+  WalletAccountType,
 } from '@/shared/types/wallet'
-import { 
-  deriveMultipleKeys, 
-  getDerivationInfo 
-} from '@/shared/utils/hdWallet'
+import type { HDKey } from '@scure/bip32'
 
 /**
  * Creates a Solana wallet account from HD key
- * 
+ *
  * @param hdKey - HD key derived from mnemonic
  * @param accountIndex - Account index
  * @param type - Account type (external/internal)
@@ -30,7 +27,7 @@ export function createSolanaAccountFromHDKey(
   accountIndex: number,
   type: WalletAccountType,
   addressIndex: number = 0,
-  name?: string
+  name?: string,
 ): SolanaWalletAccount {
   if (!hdKey.privateKey || !hdKey.publicKey) {
     throw new Error('HD key must have both private and public keys to create Solana account')
@@ -38,13 +35,13 @@ export function createSolanaAccountFromHDKey(
 
   // Get derivation info for Solana (BIP-44 m/44'/501'/0'/0/x) with correct address index
   const derivationInfo = getDerivationInfo('SOL', accountIndex, type === 'internal', addressIndex)
-  
+
   // Solana uses Ed25519 keys, so we need to take first 32 bytes of the private key
   const privateKeyBytes = hdKey.privateKey.slice(0, 32)
-  
+
   // Create Solana keypair from the private key bytes
   const keypair = Keypair.fromSeed(privateKeyBytes)
-  
+
   // Create wallet account
   const account: SolanaWalletAccount = {
     id: `sol-${type}-${accountIndex}`,
@@ -66,9 +63,9 @@ export function createSolanaAccountFromHDKey(
 
 /**
  * Creates multiple Solana accounts from mnemonic
- * 
+ *
  * @param accountIndex - Starting account index
- * @param type - Account type (external/internal)  
+ * @param type - Account type (external/internal)
  * @param count - Number of accounts to create
  * @param startIndex - Starting address index within account
  * @returns Promise<SolanaWalletAccount[]>
@@ -77,20 +74,20 @@ export async function createMultipleSolanaAccounts(
   accountIndex: number = 0,
   type: WalletAccountType = 'external',
   count: number = 1,
-  startIndex: number = 0
+  startIndex: number = 0,
 ): Promise<SolanaWalletAccount[]> {
   // Derive multiple HD keys using Solana's BIP-44 path
   const hdKeys = await deriveMultipleKeys(
     'SOL',
-    accountIndex, 
+    accountIndex,
     type === 'internal',
     count,
-    startIndex
+    startIndex,
   )
 
   // Create accounts from HD keys
   const accounts: SolanaWalletAccount[] = []
-  
+
   for (let i = 0; i < hdKeys.length; i++) {
     const hdKey = hdKeys[i]
     const addressIndex = startIndex + i
@@ -99,12 +96,12 @@ export async function createMultipleSolanaAccounts(
       accountIndex,
       type,
       addressIndex,
-      `Solana ${type === 'internal' ? 'Internal' : 'External'} Account ${addressIndex}`
+      `Solana ${type === 'internal' ? 'Internal' : 'External'} Account ${addressIndex}`,
     )
-    
+
     // Update the account ID to include address index
     account.id = `sol-${type}-${accountIndex}-${addressIndex}`
-    
+
     accounts.push(account)
   }
 
@@ -113,29 +110,26 @@ export async function createMultipleSolanaAccounts(
 
 /**
  * Creates a single Solana account
- * 
+ *
  * @param params - Account creation parameters
  * @returns Promise<WalletDerivationResult>
  */
-export async function createSolanaAccount(params: CreateAccountParams): Promise<WalletDerivationResult> {
+export async function createSolanaAccount(
+  params: CreateAccountParams,
+): Promise<WalletDerivationResult> {
   try {
     if (params.coinType !== 'SOL') {
       throw new Error('Invalid coin type for Solana account creation')
     }
 
-    const accounts = await createMultipleSolanaAccounts(
-      params.accountIndex,
-      params.type,
-      1,
-      0
-    )
+    const accounts = await createMultipleSolanaAccounts(params.accountIndex, params.type, 1, 0)
 
     if (accounts.length === 0) {
       throw new Error('Failed to create Solana account')
     }
 
     const account = accounts[0]
-    
+
     // Update name if provided
     if (params.name) {
       account.name = params.name
@@ -143,20 +137,20 @@ export async function createSolanaAccount(params: CreateAccountParams): Promise<
 
     return {
       account,
-      success: true
+      success: true,
     }
   } catch (error) {
     return {
       account: {} as SolanaWalletAccount,
       success: false,
-      error: error instanceof Error ? error.message : 'Unknown error creating Solana account'
+      error: error instanceof Error ? error.message : 'Unknown error creating Solana account',
     }
   }
 }
 
 /**
  * Gets Solana Keypair for signing transactions
- * 
+ *
  * @param solanaAccount - Solana wallet account
  * @returns Keypair instance for signing or null if no private key
  */
@@ -178,14 +172,14 @@ export function getSolanaKeypair(solanaAccount: SolanaWalletAccount): Keypair | 
 
 /**
  * Signs a Solana message
- * 
+ *
  * @param solanaAccount - Solana wallet account
  * @param message - Message to sign (string or bytes)
  * @returns Promise<string | null> - Signature string or null if error
  */
 export async function signSolanaMessage(
   solanaAccount: SolanaWalletAccount,
-  message: string | Uint8Array
+  message: string | Uint8Array,
 ): Promise<string | null> {
   const keypair = getSolanaKeypair(solanaAccount)
   if (!keypair) {
@@ -193,9 +187,10 @@ export async function signSolanaMessage(
   }
 
   try {
-    const messageBuffer = typeof message === 'string' ? Buffer.from(message, 'utf8') : Buffer.from(message)
+    const messageBuffer =
+      typeof message === 'string' ? Buffer.from(message, 'utf8') : Buffer.from(message)
     const signature = keypair.secretKey.slice(0, 32) // Get the private key part for signing
-    
+
     // For now, return a placeholder signature format
     // In a real implementation, you'd use nacl.sign.detached or similar
     return Buffer.from(signature).toString('hex')
@@ -207,7 +202,7 @@ export async function signSolanaMessage(
 
 /**
  * Validates a Solana address (Base58 format)
- * 
+ *
  * @param address - Address to validate
  * @returns boolean - True if valid Solana address
  */
@@ -222,7 +217,7 @@ export function isValidSolanaAddress(address: string): boolean {
 
 /**
  * Gets account info for debugging
- * 
+ *
  * @param account - Solana wallet account
  * @returns Account debugging information
  */
@@ -242,7 +237,7 @@ export function getSolanaAccountInfo(account: SolanaWalletAccount) {
 
 /**
  * Converts Solana account to display format
- * 
+ *
  * @param account - Solana wallet account
  * @returns Display-friendly account object
  */
@@ -261,7 +256,7 @@ export function formatSolanaAccountForDisplay(account: SolanaWalletAccount) {
 
 /**
  * Creates a Solana PublicKey from account
- * 
+ *
  * @param account - Solana wallet account
  * @returns PublicKey instance
  */

@@ -12,9 +12,6 @@ import type {
   ActiveWallets,
   WalletCoinType,
   WalletAccountType,
-  EthereumWalletAccount,
-  BitcoinWalletAccount,
-  SolanaWalletAccount
 } from '@/shared/types/wallet'
 // Dynamic imports to avoid SSR issues with crypto libraries
 let walletServices: any = null
@@ -27,8 +24,8 @@ async function getWalletServices() {
   try {
     const [ethereumWallet, bitcoinWallet, solanaWallet] = await Promise.all([
       import('@/services/ethereumWallet'),
-      import('@/services/bitcoinWallet'), 
-      import('@/services/solanaWallet')
+      import('@/services/bitcoinWallet'),
+      import('@/services/solanaWallet'),
     ])
 
     walletServices = {
@@ -53,16 +50,16 @@ async function getWalletServices() {
 const INITIAL_WALLET_COLLECTION: WalletCollection = {
   ETH: {
     external: [],
-    internal: []
+    internal: [],
   },
   BTC: {
     external: [],
-    internal: []
+    internal: [],
   },
   SOL: {
     external: [],
-    internal: []
-  }
+    internal: [],
+  },
 }
 
 /**
@@ -71,7 +68,7 @@ const INITIAL_WALLET_COLLECTION: WalletCollection = {
 const INITIAL_ACTIVE_WALLETS: ActiveWallets = {
   ETH: undefined,
   BTC: undefined,
-  SOL: undefined
+  SOL: undefined,
 }
 
 /**
@@ -80,16 +77,16 @@ const INITIAL_ACTIVE_WALLETS: ActiveWallets = {
 interface WalletState {
   /** All wallet accounts organized by coin type and account type */
   wallets: WalletCollection
-  
+
   /** Currently active wallet for each coin type */
   activeWallets: ActiveWallets
-  
+
   /** Whether wallets have been initialized from mnemonic */
   isInitialized: boolean
-  
+
   /** Loading state for wallet operations */
   isLoading: boolean
-  
+
   /** Error message from wallet operations */
   error: string | null
 }
@@ -101,34 +98,38 @@ interface WalletActions {
   // Initialization
   /** Initialize wallets from mnemonic with default accounts */
   initializeWallets: () => Promise<void>
-  
+
   /** Clear all wallet data */
   clearWallets: () => void
-  
+
   // Account Management
   /** Create new accounts for a specific coin type */
-  createAccounts: (coinType: WalletCoinType, type: WalletAccountType, count?: number) => Promise<void>
-  
+  createAccounts: (
+    coinType: WalletCoinType,
+    type: WalletAccountType,
+    count?: number,
+  ) => Promise<void>
+
   /** Get all accounts for a specific coin type */
   getAccountsByCoin: (coinType: WalletCoinType) => WalletAccount[]
-  
+
   /** Get accounts by type (external/internal) */
   getAccountsByType: (type: WalletAccountType) => WalletAccount[]
-  
+
   /** Find account by ID */
   getAccountById: (id: string) => WalletAccount | undefined
-  
+
   // Active Wallet Management
   /** Set active wallet for a coin type */
   setActiveWallet: (coinType: WalletCoinType, account: WalletAccount) => void
-  
+
   /** Get active wallet for a coin type */
   getActiveWallet: (coinType: WalletCoinType) => WalletAccount | undefined
-  
+
   // Error Management
   /** Set error message */
   setError: (error: string | null) => void
-  
+
   /** Clear error message */
   clearError: () => void
 }
@@ -146,7 +147,7 @@ const INITIAL_WALLET_STATE: WalletState = {
   activeWallets: INITIAL_ACTIVE_WALLETS,
   isInitialized: false,
   isLoading: false,
-  error: null
+  error: null,
 }
 
 /**
@@ -160,14 +161,14 @@ export const useWalletStore = create<WalletStore>()(
 
         // Initialization
         initializeWallets: async () => {
-          set((state) => {
+          set(state => {
             state.isLoading = true
             state.error = null
           })
 
           try {
             console.log('[WalletStore] Initializing wallets from mnemonic...')
-            
+
             // Load wallet services dynamically
             const services = await getWalletServices()
 
@@ -175,17 +176,18 @@ export const useWalletStore = create<WalletStore>()(
             const [ethAccounts, btcAccounts, solAccounts] = await Promise.all([
               services.createMultipleEthereumAccounts(0, 'external', 5, 0),
               services.createMultipleBitcoinAccounts(0, 'external', 'segwit', 5, 0),
-              services.createMultipleSolanaAccounts(0, 'external', 5, 0)
+              services.createMultipleSolanaAccounts(0, 'external', 5, 0),
             ])
 
             // Create initial internal accounts for each coin type (first 2 accounts)
-            const [ethInternalAccounts, btcInternalAccounts, solInternalAccounts] = await Promise.all([
-              services.createMultipleEthereumAccounts(0, 'internal', 2, 0),
-              services.createMultipleBitcoinAccounts(0, 'internal', 'segwit', 2, 0),
-              services.createMultipleSolanaAccounts(0, 'internal', 2, 0)
-            ])
+            const [ethInternalAccounts, btcInternalAccounts, solInternalAccounts] =
+              await Promise.all([
+                services.createMultipleEthereumAccounts(0, 'internal', 2, 0),
+                services.createMultipleBitcoinAccounts(0, 'internal', 'segwit', 2, 0),
+                services.createMultipleSolanaAccounts(0, 'internal', 2, 0),
+              ])
 
-            set((state) => {
+            set(state => {
               // Set wallet accounts
               state.wallets.ETH.external = ethAccounts
               state.wallets.ETH.internal = ethInternalAccounts
@@ -213,13 +215,18 @@ export const useWalletStore = create<WalletStore>()(
             })
 
             console.log('[WalletStore] Wallets initialized successfully')
-            console.log(`- ETH: ${ethAccounts.length + ethInternalAccounts.length} accounts (${ethAccounts.length} external, ${ethInternalAccounts.length} internal)`)
-            console.log(`- BTC: ${btcAccounts.length + btcInternalAccounts.length} accounts (${btcAccounts.length} external, ${btcInternalAccounts.length} internal)`)
-            console.log(`- SOL: ${solAccounts.length + solInternalAccounts.length} accounts (${solAccounts.length} external, ${solInternalAccounts.length} internal)`)
-
+            console.log(
+              `- ETH: ${ethAccounts.length + ethInternalAccounts.length} accounts (${ethAccounts.length} external, ${ethInternalAccounts.length} internal)`,
+            )
+            console.log(
+              `- BTC: ${btcAccounts.length + btcInternalAccounts.length} accounts (${btcAccounts.length} external, ${btcInternalAccounts.length} internal)`,
+            )
+            console.log(
+              `- SOL: ${solAccounts.length + solInternalAccounts.length} accounts (${solAccounts.length} external, ${solInternalAccounts.length} internal)`,
+            )
           } catch (error) {
             console.error('[WalletStore] Failed to initialize wallets:', error)
-            set((state) => {
+            set(state => {
               state.isLoading = false
               state.error = error instanceof Error ? error.message : 'Failed to initialize wallets'
             })
@@ -227,7 +234,7 @@ export const useWalletStore = create<WalletStore>()(
         },
 
         clearWallets: () => {
-          set((state) => {
+          set(state => {
             state.wallets = INITIAL_WALLET_COLLECTION
             state.activeWallets = INITIAL_ACTIVE_WALLETS
             state.isInitialized = false
@@ -238,7 +245,7 @@ export const useWalletStore = create<WalletStore>()(
 
         // Account Management
         createAccounts: async (coinType: WalletCoinType, type: WalletAccountType, count = 1) => {
-          set((state) => {
+          set(state => {
             state.isLoading = true
             state.error = null
           })
@@ -246,7 +253,7 @@ export const useWalletStore = create<WalletStore>()(
           try {
             const currentAccounts = get().wallets[coinType][type]
             const nextAccountIndex = currentAccounts.length
-            
+
             // Load wallet services dynamically
             const services = await getWalletServices()
 
@@ -254,40 +261,53 @@ export const useWalletStore = create<WalletStore>()(
 
             switch (coinType) {
               case 'ETH':
-                newAccounts = await services.createMultipleEthereumAccounts(0, type, count, nextAccountIndex)
+                newAccounts = await services.createMultipleEthereumAccounts(
+                  0,
+                  type,
+                  count,
+                  nextAccountIndex,
+                )
                 break
               case 'BTC':
-                newAccounts = await services.createMultipleBitcoinAccounts(0, type, 'segwit', count, nextAccountIndex)
+                newAccounts = await services.createMultipleBitcoinAccounts(
+                  0,
+                  type,
+                  'segwit',
+                  count,
+                  nextAccountIndex,
+                )
                 break
               case 'SOL':
-                newAccounts = await services.createMultipleSolanaAccounts(0, type, count, nextAccountIndex)
+                newAccounts = await services.createMultipleSolanaAccounts(
+                  0,
+                  type,
+                  count,
+                  nextAccountIndex,
+                )
                 break
               default:
                 throw new Error(`Unsupported coin type: ${coinType}`)
             }
 
-            set((state) => {
+            set(state => {
               state.wallets[coinType][type].push(...(newAccounts as any))
               state.isLoading = false
             })
 
             console.log(`[WalletStore] Created ${count} new ${type} ${coinType} accounts`)
-
           } catch (error) {
             console.error(`[WalletStore] Failed to create ${coinType} accounts:`, error)
-            set((state) => {
+            set(state => {
               state.isLoading = false
-              state.error = error instanceof Error ? error.message : `Failed to create ${coinType} accounts`
+              state.error =
+                error instanceof Error ? error.message : `Failed to create ${coinType} accounts`
             })
           }
         },
 
         getAccountsByCoin: (coinType: WalletCoinType) => {
           const state = get()
-          return [
-            ...state.wallets[coinType].external,
-            ...state.wallets[coinType].internal
-          ]
+          return [...state.wallets[coinType].external, ...state.wallets[coinType].internal]
         },
 
         getAccountsByType: (type: WalletAccountType) => {
@@ -295,7 +315,7 @@ export const useWalletStore = create<WalletStore>()(
           return [
             ...state.wallets.ETH[type],
             ...state.wallets.BTC[type],
-            ...state.wallets.SOL[type]
+            ...state.wallets.SOL[type],
           ]
         },
 
@@ -307,32 +327,38 @@ export const useWalletStore = create<WalletStore>()(
             ...state.wallets.BTC.external,
             ...state.wallets.BTC.internal,
             ...state.wallets.SOL.external,
-            ...state.wallets.SOL.internal
+            ...state.wallets.SOL.internal,
           ]
           return allAccounts.find(account => account.id === id)
         },
 
         // Active Wallet Management
         setActiveWallet: (coinType: WalletCoinType, account: WalletAccount) => {
-          set((state) => {
+          set(state => {
             // Clear previous active wallet for this coin type
             const currentActive = state.activeWallets[coinType]
             if (currentActive) {
-              const currentAccount = state.wallets[coinType][currentActive.type].find(a => a.id === currentActive.id)
+              const currentAccount = state.wallets[coinType][currentActive.type].find(
+                a => a.id === currentActive.id,
+              )
               if (currentAccount) {
                 currentAccount.isActive = false
               }
             }
 
             // Set new active wallet
-            const targetAccount = state.wallets[coinType][account.type].find(a => a.id === account.id)
+            const targetAccount = state.wallets[coinType][account.type].find(
+              a => a.id === account.id,
+            )
             if (targetAccount) {
               targetAccount.isActive = true
               state.activeWallets[coinType] = targetAccount as any // Type assertion needed due to union type complexity
             }
           })
 
-          console.log(`[WalletStore] Set active ${coinType} wallet: ${account.name} (${account.address})`)
+          console.log(
+            `[WalletStore] Set active ${coinType} wallet: ${account.name} (${account.address})`,
+          )
         },
 
         getActiveWallet: (coinType: WalletCoinType) => {
@@ -341,49 +367,49 @@ export const useWalletStore = create<WalletStore>()(
 
         // Error Management
         setError: (error: string | null) => {
-          set((state) => {
+          set(state => {
             state.error = error
           })
         },
 
         clearError: () => {
-          set((state) => {
+          set(state => {
             state.error = null
           })
-        }
-      }))
+        },
+      })),
     ),
     {
       name: 'lattice-wallet-store',
       version: 1,
       // Only persist essential data, not loading states or errors
-      partialize: (state) => ({
+      partialize: state => ({
         wallets: state.wallets,
         activeWallets: state.activeWallets,
-        isInitialized: state.isInitialized
-      })
-    }
-  )
+        isInitialized: state.isInitialized,
+      }),
+    },
+  ),
 )
 
 /**
  * Hook to get wallet statistics
  */
 export const useWalletStats = () => {
-  return useWalletStore((state) => {
+  return useWalletStore(state => {
     const ethCount = state.wallets.ETH.external.length + state.wallets.ETH.internal.length
     const btcCount = state.wallets.BTC.external.length + state.wallets.BTC.internal.length
     const solCount = state.wallets.SOL.external.length + state.wallets.SOL.internal.length
-    
+
     return {
       totalAccounts: ethCount + btcCount + solCount,
       accountsByType: {
         ETH: ethCount,
         BTC: btcCount,
-        SOL: solCount
+        SOL: solCount,
       },
       activeWallets: state.activeWallets,
-      isInitialized: state.isInitialized
+      isInitialized: state.isInitialized,
     }
   })
 }

@@ -3,14 +3,7 @@
  */
 
 import { randomBytes } from 'crypto'
-import {
-  LatticeResponseCode,
-  LatticeSecureEncryptedRequestType,
-  DeviceResponse,
-  WalletPath,
-  AddressInfo,
-  WalletCoinType,
-} from '../types'
+import { LatticeResponseCode, LatticeSecureEncryptedRequestType } from '../types'
 import {
   generateEthereumAddress,
   generateBitcoinAddress,
@@ -19,12 +12,13 @@ import {
   generateSeedFromMnemonic,
 } from './crypto'
 import { DERIVATION_PATHS, SIMULATOR_CONSTANTS } from '../constants'
+import type { DeviceResponse, WalletPath, AddressInfo, WalletCoinType } from '../types'
 
 /**
  * Generates a unique request ID
- * 
+ *
  * Creates a random 8-byte hexadecimal identifier for tracking requests.
- * 
+ *
  * @returns Unique request ID string
  */
 export function generateRequestId(): string {
@@ -38,7 +32,7 @@ export function createDeviceResponse<T = any>(
   success: boolean,
   code: LatticeResponseCode,
   data?: T,
-  error?: string
+  error?: string,
 ): DeviceResponse<T> {
   return {
     success,
@@ -50,9 +44,9 @@ export function createDeviceResponse<T = any>(
 
 /**
  * Gets error message for response code
- * 
+ *
  * Maps Lattice response codes to human-readable error messages.
- * 
+ *
  * @param code - The Lattice response code
  * @returns Human-readable error message
  */
@@ -75,15 +69,15 @@ export function getErrorMessage(code: LatticeResponseCode): string {
     [LatticeResponseCode.already]: 'Record already exists on device',
     [LatticeResponseCode.invalidEphemId]: 'Request failed - needs resync',
   }
-  
+
   return messages[code] || 'Unknown error'
 }
 
 /**
  * Validates request type
- * 
+ *
  * Checks if the provided number is a valid Lattice request type.
- * 
+ *
  * @param type - Request type number to validate
  * @returns True if request type is valid
  */
@@ -93,9 +87,9 @@ export function isValidRequestType(type: number): boolean {
 
 /**
  * Gets request type name
- * 
+ *
  * Converts request type enum value to human-readable string.
- * 
+ *
  * @param type - The request type enum value
  * @returns Human-readable request type name
  */
@@ -111,62 +105,61 @@ export function getRequestTypeName(type: LatticeSecureEncryptedRequestType): str
     [LatticeSecureEncryptedRequestType.fetchEncryptedData]: 'fetchEncryptedData',
     [LatticeSecureEncryptedRequestType.test]: 'test',
   }
-  
+
   return names[type] || 'unknown'
 }
 
 /**
  * Simulates delay for realistic device behavior
- * 
+ *
  * Adds random delay to simulate real hardware response times.
- * 
+ *
  * @param baseMs - Base delay in milliseconds
  * @param variationMs - Random variation range in milliseconds
  * @returns Promise that resolves after the delay
  */
-export async function simulateDelay(baseMs: number = 500, variationMs: number = 200): Promise<void> {
+export async function simulateDelay(
+  baseMs: number = 500,
+  variationMs: number = 200,
+): Promise<void> {
   const delay = baseMs + Math.random() * variationMs
   await new Promise(resolve => setTimeout(resolve, delay))
 }
 
 /**
  * Checks if a firmware version supports a feature
- * 
+ *
  * Compares firmware version against minimum required version for a feature.
- * 
+ *
  * @param firmwareVersion - Current firmware version buffer
  * @param featureVersion - Minimum required version [major, minor, patch]
  * @returns True if firmware supports the feature
  */
 export function supportsFeature(
   firmwareVersion: Buffer,
-  featureVersion: [number, number, number]
+  featureVersion: [number, number, number],
 ): boolean {
   if (firmwareVersion.length < 3) return false
-  
-  const [fwMajor, fwMinor, fwPatch] = [
-    firmwareVersion[2],
-    firmwareVersion[1],
-    firmwareVersion[0],
-  ]
-  
+
+  const [fwMajor, fwMinor, fwPatch] = [firmwareVersion[2], firmwareVersion[1], firmwareVersion[0]]
+
   const [reqMajor, reqMinor, reqPatch] = featureVersion
-  
+
   if (fwMajor > reqMajor) return true
   if (fwMajor < reqMajor) return false
-  
+
   if (fwMinor > reqMinor) return true
   if (fwMinor < reqMinor) return false
-  
+
   return fwPatch >= reqPatch
 }
 
 /**
  * Generates mock addresses for a given derivation path
- * 
+ *
  * Creates cryptocurrency addresses using HD wallet derivation.
  * Supports Ethereum, Bitcoin, and Solana address generation.
- * 
+ *
  * @param startPath - Starting derivation path
  * @param count - Number of addresses to generate
  * @param coinType - Cryptocurrency type ('ETH', 'BTC', 'SOL')
@@ -177,29 +170,29 @@ export function generateMockAddresses(
   startPath: WalletPath,
   count: number,
   coinType: WalletCoinType = 'ETH',
-  seed?: Buffer
+  seed?: Buffer,
 ): AddressInfo[] {
   const addresses: AddressInfo[] = []
   const masterSeed = seed || generateSeedFromMnemonic(SIMULATOR_CONSTANTS.DEFAULT_MNEMONIC)
-  
+
   // Derive master key and chain code
   let currentKey = masterSeed.slice(0, 32)
   let currentChainCode = masterSeed.slice(32)
-  
+
   // Derive to the start path
   for (const segment of startPath.slice(0, -1)) {
     const derived = deriveChild(currentKey, currentChainCode, segment)
     currentKey = Buffer.from(derived.key)
     currentChainCode = Buffer.from(derived.chainCode)
   }
-  
+
   // Generate addresses
   const baseIndex = startPath[startPath.length - 1]
   for (let i = 0; i < count; i++) {
     const index = baseIndex + i
     const derived = deriveChild(currentKey, currentChainCode, index)
     const publicKey = Buffer.concat([Buffer.from([0x04]), derived.key]) // Uncompressed pubkey
-    
+
     let address: string
     switch (coinType) {
       case 'ETH':
@@ -214,9 +207,9 @@ export function generateMockAddresses(
       default:
         throw new Error(`Unsupported coin type: ${coinType}`)
     }
-    
+
     const fullPath = [...startPath.slice(0, -1), index]
-    
+
     addresses.push({
       address,
       publicKey,
@@ -224,38 +217,38 @@ export function generateMockAddresses(
       index,
     })
   }
-  
+
   return addresses
 }
 
 /**
  * Detects coin type from derivation path
- * 
+ *
  * Analyzes the coin type field in a derivation path to determine
  * the target cryptocurrency.
- * 
+ *
  * @param path - HD wallet derivation path
  * @returns Detected coin type or 'UNKNOWN'
  */
 export function detectCoinTypeFromPath(path: WalletPath): WalletCoinType | 'UNKNOWN' {
   if (path.length < 2) return 'UNKNOWN'
-  
+
   const coinType = path[1]
-  
+
   // Check against known coin types (hardened values)
-  if (coinType === 0x80000000 + 60) return 'ETH'   // ETH
-  if (coinType === 0x80000000 + 0) return 'BTC'    // BTC
-  if (coinType === 0x80000000 + 501) return 'SOL'  // SOL
-  
+  if (coinType === 0x80000000 + 60) return 'ETH' // ETH
+  if (coinType === 0x80000000 + 0) return 'BTC' // BTC
+  if (coinType === 0x80000000 + 501) return 'SOL' // SOL
+
   return 'UNKNOWN'
 }
 
 /**
  * Gets standard derivation path for a coin type
- * 
+ *
  * Returns the standard BIP-44 derivation path for the specified
  * cryptocurrency type.
- * 
+ *
  * @param coinType - Target cryptocurrency type
  * @param account - Account index (default: 0)
  * @returns Standard derivation path array
@@ -281,10 +274,8 @@ export function validateDerivationPath(path: WalletPath): boolean {
   if (!Array.isArray(path) || path.length < 3 || path.length > 6) {
     return false
   }
-  
-  return path.every(segment => 
-    Number.isInteger(segment) && segment >= 0 && segment <= 0xFFFFFFFF
-  )
+
+  return path.every(segment => Number.isInteger(segment) && segment >= 0 && segment <= 0xffffffff)
 }
 
 /**
@@ -292,7 +283,7 @@ export function validateDerivationPath(path: WalletPath): boolean {
  */
 export function formatFirmwareVersion(version: Buffer): string {
   if (version.length < 3) return 'Unknown'
-  
+
   return `${version[2]}.${version[1]}.${version[0]}`
 }
 
@@ -316,11 +307,10 @@ export function validateEthereumTransaction(data: any): boolean {
  */
 export function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B'
-  
+
   const k = 1024
   const sizes = ['B', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  
+
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
-

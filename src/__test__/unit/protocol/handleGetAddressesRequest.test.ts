@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { LatticeSimulator } from '@/lib/simulator'
 import { ProtocolHandler } from '@/lib/protocolHandler'
 import { LatticeResponseCode } from '@/types'
-import { LatticeSimulator } from '@/lib/simulator'
 
 // Mock the simulator with simple vi.fn() calls
 const mockSimulator = {
@@ -24,16 +24,19 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
     // Arrange
     const mockRequestData = Buffer.alloc(20) // Mock request buffer
     const mockAddressData = {
-      addresses: ['0x1234567890abcdef1234567890abcdef12345678', '0xfedcba0987654321fedcba0987654321fedcba09'],
+      addresses: [
+        '0x1234567890abcdef1234567890abcdef12345678',
+        '0xfedcba0987654321fedcba0987654321fedcba09',
+      ],
       publicKeys: [Buffer.alloc(32), Buffer.alloc(32)],
-      chainCode: Buffer.alloc(32)
+      chainCode: Buffer.alloc(32),
     }
 
     const mockSimulatorResponse = {
       success: true,
       code: LatticeResponseCode.success,
       data: mockAddressData,
-      error: undefined
+      error: undefined,
     }
 
     vi.mocked(mockSimulator.getAddresses).mockResolvedValue(mockSimulatorResponse)
@@ -58,7 +61,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
       success: false,
       code: LatticeResponseCode.invalidMsg,
       data: undefined,
-      error: 'Invalid address request'
+      error: 'Invalid address request',
     }
 
     vi.mocked(mockSimulator.getAddresses).mockResolvedValue(mockSimulatorResponse)
@@ -80,7 +83,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
       success: true,
       code: LatticeResponseCode.success,
       data: undefined,
-      error: undefined
+      error: undefined,
     }
 
     vi.mocked(mockSimulator.getAddresses).mockResolvedValue(mockSimulatorResponse)
@@ -102,7 +105,9 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
     vi.mocked(mockSimulator.getAddresses).mockRejectedValue(new Error(errorMessage))
 
     // Act & Assert
-    await expect(protocolHandler['handleGetAddressesRequest'](mockRequestData)).rejects.toThrow(errorMessage)
+    await expect(protocolHandler['handleGetAddressesRequest'](mockRequestData)).rejects.toThrow(
+      errorMessage,
+    )
     expect(mockSimulator.getAddresses).toHaveBeenCalledTimes(1)
   })
 
@@ -110,14 +115,14 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
     // Arrange
     const mockRequestData = Buffer.alloc(20)
     const mockAddressData = {
-      addresses: ['0x1234567890abcdef1234567890abcdef12345678'] // At least one address to avoid buffer size issue
+      addresses: ['0x1234567890abcdef1234567890abcdef12345678'], // At least one address to avoid buffer size issue
     }
 
     const mockSimulatorResponse = {
       success: true,
       code: LatticeResponseCode.success,
       data: mockAddressData,
-      error: undefined
+      error: undefined,
     }
 
     vi.mocked(mockSimulator.getAddresses).mockResolvedValue(mockSimulatorResponse)
@@ -138,7 +143,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
       success: false,
       code: LatticeResponseCode.deviceBusy,
       data: undefined,
-      error: 'Device is currently busy'
+      error: 'Device is currently busy',
     }
 
     vi.mocked(mockSimulator.getAddresses).mockResolvedValue(mockSimulatorResponse)

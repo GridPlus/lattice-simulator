@@ -3,7 +3,11 @@
  * Handles mnemonic management and wallet configuration
  */
 
-import { validateMnemonic as validateBip39Mnemonic, generateMnemonic, mnemonicToSeed } from '@scure/bip39'
+import {
+  validateMnemonic as validateBip39Mnemonic,
+  generateMnemonic,
+  mnemonicToSeed,
+} from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english'
 import { SIMULATOR_CONSTANTS } from './constants'
 
@@ -15,7 +19,7 @@ export interface WalletConfig {
 
 /**
  * Validates a mnemonic phrase using proper BIP39 validation
- * 
+ *
  * @param mnemonic - The mnemonic phrase to validate
  * @returns True if the mnemonic is valid
  */
@@ -29,7 +33,7 @@ export function validateMnemonic(mnemonic: string): boolean {
 
 /**
  * Gets the wallet configuration with mnemonic from environment or default
- * 
+ *
  * @returns Promise<WalletConfig> object with mnemonic and derived seed
  */
 export async function getWalletConfig(): Promise<WalletConfig> {
@@ -45,7 +49,9 @@ export async function getWalletConfig(): Promise<WalletConfig> {
       mnemonic = envMnemonic
       console.log('[WalletConfig] Using mnemonic from environment variable')
     } else {
-      console.warn('[WalletConfig] Invalid mnemonic in environment variable, falling back to default')
+      console.warn(
+        '[WalletConfig] Invalid mnemonic in environment variable, falling back to default',
+      )
       mnemonic = SIMULATOR_CONSTANTS.DEFAULT_MNEMONIC
       isDefault = true
     }
@@ -58,17 +64,17 @@ export async function getWalletConfig(): Promise<WalletConfig> {
 
   // Generate seed from mnemonic (using empty passphrase for simplicity)
   const seed = await mnemonicToSeed(mnemonic, '')
-  
+
   return {
     mnemonic,
     seed,
-    isDefault
+    isDefault,
   }
 }
 
 /**
  * Generates a new random 24-word mnemonic
- * 
+ *
  * @returns A new BIP39 mnemonic phrase
  */
 export function generateNewMnemonic(): string {
@@ -77,10 +83,10 @@ export function generateNewMnemonic(): string {
 
 /**
  * Gets environment variable configuration info
- * 
+ *
  * @returns Object with environment variable names and their status
  */
-export function getEnvInfo(): { 
+export function getEnvInfo(): {
   envVars: string[]
   hasEnvMnemonic: boolean
   envMnemonicSource?: string
@@ -88,7 +94,7 @@ export function getEnvInfo(): {
   const envVars = ['LATTICE_MNEMONIC', 'WALLET_MNEMONIC']
   const latticeEnv = process.env.LATTICE_MNEMONIC
   const walletEnv = process.env.WALLET_MNEMONIC
-  
+
   let hasEnvMnemonic = false
   let envMnemonicSource: string | undefined
 
@@ -103,7 +109,7 @@ export function getEnvInfo(): {
   return {
     envVars,
     hasEnvMnemonic,
-    envMnemonicSource
+    envMnemonicSource,
   }
 }
 
@@ -113,15 +119,15 @@ export function getEnvInfo(): {
 export async function logWalletConfigStatus(): Promise<void> {
   const config = await getWalletConfig()
   const envInfo = getEnvInfo()
-  
+
   console.log('[WalletConfig] Configuration Status:')
   console.log(`  - Using ${config.isDefault ? 'default' : 'environment'} mnemonic`)
   console.log(`  - Environment variables checked: ${envInfo.envVars.join(', ')}`)
-  
+
   if (envInfo.hasEnvMnemonic) {
     console.log(`  - Environment mnemonic source: ${envInfo.envMnemonicSource}`)
   }
-  
+
   if (config.isDefault) {
     console.log('  - ⚠️  Using default development mnemonic. Set LATTICE_MNEMONIC for production.')
   }

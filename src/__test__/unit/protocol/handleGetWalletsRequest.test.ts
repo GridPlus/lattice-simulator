@@ -24,19 +24,19 @@ describe('ProtocolHandler - handleGetWalletsRequest', () => {
       internal: {
         uid: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
         capabilities: 0x01,
-        name: 'Internal Wallet'
+        name: 'Internal Wallet',
       },
       external: {
         uid: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
         capabilities: 0x02,
-        name: 'External Wallet'
-      }
+        name: 'External Wallet',
+      },
     }
 
     const mockSimulatorResponse = {
       code: LatticeResponseCode.success,
       data: mockWalletData,
-      error: undefined
+      error: undefined,
     }
 
     mockSimulator.getWallets.mockResolvedValue(mockSimulatorResponse)
@@ -52,7 +52,7 @@ describe('ProtocolHandler - handleGetWalletsRequest', () => {
 
     // Verify the response data is a Buffer (serialized)
     expect(Buffer.isBuffer(result.data)).toBe(true)
-    
+
     // Verify the buffer size (71 bytes per wallet * 2 wallets = 142 bytes)
     expect(result.data!.length).toBe(142)
   })
@@ -62,7 +62,7 @@ describe('ProtocolHandler - handleGetWalletsRequest', () => {
     const mockSimulatorResponse = {
       code: LatticeResponseCode.deviceBusy,
       data: undefined,
-      error: 'Device is busy'
+      error: 'Device is busy',
     }
 
     mockSimulator.getWallets.mockResolvedValue(mockSimulatorResponse)
@@ -82,7 +82,7 @@ describe('ProtocolHandler - handleGetWalletsRequest', () => {
     const mockSimulatorResponse = {
       code: LatticeResponseCode.success,
       data: undefined,
-      error: undefined
+      error: undefined,
     }
 
     mockSimulator.getWallets.mockResolvedValue(mockSimulatorResponse)
@@ -113,19 +113,19 @@ describe('ProtocolHandler - handleGetWalletsRequest', () => {
       internal: {
         uid: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
         capabilities: undefined, // Missing capabilities
-        name: undefined // Missing name
+        name: undefined, // Missing name
       },
       external: {
         uid: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
         capabilities: 0x02,
-        name: '' // Empty name
-      }
+        name: '', // Empty name
+      },
     }
 
     const mockSimulatorResponse = {
       code: LatticeResponseCode.success,
       data: mockWalletData,
-      error: undefined
+      error: undefined,
     }
 
     mockSimulator.getWallets.mockResolvedValue(mockSimulatorResponse)

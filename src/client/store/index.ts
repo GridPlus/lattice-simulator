@@ -10,4 +10,3 @@ export {
   useActiveWallets,
   useSimulatorConfig,
 } from './clientDeviceStore'
-

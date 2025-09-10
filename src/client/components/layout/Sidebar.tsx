@@ -2,21 +2,14 @@
 
 /**
  * Sidebar Component for Lattice1 Device Simulator
- * 
+ *
  * Provides navigation between different simulator views and sections.
  */
 
-import React from 'react'
-import { usePathname } from 'next/navigation'
+import { Home, Wifi, Wallet, FileText, Clock, Database } from 'lucide-react'
 import Link from 'next/link'
-import { 
-  Home, 
-  Wifi, 
-  Wallet, 
-  FileText, 
-  Clock,
-  Database
-} from 'lucide-react'
+import { usePathname } from 'next/navigation'
+import React from 'react'
 
 interface NavItem {
   id: string
@@ -31,44 +24,44 @@ const navigationItems: NavItem[] = [
     id: 'dashboard',
     label: 'Dashboard',
     icon: Home,
-    href: '/'
+    href: '/',
   },
   {
     id: 'connection',
     label: 'Connection',
     icon: Wifi,
-    href: '/connection'
+    href: '/connection',
   },
   {
     id: 'wallets',
     label: 'Wallets',
     icon: Wallet,
-    href: '/wallets'
+    href: '/wallets',
   },
   {
     id: 'requests',
     label: 'Pending Requests',
     icon: Clock,
     href: '/requests',
-    badge: '2'
+    badge: '2',
   },
   {
     id: 'transactions',
     label: 'Transactions',
     icon: FileText,
-    href: '/transactions'
+    href: '/transactions',
   },
   {
     id: 'storage',
     label: 'Address Tags',
     icon: Database,
-    href: '/storage'
-  }
+    href: '/storage',
+  },
 ]
 
 /**
  * Sidebar component with navigation menu
- * 
+ *
  * @returns Sidebar with navigation items and active state
  */
 export function Sidebar() {
@@ -79,10 +72,10 @@ export function Sidebar() {
       <div className="p-4">
         {/* Navigation */}
         <nav className="space-y-1">
-          {navigationItems.map((item) => {
+          {navigationItems.map(item => {
             const Icon = item.icon
             const isActive = pathname === item.href
-            
+
             return (
               <Link
                 key={item.id}
@@ -93,12 +86,12 @@ export function Sidebar() {
                     : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
                 }`}
               >
-                <Icon 
+                <Icon
                   className={`mr-3 h-5 w-5 ${
-                    isActive 
-                      ? 'text-blue-500' 
+                    isActive
+                      ? 'text-blue-500'
                       : 'text-gray-400 group-hover:text-gray-500 dark:text-gray-500 dark:group-hover:text-gray-400'
-                  }`} 
+                  }`}
                 />
                 <span className="flex-1">{item.label}</span>
                 {item.badge && (

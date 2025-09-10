@@ -95,13 +95,13 @@ export enum LatticeEncDataSchema {
 }
 
 export interface KeyPair {
-  publicKey: Buffer;
-  privateKey: Buffer;
+  publicKey: Buffer
+  privateKey: Buffer
 }
 
 export interface PairingStatus {
-  notPaired: 0x00;
-  paired: 0x01;
+  notPaired: 0x00
+  paired: 0x01
 }
 
 export const ProtocolConstants = {
@@ -110,8 +110,7 @@ export const ProtocolConstants = {
   // fine because each encryption/decryption uses a unique encryption
   // secret (derived from the per-message ephemeral key pair).
   aesIv: [
-    0x6d, 0x79, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x70, 0x61, 0x73, 0x73,
-    0x77, 0x6f, 0x72, 0x64,
+    0x6d, 0x79, 0x73, 0x65, 0x63, 0x72, 0x65, 0x74, 0x70, 0x61, 0x73, 0x73, 0x77, 0x6f, 0x72, 0x64,
   ],
   // Constant size of address buffers from the Lattice.
   // Note that this size also captures public keys returned
@@ -132,8 +131,7 @@ export const ProtocolConstants = {
     [LatticeResponseCode.userDeclined]: 'Request declined by user',
     [LatticeResponseCode.pairFailed]: 'Pairing failed',
     [LatticeResponseCode.pairDisabled]: 'Pairing is currently disabled',
-    [LatticeResponseCode.permissionDisabled]:
-      'Automated signing is currently disabled',
+    [LatticeResponseCode.permissionDisabled]: 'Automated signing is currently disabled',
     [LatticeResponseCode.internalError]: 'Device Error',
     [LatticeResponseCode.gceTimeout]: 'Device Timeout',
     [LatticeResponseCode.wrongWallet]: 'Active wallet does not match request',
@@ -216,4 +214,4 @@ export const ProtocolConstants = {
       },
     },
   },
-} as const;
+} as const

@@ -1,10 +1,10 @@
 /**
  * CLIENT-SIDE ONLY WebSocket Command Functions
- * 
+ *
  * ⚠️  CLIENT-SIDE ONLY: These functions send commands from client to server via WebSocket.
  * Server-side code should never import this file.
- * 
- * These functions dispatch CustomEvents that useClientWebSocketHandler picks up and 
+ *
+ * These functions dispatch CustomEvents that useClientWebSocketHandler picks up and
  * forwards to the server as WebSocket messages.
  */
 
@@ -22,8 +22,8 @@ function sendDeviceCommand(deviceId: string, command: string, data: any = {}) {
       detail: {
         deviceId,
         command,
-        data
-      }
+        data,
+      },
     })
     window.dispatchEvent(commandEvent)
     console.log(`[ClientWebSocketCommands] Sent command: ${command} for device: ${deviceId}`)
@@ -70,7 +70,10 @@ export function sendSetLockedCommand(deviceId: string, isLocked: boolean) {
 /**
  * Sends a device reset command to server
  */
-export function sendResetDeviceCommand(deviceId: string, resetType: 'connection' | 'full' = 'full') {
+export function sendResetDeviceCommand(
+  deviceId: string,
+  resetType: 'connection' | 'full' = 'full',
+) {
   sendDeviceCommand(deviceId, 'reset_device', { resetType })
 }
 

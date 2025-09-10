@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
 /**
  * Next.js middleware to handle CORS for all API routes
@@ -19,11 +20,14 @@ export function middleware(request: NextRequest) {
 
   // For all other requests, add CORS headers to the response
   const response = NextResponse.next()
-  
+
   response.headers.set('Access-Control-Allow-Origin', '*')
   response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
-  response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With')
-  
+  response.headers.set(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Requested-With',
+  )
+
   return response
 }
 
@@ -38,4 +42,3 @@ export const config = {
     '/:deviceId/:path*',
   ],
 }
-

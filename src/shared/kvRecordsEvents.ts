@@ -1,12 +1,12 @@
 /**
  * KV Records Event Management for Lattice1 Device Simulator
- * 
+ *
  * Handles emitting events when KV records are modified through
  * protocol operations (get, add, remove). Address tags are a specific
  * use case of KV records.
  */
 
-import { KvRecord, KvRecordData } from '@/shared/types/kvRecords'
+import type { KvRecord, KvRecordData } from '@/shared/types/kvRecords'
 
 /**
  * Event types for KV records operations
@@ -122,10 +122,10 @@ class KvRecordsEventEmitter {
     if (!this.listeners.has(eventType)) {
       this.listeners.set(eventType, new Set())
     }
-    
+
     const listeners = this.listeners.get(eventType)!
     listeners.add(listener)
-    
+
     // Return unsubscribe function
     return () => {
       listeners.delete(listener)
@@ -158,7 +158,7 @@ class KvRecordsEventEmitter {
         try {
           listener(event)
         } catch (error) {
-          console.error(`[KvRecordsEventEmitter] Error in event listener:`, error)
+          console.error('[KvRecordsEventEmitter] Error in event listener:', error)
         }
       })
     }
@@ -186,41 +186,33 @@ export function emitKvRecordsFetched(
   total: number,
   fetched: number,
   start: number,
-  type: number
+  type: number,
 ): void {
   const event: KvRecordsFetchedEvent = {
     type: KvRecordsEventType.FETCHED,
     timestamp: Date.now(),
     deviceId,
-    data: { records, total, fetched, start, type }
+    data: { records, total, fetched, start, type },
   }
   kvRecordsEventEmitter.emit(event)
 }
 
-export function emitKvRecordsAdded(
-  deviceId: string,
-  records: KvRecordData[],
-  type: number
-): void {
+export function emitKvRecordsAdded(deviceId: string, records: KvRecordData[], type: number): void {
   const event: KvRecordsAddedEvent = {
     type: KvRecordsEventType.ADDED,
     timestamp: Date.now(),
     deviceId,
-    data: { records, addedCount: records.length, type }
+    data: { records, addedCount: records.length, type },
   }
   kvRecordsEventEmitter.emit(event)
 }
 
-export function emitKvRecordsRemoved(
-  deviceId: string,
-  keys: string[],
-  type: number
-): void {
+export function emitKvRecordsRemoved(deviceId: string, keys: string[], type: number): void {
   const event: KvRecordsRemovedEvent = {
     type: KvRecordsEventType.REMOVED,
     timestamp: Date.now(),
     deviceId,
-    data: { keys, removedCount: keys.length, type }
+    data: { keys, removedCount: keys.length, type },
   }
   kvRecordsEventEmitter.emit(event)
 }
@@ -230,13 +222,13 @@ export function emitKvRecordsUpdated(
   key: string,
   oldValue: string,
   newValue: string,
-  type: number
+  type: number,
 ): void {
   const event: KvRecordsUpdatedEvent = {
     type: KvRecordsEventType.UPDATED,
     timestamp: Date.now(),
     deviceId,
-    data: { key, oldValue, newValue, type }
+    data: { key, oldValue, newValue, type },
   }
   kvRecordsEventEmitter.emit(event)
 }
@@ -244,27 +236,23 @@ export function emitKvRecordsUpdated(
 export function emitKvRecordsSynced(
   deviceId: string,
   records: Record<string, string>,
-  type: number
+  type: number,
 ): void {
   const event: KvRecordsSyncedEvent = {
     type: KvRecordsEventType.SYNCED,
     timestamp: Date.now(),
     deviceId,
-    data: { records, totalCount: Object.keys(records).length, type }
+    data: { records, totalCount: Object.keys(records).length, type },
   }
   kvRecordsEventEmitter.emit(event)
 }
 
-export function emitKvRecordsReset(
-  deviceId: string,
-  previousCount: number
-): void {
+export function emitKvRecordsReset(deviceId: string, previousCount: number): void {
   const event: KvRecordsResetEvent = {
     type: KvRecordsEventType.RESET,
     timestamp: Date.now(),
     deviceId,
-    data: { previousCount }
+    data: { previousCount },
   }
   kvRecordsEventEmitter.emit(event)
 }
-

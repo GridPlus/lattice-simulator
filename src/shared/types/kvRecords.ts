@@ -1,10 +1,10 @@
 /**
  * KV Records types and interfaces for Lattice1 Device Simulator
- * 
+ *
  * KV Records are key-value pairs stored on the device, where:
  * - key: arbitrary string identifier
  * - value: arbitrary string data
- * 
+ *
  * Address Tags are a specific subtype where:
  * - key: cryptocurrency address
  * - value: human-readable tag/label
@@ -107,35 +107,49 @@ export function validateKvRecord(key: string, value: string): { isValid: boolean
   if (!key || key.trim().length === 0) {
     return { isValid: false, error: 'Key cannot be empty' }
   }
-  
+
   if (!value || value.trim().length === 0) {
     return { isValid: false, error: 'Value cannot be empty' }
   }
-  
+
   if (key.length > KV_RECORDS_CONSTANTS.MAX_KEY_LENGTH) {
-    return { isValid: false, error: `Key too long (max ${KV_RECORDS_CONSTANTS.MAX_KEY_LENGTH} characters)` }
+    return {
+      isValid: false,
+      error: `Key too long (max ${KV_RECORDS_CONSTANTS.MAX_KEY_LENGTH} characters)`,
+    }
   }
-  
+
   if (value.length > KV_RECORDS_CONSTANTS.MAX_VALUE_LENGTH) {
-    return { isValid: false, error: `Value too long (max ${KV_RECORDS_CONSTANTS.MAX_VALUE_LENGTH} characters)` }
+    return {
+      isValid: false,
+      error: `Value too long (max ${KV_RECORDS_CONSTANTS.MAX_VALUE_LENGTH} characters)`,
+    }
   }
-  
+
   return { isValid: true }
 }
 
 /**
  * Helper function to convert KV record data to the format expected by the device
  */
-export function kvRecordDataToDeviceFormat(record: KvRecordData, type: number = 0): Record<string, string> {
+export function kvRecordDataToDeviceFormat(
+  record: KvRecordData,
+  type: number = 0,
+): Record<string, string> {
   return {
-    [record.key]: record.value
+    [record.key]: record.value,
   }
 }
 
 /**
  * Helper function to convert device KV record to our internal format
  */
-export function deviceKvRecordToInternal(key: string, value: string, id: number, type: number = 0): KvRecord {
+export function deviceKvRecordToInternal(
+  key: string,
+  value: string,
+  id: number,
+  type: number = 0,
+): KvRecord {
   return {
     id,
     type,
@@ -143,7 +157,7 @@ export function deviceKvRecordToInternal(key: string, value: string, id: number,
     key,
     val: value,
     createdAt: Date.now(),
-    updatedAt: Date.now()
+    updatedAt: Date.now(),
   }
 }
 
@@ -160,7 +174,6 @@ export function isAddressTag(record: KvRecord): boolean {
 export function addressTagToKvRecord(address: string, tag: string): KvRecordData {
   return {
     key: address,
-    value: tag
+    value: tag,
   }
 }
-

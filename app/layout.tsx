@@ -10,17 +10,11 @@ export const metadata: Metadata = {
   description: 'A software simulator for GridPlus Lattice1 hardware wallet',
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        <ServerRequestProvider>
-          {children}
-        </ServerRequestProvider>
+        <ServerRequestProvider>{children}</ServerRequestProvider>
       </body>
     </html>
   )

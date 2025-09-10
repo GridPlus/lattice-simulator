@@ -1,11 +1,23 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import {
+  Wifi,
+  WifiOff,
+  Shield,
+  ShieldCheck,
+  RefreshCw,
+  Settings,
+  Copy,
+  Check,
+  Wallet,
+  Trash2,
+  AlertTriangle,
+} from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import React, { useState, useEffect } from 'react'
+import { WalletSetup } from '@/client/components/setup'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/client/store'
 import { useWalletStore } from '@/client/store/clientWalletStore'
-import { Wifi, WifiOff, Shield, ShieldCheck, RefreshCw, Settings, Copy, Check, Wallet, Trash2, AlertTriangle } from 'lucide-react'
-import { WalletSetup } from '@/client/components/setup'
 
 /**
  * Connection status indicator component
@@ -16,7 +28,7 @@ function ConnectionStatus() {
   const { pairingCode, pairingStartTime, pairingTimeoutMs } = useDeviceStore()
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
   const [isCopied, setIsCopied] = useState(false)
-  
+
   const formatFirmwareVersion = (version: Buffer) => {
     if (!version || version.length < 3) return 'Unknown'
     return `${version[2]}.${version[1]}.${version[0]}`
@@ -31,7 +43,7 @@ function ConnectionStatus() {
 
   const handleCopyPairingCode = async () => {
     if (!pairingCode) return
-    
+
     try {
       await navigator.clipboard.writeText(pairingCode)
       setIsCopied(true)
@@ -61,9 +73,7 @@ function ConnectionStatus() {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-          Connection Status
-        </h3>
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Connection Status</h3>
         <div className="flex items-center space-x-2">
           <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -104,7 +114,9 @@ function ConnectionStatus() {
                   {isPaired ? 'Device Paired' : 'Device Not Paired'}
                 </p>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {isPaired ? 'Secure communication established' : 'Pairing required for secure communication'}
+                  {isPaired
+                    ? 'Secure communication established'
+                    : 'Pairing required for secure communication'}
                 </p>
               </div>
             </div>
@@ -144,7 +156,6 @@ function ConnectionStatus() {
             </div>
           </div>
         )}
-
 
         {isConnected && (
           <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
@@ -199,13 +210,12 @@ function ConnectionInfo() {
       // Clear all wallet data
       clearWallets()
       console.log('[ConnectionInfo] Device wallets reset successfully')
-      
+
       // Close the confirmation dialog
       setShowResetConfirm(false)
-      
+
       // Optionally also reset connection state
       // await resetDeviceState()
-      
     } catch (error) {
       console.error('[ConnectionInfo] Error resetting device:', error)
     } finally {
@@ -238,22 +248,22 @@ function ConnectionInfo() {
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-        Connection Info
-      </h3>
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Connection Info</h3>
 
       <div className="space-y-3">
         <div className="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
           {isEditingDeviceId ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Edit Device ID:</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Edit Device ID:
+                </span>
               </div>
               <div className="flex space-x-2">
                 <input
                   type="text"
                   value={deviceIdInput}
-                  onChange={(e) => setDeviceIdInput(e.target.value)}
+                  onChange={e => setDeviceIdInput(e.target.value)}
                   placeholder="Enter device ID"
                   className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-600 dark:border-gray-500 dark:text-white"
                 />
@@ -276,9 +286,13 @@ function ConnectionInfo() {
           ) : (
             <div>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Current Device ID:</span>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Current Device ID:
+                </span>
                 <div className="flex items-center space-x-2">
-                  <span className="text-sm font-mono text-gray-900 dark:text-white">{deviceId}</span>
+                  <span className="text-sm font-mono text-gray-900 dark:text-white">
+                    {deviceId}
+                  </span>
                   <button
                     onClick={() => setIsEditingDeviceId(true)}
                     className="text-xs text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer underline"
@@ -296,7 +310,7 @@ function ConnectionInfo() {
 
         {/* Wallet Initialization Status */}
         <div className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-          <div 
+          <div
             className={`flex items-center space-x-3 flex-1 ${
               walletsInitialized ? 'cursor-pointer hover:opacity-75 transition-opacity' : ''
             }`}
@@ -308,13 +322,17 @@ function ConnectionInfo() {
               <Wallet className="w-5 h-5 text-orange-500" />
             )}
             <div>
-              <p className={`font-medium text-gray-900 dark:text-white ${
-                walletsInitialized ? 'hover:text-blue-600 dark:hover:text-blue-400' : ''
-              }`}>
+              <p
+                className={`font-medium text-gray-900 dark:text-white ${
+                  walletsInitialized ? 'hover:text-blue-600 dark:hover:text-blue-400' : ''
+                }`}
+              >
                 {walletsInitialized ? 'Wallets Initialized' : 'Wallets Not Initialized'}
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                {walletsInitialized ? 'HD wallets ready for use • Click to manage' : 'Setup required to generate wallet accounts'}
+                {walletsInitialized
+                  ? 'HD wallets ready for use • Click to manage'
+                  : 'Setup required to generate wallet accounts'}
               </p>
             </div>
           </div>
@@ -351,11 +369,16 @@ function ConnectionInfo() {
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
                   </svg>
                 </button>
               </div>
-              <WalletSetup 
+              <WalletSetup
                 onSetupComplete={() => {
                   setShowWalletSetup(false)
                   // Force a re-render to show updated wallet status
@@ -382,7 +405,7 @@ function ConnectionInfo() {
                   </p>
                 </div>
               </div>
-              
+
               <div className="mb-6">
                 <p className="text-gray-700 dark:text-gray-300 mb-4">
                   Are you sure you want to reset this device? This will:
@@ -423,7 +446,7 @@ function ConnectionInfo() {
             </div>
           </div>
         )}
-        
+
         {isConnected && (
           <button
             onClick={handleResetConnectionState}
@@ -443,7 +466,6 @@ function ConnectionInfo() {
   )
 }
 
-
 /**
  * Main Connection Panel component
  */
@@ -451,9 +473,7 @@ export function ConnectionPanel() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
-          Device Connection
-        </h2>
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Device Connection</h2>
       </div>
 
       <div className="max-w-4xl">

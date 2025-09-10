@@ -17,23 +17,10 @@ export type {
   WalletPath,
 } from './device'
 
-export type {
-  AddressInfo,
-  DerivationPath,
-} from './crypto'
+export type { AddressInfo, DerivationPath } from './crypto'
 
-export {
-  LatticeResponseCode,
-  LatticeSecureEncryptedRequestType,
-} from './protocol'
+export { LatticeResponseCode, LatticeSecureEncryptedRequestType } from './protocol'
 
-export type {
-  KeyPair,
-} from './protocol'
+export type { KeyPair } from './protocol'
 
-export type {
-  HDNode,
-  CoinType,
-  Purpose,
-  CryptoOperations,
-} from './crypto'
+export type { HDNode, CoinType, Purpose, CryptoOperations } from './crypto'

@@ -2,18 +2,18 @@
 
 /**
  * Header Component for Lattice1 Device Simulator
- * 
+ *
  * Displays device information, firmware version, and quick action buttons.
  */
 
+import { Lock, Unlock, Power, Settings } from 'lucide-react'
 import React from 'react'
 import { useDeviceStatus } from '@/client/store'
-import { Lock, Unlock, Power, Settings } from 'lucide-react'
 import { formatFirmwareVersion } from '@/utils/protocol'
 
 /**
  * Header component with device information and controls
- * 
+ *
  * @returns Header with device info and quick action buttons
  */
 export function Header() {
@@ -30,9 +30,7 @@ export function Header() {
                 <span className="text-white font-semibold text-sm">L</span>
               </div>
               <div>
-                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  {name}
-                </h2>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{name}</h2>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   v{formatFirmwareVersion(firmwareVersion)}
                 </p>
@@ -51,11 +49,7 @@ export function Header() {
               }`}
               title={isLocked ? 'Unlock Device' : 'Lock Device'}
             >
-              {isLocked ? (
-                <Unlock className="w-4 h-4" />
-              ) : (
-                <Lock className="w-4 h-4" />
-              )}
+              {isLocked ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
             </button>
 
             {/* Power Button */}

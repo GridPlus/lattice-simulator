@@ -1,6 +1,6 @@
 /**
  * Request Manager for handling pending server-side requests that need client responses
- * 
+ *
  * This manages the correlation between server protocol requests and client-side events,
  * allowing the server to wait for client data (like KV records) before responding.
  */
@@ -43,15 +43,17 @@ class RequestManager {
     deviceId: string,
     type: string,
     payload: any,
-    timeoutMs: number = this.defaultTimeoutMs
+    timeoutMs: number = this.defaultTimeoutMs,
   ): Promise<T> {
     // Prevent heartbeat types from being used as server requests
     if (type === 'heartbeat' || type === 'heartbeat_response') {
-      throw new Error(`Invalid request type: ${type}. Heartbeat messages should not use RequestManager.`)
+      throw new Error(
+        `Invalid request type: ${type}. Heartbeat messages should not use RequestManager.`,
+      )
     }
 
     const requestId = uuidv4()
-    
+
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingRequests.delete(requestId)
@@ -74,13 +76,15 @@ class RequestManager {
           reject(error)
         },
         timeout,
-        createdAt: Date.now()
+        createdAt: Date.now(),
       }
 
       this.pendingRequests.set(requestId, pendingRequest)
-      
-      console.log(`[RequestManager] Created request: ${requestId} (${type}) for device: ${deviceId}`)
-      
+
+      console.log(
+        `[RequestManager] Created request: ${requestId} (${type}) for device: ${deviceId}`,
+      )
+
       // Send request that client can receive via WebSocket
       this.notifyNewRequest(pendingRequest)
     })
@@ -92,18 +96,18 @@ class RequestManager {
   handleClientResponse(response: ClientResponse): boolean {
     // Validate request ID format (should be UUID)
     if (!response.requestId || typeof response.requestId !== 'string') {
-      console.warn(`[RequestManager] Invalid requestId:`, response.requestId)
+      console.warn('[RequestManager] Invalid requestId:', response.requestId)
       return false
     }
 
     // Filter out heartbeat types that shouldn't be here
     if (response.type === 'heartbeat' || response.type === 'heartbeat_response') {
-      console.warn(`[RequestManager] Heartbeat message incorrectly sent to handleClientResponse`)
+      console.warn('[RequestManager] Heartbeat message incorrectly sent to handleClientResponse')
       return false
     }
 
     const pendingRequest = this.pendingRequests.get(response.requestId)
-    
+
     if (!pendingRequest) {
       console.warn(`[RequestManager] No pending request found for: ${response.requestId}`)
       return false
@@ -111,7 +115,9 @@ class RequestManager {
 
     // Additional validation: ensure request types match
     if (pendingRequest.type !== response.type) {
-      console.warn(`[RequestManager] Request type mismatch. Expected: ${pendingRequest.type}, Got: ${response.type}`)
+      console.warn(
+        `[RequestManager] Request type mismatch. Expected: ${pendingRequest.type}, Got: ${response.type}`,
+      )
       return false
     }
 
@@ -130,8 +136,7 @@ class RequestManager {
    * Get all pending requests for a device (for debugging)
    */
   getPendingRequestsForDevice(deviceId: string): PendingRequest[] {
-    return Array.from(this.pendingRequests.values())
-      .filter(req => req.deviceId === deviceId)
+    return Array.from(this.pendingRequests.values()).filter(req => req.deviceId === deviceId)
   }
 
   /**
@@ -146,7 +151,7 @@ class RequestManager {
    */
   cancelRequest(requestId: string): boolean {
     const pendingRequest = this.pendingRequests.get(requestId)
-    
+
     if (!pendingRequest) {
       return false
     }
@@ -154,7 +159,7 @@ class RequestManager {
     clearTimeout(pendingRequest.timeout)
     this.pendingRequests.delete(requestId)
     pendingRequest.reject(new Error('Request cancelled'))
-    
+
     console.log(`[RequestManager] Cancelled request: ${requestId}`)
     return true
   }
@@ -164,7 +169,7 @@ class RequestManager {
    */
   cancelRequestsForDevice(deviceId: string): number {
     let cancelled = 0
-    
+
     const entries = Array.from(this.pendingRequests.entries())
     for (const [requestId, request] of entries) {
       if (request.deviceId === deviceId) {
@@ -172,7 +177,7 @@ class RequestManager {
         cancelled++
       }
     }
-    
+
     console.log(`[RequestManager] Cancelled ${cancelled} requests for device: ${deviceId}`)
     return cancelled
   }
@@ -184,7 +189,7 @@ class RequestManager {
     let cleaned = 0
     const now = Date.now()
     const maxAge = this.defaultTimeoutMs * 2 // Double timeout as max age
-    
+
     const entries = Array.from(this.pendingRequests.entries())
     for (const [requestId, request] of entries) {
       if (now - request.createdAt > maxAge) {
@@ -192,11 +197,11 @@ class RequestManager {
         cleaned++
       }
     }
-    
+
     if (cleaned > 0) {
       console.log(`[RequestManager] Cleaned up ${cleaned} expired requests`)
     }
-    
+
     return cleaned
   }
 
@@ -208,15 +213,15 @@ class RequestManager {
     try {
       // Import here to avoid circular dependencies
       const { wsManager } = await import('./serverWebSocketManager')
-      
+
       // Send server request via WebSocket
       wsManager.sendServerRequest(
         request.deviceId,
         request.requestId,
         request.type,
-        request.payload
+        request.payload,
       )
-      
+
       console.log(`[RequestManager] Sent server_request via WebSocket for: ${request.requestId}`)
     } catch (error) {
       console.error('[RequestManager] Error notifying about new request:', error)
@@ -229,42 +234,30 @@ const globalForRequestManager = globalThis as unknown as {
   requestManager: RequestManager | undefined
 }
 
-export const requestManager = 
+export const requestManager =
   globalForRequestManager.requestManager ??
   (globalForRequestManager.requestManager = new RequestManager())
 
 // Helper functions for common request types
 export const requestKvRecords = async (
   deviceId: string,
-  params: { type: number; n: number; start: number }
+  params: { type: number; n: number; start: number },
 ): Promise<{ records: any[]; total: number; fetched: number }> => {
-  return requestManager.createRequest(
-    deviceId,
-    'get_kv_records',
-    params
-  )
+  return requestManager.createRequest(deviceId, 'get_kv_records', params)
 }
 
 export const requestAddKvRecords = async (
   deviceId: string,
-  records: Record<string, string>
+  records: Record<string, string>,
 ): Promise<{ success: boolean; error?: string }> => {
-  return requestManager.createRequest(
-    deviceId,
-    'add_kv_records',
-    { records }
-  )
+  return requestManager.createRequest(deviceId, 'add_kv_records', { records })
 }
 
 export const requestRemoveKvRecords = async (
   deviceId: string,
-  params: { type: number; ids: number[] }
+  params: { type: number; ids: number[] },
 ): Promise<{ success: boolean; error?: string }> => {
-  return requestManager.createRequest(
-    deviceId,
-    'remove_kv_records',
-    params
-  )
+  return requestManager.createRequest(deviceId, 'remove_kv_records', params)
 }
 
 // Periodic cleanup

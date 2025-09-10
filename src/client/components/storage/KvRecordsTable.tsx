@@ -2,13 +2,13 @@
 
 /**
  * KV Records Table Component
- * 
+ *
  * Displays key-value records in a table format with actions for editing and removal.
  * Supports both address tags and general KV records.
  */
 
-import React, { useState } from 'react'
 import { Edit, Trash2, Copy, Check, X } from 'lucide-react'
+import React, { useState } from 'react'
 import { validateKvRecord } from '@/types/kvRecords'
 
 interface KvRecord {
@@ -83,11 +83,7 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
   }
 
   if (records.length === 0) {
-    return (
-      <div className="text-center py-8 text-gray-500">
-        No records found
-      </div>
-    )
+    return <div className="text-center py-8 text-gray-500">No records found</div>
   }
 
   return (
@@ -110,15 +106,17 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
           </tr>
         </thead>
         <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
-          {records.map((record) => (
+          {records.map(record => (
             <tr key={record.key} className="hover:bg-gray-50 dark:hover:bg-gray-800">
               {/* Type */}
               <td className="px-6 py-4 whitespace-nowrap">
-                <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                  record.isAddressTag 
-                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-                    : 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
-                }`}>
+                <span
+                  className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                    record.isAddressTag
+                      ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+                      : 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+                  }`}
+                >
                   {record.isAddressTag ? 'Address Tag' : 'KV Record'}
                 </span>
               </td>
@@ -127,7 +125,9 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
               <td className="px-6 py-4 whitespace-nowrap">
                 <div className="flex items-center gap-2">
                   <code className="text-sm bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded text-gray-600 dark:text-gray-400">
-                    {record.isAddressTag ? record.key.slice(0, 8) + '...' + record.key.slice(-6) : record.key}
+                    {record.isAddressTag
+                      ? record.key.slice(0, 8) + '...' + record.key.slice(-6)
+                      : record.key}
                   </code>
                   <button
                     onClick={() => handleCopy(record.key)}
@@ -141,18 +141,24 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
 
               {/* Value */}
               <td className="px-6 py-4">
-                                 {editingKey === record.key ? (
-                   <input
-                     type="text"
-                     value={editingValue}
-                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEditingValue(e.target.value)}
-                     onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => e.key === 'Enter' && handleSave(record.key)}
-                     className="max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                     autoFocus
-                   />
-                 ) : (
+                {editingKey === record.key ? (
+                  <input
+                    type="text"
+                    value={editingValue}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      setEditingValue(e.target.value)
+                    }
+                    onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) =>
+                      e.key === 'Enter' && handleSave(record.key)
+                    }
+                    className="max-w-xs px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    autoFocus
+                  />
+                ) : (
                   <div className="flex items-center gap-2">
-                    <span className="max-w-xs truncate text-gray-600 dark:text-gray-400">{record.value}</span>
+                    <span className="max-w-xs truncate text-gray-600 dark:text-gray-400">
+                      {record.value}
+                    </span>
                     <button
                       onClick={() => handleCopy(record.value)}
                       className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
@@ -214,9 +220,7 @@ export function KvRecordsTable({ records, onRemove, onUpdate, isLoading }: KvRec
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
               Delete Record?
             </h3>
-            <p className="text-gray-500 dark:text-gray-400 mb-6">
-              This action cannot be undone.
-            </p>
+            <p className="text-gray-500 dark:text-gray-400 mb-6">This action cannot be undone.</p>
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setShowDeleteConfirm(null)}

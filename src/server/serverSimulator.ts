@@ -3,9 +3,33 @@
  */
 
 import { randomBytes, createHash } from 'crypto'
+import elliptic from 'elliptic'
 import {
-  LatticeResponseCode,
-  LatticeSecureEncryptedRequestType,
+  emitPairingModeStarted,
+  emitPairingModeEnded,
+  emitConnectionChanged,
+  emitPairingChanged,
+  emitKvRecordsAdded,
+  emitKvRecordsRemoved,
+  emitKvRecordsFetched,
+} from './serverDeviceEvents'
+import { EXTERNAL } from '../shared/constants'
+import { LatticeResponseCode } from '../shared/types'
+import {
+  generateDeviceId,
+  generateKeyPair,
+  generateMockAddresses,
+  detectCoinTypeFromPath,
+  mockSign,
+  simulateDelay,
+  createDeviceResponse,
+  supportsFeature,
+} from '../shared/utils'
+import {
+  resolveWalletAddresses,
+  ensureWalletStoreInitialized,
+} from '../shared/utils/walletAddressResolver'
+import type {
   DeviceResponse,
   ConnectRequest,
   ConnectResponse,
@@ -17,34 +41,16 @@ import {
   WalletPath,
   ActiveWallets,
 } from '../shared/types'
-import {
-  generateDeviceId,
-  generateKeyPair,
-  generateMockAddresses,
-  detectCoinTypeFromPath,
-  mockSign,
-  simulateDelay,
-  createDeviceResponse,
-  generateRequestId,
-  supportsFeature,
-} from '../shared/utils'
-import { 
-  resolveWalletAddresses, 
-  ensureWalletStoreInitialized 
-} from '../shared/utils/walletAddressResolver'
-import { SIMULATOR_CONSTANTS, EXTERNAL } from '../shared/constants'
-import { emitPairingModeStarted, emitPairingModeEnded, emitConnectionChanged, emitPairingChanged, emitKvRecordsAdded, emitKvRecordsRemoved, emitKvRecordsFetched } from './serverDeviceEvents'
-import elliptic from 'elliptic';
 
 /**
  * SERVER-SIDE ONLY Lattice1 Device Simulator
- * 
+ *
  * ⚠️  SERVER-SIDE ONLY: This class runs on the Node.js server and should never be imported by client code.
- * 
+ *
  * Provides a complete simulation of a GridPlus Lattice1 hardware wallet device.
  * Supports all protocol operations including pairing, address derivation, signing,
  * and key-value record management.
- * 
+ *
  * @example
  * ```typescript
  * // SERVER-SIDE ONLY
@@ -53,7 +59,7 @@ import elliptic from 'elliptic';
  *   firmwareVersion: [0, 15, 0],
  *   autoApprove: true
  * });
- * 
+ *
  * const connectResponse = await simulator.connect(connectRequest);
  * const pairResponse = await simulator.pair(pairRequest);
  * ```
@@ -61,59 +67,59 @@ import elliptic from 'elliptic';
 export class ServerLatticeSimulator {
   /** Unique identifier for this simulated device */
   private deviceId: string
-  
+
   /** Whether the device is paired with a client application */
   private isPaired: boolean = false
-  
+
   /** Whether the device is currently locked */
   private isLocked: boolean = false
-  
+
   /** Secret used during pairing process */
   private pairingSecret?: string
-  
+
   /** Ephemeral key pair for session encryption */
   private ephemeralKeyPair?: { publicKey: Buffer; privateKey: Buffer }
-  
+
   /** Client's public key received during connect phase */
   private clientPublicKey?: Buffer
-  
+
   /** Simulated firmware version [patch, minor, major, reserved] */
   private firmwareVersion: Buffer
-  
+
   /** Currently active internal and external wallets */
   private activeWallets: ActiveWallets
-  
+
   /** Stored key-value records */
   private kvRecords: Record<string, string> = {}
   /** Next available ID for KV records */
   private nextKvRecordId: number = 0
   /** Map from record ID to key for removal by ID */
   private kvRecordIdToKey: Map<number, string> = new Map()
-  
+
   /** Whether user approval is currently required for a pending operation */
   private userApprovalRequired: boolean = false
-  
+
   /** Whether to automatically approve requests without user interaction */
   private autoApprove: boolean = false
-  
+
   /** Whether the device is currently in pairing mode */
   private isPairingMode: boolean = false
-  
+
   /** 6-digit pairing code displayed during pairing mode */
   private pairingCode?: string
-  
+
   /** Pairing mode timeout in milliseconds */
   private pairingTimeoutMs: number = 60000
-  
+
   /** Timestamp when pairing mode was started */
   private pairingStartTime?: number
-  
+
   /** Timeout ID for pairing mode timeout */
   private pairingTimeoutId?: NodeJS.Timeout
-  
+
   /**
    * Creates a new Lattice1 Device Simulator instance
-   * 
+   *
    * @param options - Configuration options for the simulator
    * @param options.deviceId - Custom device ID (generates random if not provided)
    * @param options.firmwareVersion - Firmware version tuple [major, minor, patch]
@@ -126,19 +132,19 @@ export class ServerLatticeSimulator {
   }) {
     this.deviceId = options?.deviceId || generateDeviceId()
     this.autoApprove = options?.autoApprove || false
-    
+
     // Set firmware version [patch, minor, major, reserved]
     const [major, minor, patch] = options?.firmwareVersion || [0, 15, 0]
     this.firmwareVersion = Buffer.from([patch, minor, major, 0])
-    
+
     // Initialize with mock wallets
     // Generate a non-zero UID for internal wallet to simulate a real device
     const internalUid = Buffer.alloc(32)
     internalUid.writeUInt32BE(0x12345678, 0) // Set some non-zero bytes
     internalUid.writeUInt32BE(0x9abcdef0, 4)
-    
+
     const emptyUid = Buffer.alloc(32) // External wallet starts empty (no SafeCard)
-    
+
     // Store UIDs as hex strings for better serialization and debugging
     // Protocol handler will convert back to Buffers when needed for SDK compatibility
     this.activeWallets = {
@@ -159,104 +165,119 @@ export class ServerLatticeSimulator {
 
   /**
    * Handles device connection request
-   * 
+   *
    * Simulates the initial connection handshake with a Lattice1 device.
    * Generates ephemeral keys for session encryption and returns connection status.
-   * 
+   *
    * @param request - Connection request containing device ID and public key
    * @returns Promise resolving to connection response with pairing status and ephemeral key
    * @throws {DeviceResponse} When device is locked
    */
   async connect(request: ConnectRequest): Promise<DeviceResponse<ConnectResponse>> {
     await simulateDelay(300, 100)
-    
+
     if (this.isLocked) {
       return createDeviceResponse(false, LatticeResponseCode.deviceLocked)
     }
-    
+
     // Store the client's public key for ECDH shared secret derivation
     this.clientPublicKey = request.publicKey
     console.log('[Simulator] Stored client public key:', this.clientPublicKey.toString('hex'))
-    
+
     // Generate ephemeral key pair for this session
     this.ephemeralKeyPair = generateKeyPair()
-    
+
     // If device is not paired, enter pairing mode for 60 seconds
     if (!this.isPaired) {
       console.log('[Simulator] Device not paired, entering pairing mode...')
       this.enterPairingMode()
     }
-    
+
     const response: ConnectResponse = {
       isPaired: this.isPaired,
       firmwareVersion: this.firmwareVersion,
       ephemeralPub: this.ephemeralKeyPair.publicKey,
       activeWallets: this.isPaired ? this.activeWallets : undefined,
     }
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success, response)
   }
 
   /**
    * Handles device pairing request
-   * 
+   *
    * Simulates the pairing process where a client application establishes
    * a trusted connection with the device using an optional pairing secret.
-   * For finalizePairing requests, validates the DER signature against the 
+   * For finalizePairing requests, validates the DER signature against the
    * expected hash created from public key, app name, and pairing secret.
-   * 
+   *
    * @param request - Pairing request containing app name and optional pairing secret
    * @returns Promise resolving to boolean indicating successful pairing
    * @throws {DeviceResponse} When device is already paired, locked, or user declines
    */
   async pair(request: PairRequest): Promise<DeviceResponse<boolean>> {
     await simulateDelay(1000, 500)
-    
+
     if (this.isPaired) {
       return createDeviceResponse<boolean>(false, LatticeResponseCode.already)
     }
-    
+
     if (this.isLocked) {
       return createDeviceResponse<boolean>(false, LatticeResponseCode.deviceLocked)
     }
-    
+
     if (!this.ephemeralKeyPair) {
-      return createDeviceResponse<boolean>(false, LatticeResponseCode.pairFailed, undefined, 'No connection established')
+      return createDeviceResponse<boolean>(
+        false,
+        LatticeResponseCode.pairFailed,
+        undefined,
+        'No connection established',
+      )
     }
-    
+
     // Check if device is in pairing mode
     if (!this.isPairingMode) {
-      return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'Device not in pairing mode')
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.pairFailed,
+        false,
+        'Device not in pairing mode',
+      )
     }
-    
+
     // If this is a finalizePairing request with DER signature, validate it
     if (request.derSignature) {
       console.log('[Simulator] Validating finalizePairing signature...')
-      
+
       // Use the simulator's internal pairing code for validation
       if (!this.pairingCode) {
-        return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'No pairing code available')
+        return createDeviceResponse(
+          false,
+          LatticeResponseCode.pairFailed,
+          false,
+          'No pairing code available',
+        )
       }
-      
+
       const validationCode = this.pairingCode
-      
+
       // For now, we'll simulate signature validation
       // In a real implementation, we would:
       // 1. Parse the DER signature to get r, s values
       // 2. Recover the public key from the signature
       // 3. Generate the expected hash from pubkey + appName + pairingSecret
       // 4. Verify the signature matches
-      
+
       // Simulate successful validation
       console.log('[Simulator] Signature validation passed (simulated)')
-      
+
       // Successful pairing
       this.isPaired = true
       this.pairingSecret = validationCode
-      
+
       // Exit pairing mode and emit events
       this.exitPairingMode()
-      
+
       // Emit connection and pairing events
       try {
         emitConnectionChanged(this.deviceId, true)
@@ -266,15 +287,20 @@ export class ServerLatticeSimulator {
       }
 
       console.log('[Simulator] Device successfully paired via finalizePairing!')
-      
+
       return createDeviceResponse(true, LatticeResponseCode.success, true)
     }
-    
+
     // Legacy pairing validation (backward compatibility)
     if (request.pairingSecret && !this.validatePairingCode(request.pairingSecret)) {
-      return createDeviceResponse(false, LatticeResponseCode.pairFailed, false, 'Invalid pairing code')
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.pairFailed,
+        false,
+        'Invalid pairing code',
+      )
     }
-    
+
     // Simulate user approval for pairing (optional, since code validation is the main check)
     if (!this.autoApprove && !request.pairingSecret) {
       const approved = await this.simulateUserApproval('pairing', 60000)
@@ -282,14 +308,14 @@ export class ServerLatticeSimulator {
         return createDeviceResponse(false, LatticeResponseCode.userDeclined)
       }
     }
-    
+
     // Successful pairing
     this.isPaired = true
     this.pairingSecret = request.pairingSecret
-    
+
     // Exit pairing mode and emit events
     this.exitPairingMode()
-    
+
     // Emit connection and pairing events
     try {
       emitConnectionChanged(this.deviceId, true)
@@ -299,109 +325,136 @@ export class ServerLatticeSimulator {
     }
 
     console.log('[Simulator] Device successfully paired!')
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success, true)
   }
 
   /**
    * Handles address derivation request
-   * 
+   *
    * Derives cryptocurrency addresses from the device's master seed using
    * HD wallet derivation paths. Supports multiple cryptocurrencies and
    * various address formats.
-   * 
+   *
    * @param request - Address request specifying derivation path, count, and flags
    * @returns Promise resolving to array of derived addresses
    * @throws {DeviceResponse} When device is not paired, locked, or path is invalid
    */
   async getAddresses(request: GetAddressesRequest): Promise<DeviceResponse<GetAddressesResponse>> {
     await simulateDelay(200, 100)
-    
+
     if (!this.isPaired) {
       return createDeviceResponse<GetAddressesResponse>(false, LatticeResponseCode.pairFailed)
     }
-    
+
     if (this.isLocked) {
       return createDeviceResponse<GetAddressesResponse>(false, LatticeResponseCode.deviceLocked)
     }
-    
+
     // Validate request
     if (!request.startPath || request.startPath.length < 3) {
-      return createDeviceResponse<GetAddressesResponse>(false, LatticeResponseCode.invalidMsg, undefined, 'Invalid derivation path')
+      return createDeviceResponse<GetAddressesResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Invalid derivation path',
+      )
     }
-    
+
     if (request.n > 10) {
-      return createDeviceResponse<GetAddressesResponse>(false, LatticeResponseCode.invalidMsg, undefined, 'Too many addresses requested')
+      return createDeviceResponse<GetAddressesResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Too many addresses requested',
+      )
     }
-    
+
     // Detect coin type from path
     const coinType = detectCoinTypeFromPath(request.startPath)
     if (coinType === 'UNKNOWN') {
-      return createDeviceResponse<GetAddressesResponse>(false, LatticeResponseCode.invalidMsg, undefined, 'Unsupported derivation path')
+      return createDeviceResponse<GetAddressesResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Unsupported derivation path',
+      )
     }
-    
+
     // Ensure wallet store is initialized before resolving addresses
     console.log('[Simulator] Ensuring wallet store is initialized...')
     const walletReady = await ensureWalletStoreInitialized()
-    
+
     // Get addresses from wallet store or fall back to mock generation
     let addressInfos
     if (walletReady) {
       console.log('[Simulator] Using real wallet addresses from store')
       addressInfos = resolveWalletAddresses(request.startPath, request.n)
-      
+
       // If no addresses found from wallet store, fall back to mock
       if (addressInfos.length === 0) {
-        console.warn('[Simulator] No addresses found in wallet store, falling back to mock addresses')
+        console.warn(
+          '[Simulator] No addresses found in wallet store, falling back to mock addresses',
+        )
         addressInfos = generateMockAddresses(request.startPath, request.n, coinType)
       }
     } else {
       console.warn('[Simulator] Wallet store not initialized, using mock addresses')
       addressInfos = generateMockAddresses(request.startPath, request.n, coinType)
     }
-    
+
     const response: GetAddressesResponse = {
       addresses: addressInfos.map(info => info.address),
     }
-    
+
     // Add public keys if requested
     if (request.flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
       response.publicKeys = addressInfos.map(info => info.publicKey)
     }
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success, response)
   }
 
   /**
    * Handles transaction or message signing request
-   * 
+   *
    * Signs arbitrary data using private keys derived from the specified path.
    * Supports multiple signature schemes, curves, and encodings.
-   * 
+   *
    * @param request - Signing request containing data, path, and cryptographic parameters
    * @returns Promise resolving to signature and optional recovery information
    * @throws {DeviceResponse} When device is not paired, locked, or user declines
    */
   async sign(request: SignRequest): Promise<DeviceResponse<SignResponse>> {
     await simulateDelay(500, 300)
-    
+
     if (!this.isPaired) {
       return createDeviceResponse<SignResponse>(false, LatticeResponseCode.pairFailed)
     }
-    
+
     if (this.isLocked) {
       return createDeviceResponse<SignResponse>(false, LatticeResponseCode.deviceLocked)
     }
-    
+
     // Validate request
     if (!request.data || request.data.length === 0) {
-      return createDeviceResponse<SignResponse>(false, LatticeResponseCode.invalidMsg, undefined, 'No data to sign')
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'No data to sign',
+      )
     }
-    
+
     if (!request.path || request.path.length < 3) {
-      return createDeviceResponse<SignResponse>(false, LatticeResponseCode.invalidMsg, undefined, 'Invalid derivation path')
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Invalid derivation path',
+      )
     }
-    
+
     // Check if signing requires user approval
     if (!this.autoApprove) {
       const approved = await this.simulateUserApproval('signing', 300000) // 5 minutes
@@ -409,86 +462,120 @@ export class ServerLatticeSimulator {
         return createDeviceResponse(false, LatticeResponseCode.userDeclined)
       }
     }
-    
+
     // Mock signature generation
     const privateKey = this.derivePrivateKey(request.path)
     const signature = mockSign(request.data, privateKey)
-    
+
     const response: SignResponse = {
       signature,
       recovery: request.curve === EXTERNAL.SIGNING.CURVES.SECP256K1 ? 0 : undefined,
     }
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success, response)
   }
 
   /**
    * Handles request for active wallet information
-   * 
+   *
    * Returns information about the currently active internal and external wallets,
    * including wallet UIDs, names, and capabilities.
-   * 
+   *
    * @returns Promise resolving to active wallet information
    * @throws {DeviceResponse} When device is not paired or locked
    */
   async getWallets(): Promise<DeviceResponse<ActiveWallets>> {
     await simulateDelay(100, 50)
-    
+
     if (!this.isPaired) {
       return createDeviceResponse(false, LatticeResponseCode.pairFailed)
     }
-    
+
     if (this.isLocked) {
       return createDeviceResponse(false, LatticeResponseCode.deviceLocked)
     }
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success, this.activeWallets)
   }
 
   /**
    * Handles request to retrieve key-value records
-   * 
+   *
    * Retrieves stored key-value pairs (typically address tags) from the device.
    * Only returns records that exist for the requested keys.
-   * 
+   *
    * @param keys - Array of keys to retrieve
    * @returns Promise resolving to record map of found key-value pairs
    * @throws {DeviceResponse} When device is not paired or feature unsupported
    */
-  async getKvRecords(params: { type: number; n: number; start: number }): Promise<DeviceResponse<{ records: Array<{ id: number; type: number; caseSensitive: boolean; key: string; val: string }>; total: number; fetched: number }>> {
+  async getKvRecords(params: { type: number; n: number; start: number }): Promise<
+    DeviceResponse<{
+      records: Array<{ id: number; type: number; caseSensitive: boolean; key: string; val: string }>
+      total: number
+      fetched: number
+    }>
+  > {
     await simulateDelay(150, 75)
-    
+
     if (!this.isPaired) {
-      return createDeviceResponse(false, LatticeResponseCode.pairFailed, { records: [], total: 0, fetched: 0 })
+      return createDeviceResponse(false, LatticeResponseCode.pairFailed, {
+        records: [],
+        total: 0,
+        fetched: 0,
+      })
     }
-    
+
     if (!supportsFeature(this.firmwareVersion, [0, 12, 0])) {
-      return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion, { records: [], total: 0, fetched: 0 })
+      return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion, {
+        records: [],
+        total: 0,
+        fetched: 0,
+      })
     }
-    
+
     const { type, n, start } = params
-    
+
     // Validate parameters according to SDK expectations
     // According to validateGetKvRequest: n must be >= 1 and <= kvActionMaxNum
     const maxRecords = 10 // kvActionMaxNum from firmware constants (matches SDK)
-    
+
     if (n < 1) {
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, 'Must request at least one record')
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.invalidMsg,
+        { records: [], total: 0, fetched: 0 },
+        'Must request at least one record',
+      )
     }
-    
+
     if (n > maxRecords) {
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, `Too many records requested: ${n}, max allowed: ${maxRecords}`)
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.invalidMsg,
+        { records: [], total: 0, fetched: 0 },
+        `Too many records requested: ${n}, max allowed: ${maxRecords}`,
+      )
     }
-    
+
     // Additional validation according to SDK's validateGetKvRequest
     if (type !== 0 && !type) {
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, 'You must specify a type')
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.invalidMsg,
+        { records: [], total: 0, fetched: 0 },
+        'You must specify a type',
+      )
     }
-    
+
     if (start !== 0 && !start) {
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, { records: [], total: 0, fetched: 0 }, 'You must specify a start index')
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.invalidMsg,
+        { records: [], total: 0, fetched: 0 },
+        'You must specify a start index',
+      )
     }
-    
+
     // Get all records of the specified type
     const allRecords = Object.entries(this.kvRecords)
       .filter(([key, value]) => {
@@ -501,26 +588,28 @@ export class ServerLatticeSimulator {
         type: type,
         caseSensitive: false,
         key: key,
-        val: value
+        val: value,
       }))
-    
+
     // Apply pagination
     const total = allRecords.length
-    
+
     // Validate start index
     if (start >= total) {
       return createDeviceResponse(true, LatticeResponseCode.success, {
         records: [],
         total,
-        fetched: 0
+        fetched: 0,
       })
     }
-    
+
     const fetched = Math.min(n, total - start)
     const records = allRecords.slice(start, start + fetched)
-    
-    console.log(`[Simulator] getKvRecords: type=${type}, n=${n}, start=${start}, total=${total}, fetched=${fetched}`)
-    
+
+    console.log(
+      `[Simulator] getKvRecords: type=${type}, n=${n}, start=${start}, total=${total}, fetched=${fetched}`,
+    )
+
     // Emit event for frontend clients
     try {
       emitKvRecordsFetched(this.deviceId, {
@@ -529,98 +618,119 @@ export class ServerLatticeSimulator {
         fetched,
         type,
         start,
-        n
+        n,
       })
     } catch (error) {
       console.error('[Simulator] Failed to emit kv_records_fetched event:', error)
     }
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success, {
       records,
       total,
-      fetched
+      fetched,
     })
   }
 
   /**
    * Handles request to add key-value records
-   * 
+   *
    * Stores key-value pairs (typically address tags) on the device.
    * Validates record sizes and checks for existing keys.
-   * 
+   *
    * @param records - Map of key-value pairs to store
    * @returns Promise resolving to success status
    * @throws {DeviceResponse} When device is not paired, locked, or records invalid
    */
   async addKvRecords(records: Record<string, string>): Promise<DeviceResponse<void>> {
     await simulateDelay(200, 100)
-    
+
     if (!this.isPaired) {
       return createDeviceResponse(false, LatticeResponseCode.pairFailed, undefined)
     }
-    
+
     if (!supportsFeature(this.firmwareVersion, [0, 12, 0])) {
       return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion, undefined)
     }
-    
+
     if (this.isLocked) {
       return createDeviceResponse(false, LatticeResponseCode.deviceLocked, undefined)
     }
-    
+
     // Validate records according to SDK requirements
     const recordCount = Object.keys(records).length
-    
+
     if (recordCount < 1) {
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, 'Must provide at least one record')
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Must provide at least one record',
+      )
     }
-    
-    if (recordCount > 10) { // kvActionMaxNum from firmware constants (matches SDK)
-      return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, `Too many records: ${recordCount}, max allowed: 10`)
+
+    if (recordCount > 10) {
+      // kvActionMaxNum from firmware constants (matches SDK)
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        `Too many records: ${recordCount}, max allowed: 10`,
+      )
     }
-    
+
     // Validate individual records
     for (const [key, value] of Object.entries(records)) {
       if (key.length > 63 || value.length > 63) {
-        return createDeviceResponse(false, LatticeResponseCode.invalidMsg, undefined, 'Key or value too long')
+        return createDeviceResponse(
+          false,
+          LatticeResponseCode.invalidMsg,
+          undefined,
+          'Key or value too long',
+        )
       }
-      
+
       if (this.kvRecords[key]) {
-        return createDeviceResponse(false, LatticeResponseCode.already, undefined, `Record ${key} already exists`)
+        return createDeviceResponse(
+          false,
+          LatticeResponseCode.already,
+          undefined,
+          `Record ${key} already exists`,
+        )
       }
     }
-    
+
     // Assign stable IDs to new records
     for (const [key, value] of Object.entries(records)) {
       const recordId = this.nextKvRecordId++
       this.kvRecordIdToKey.set(recordId, key)
       console.log(`[Simulator] addKvRecords: Assigned ID ${recordId} to key "${key}"`)
     }
-    
+
     // Add records
     Object.assign(this.kvRecords, records)
-    
+
     console.log(`[Simulator] addKvRecords: Added ${recordCount} records successfully`)
-    console.log(`[Simulator] Records added:`, Object.keys(records))
-    
+    console.log('[Simulator] Records added:', Object.keys(records))
+
     // Emit event for frontend clients
     try {
       emitKvRecordsAdded(this.deviceId, {
         records: Object.entries(records).map(([key, value]) => ({ key, value })),
-        count: recordCount
+        count: recordCount,
       })
     } catch (error) {
       console.error('[Simulator] Failed to emit kv_records_added event:', error)
     }
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success)
   }
 
   /**
    * Handles request to remove key-value records
-   * 
+   *
    * Removes stored key-value pairs from the device by ID. Silently succeeds
    * for IDs that don't exist.
-   * 
+   *
    * @param type - Type of records to remove (0 for all, 1 for specific type)
    * @param ids - Array of record IDs to remove
    * @returns Promise resolving to success status
@@ -628,22 +738,22 @@ export class ServerLatticeSimulator {
    */
   async removeKvRecords(type: number, ids: number[]): Promise<DeviceResponse<void>> {
     await simulateDelay(150, 75)
-    
+
     if (!this.isPaired) {
       return createDeviceResponse(false, LatticeResponseCode.pairFailed)
     }
-    
+
     if (!supportsFeature(this.firmwareVersion, [0, 12, 0])) {
       return createDeviceResponse(false, LatticeResponseCode.unsupportedVersion)
     }
-    
+
     if (this.isLocked) {
       return createDeviceResponse(false, LatticeResponseCode.deviceLocked)
     }
-    
+
     // Remove records by ID
     const removedRecords: Array<{ id: number; key: string }> = []
-    
+
     for (const id of ids) {
       const key = this.kvRecordIdToKey.get(id)
       if (key) {
@@ -655,29 +765,29 @@ export class ServerLatticeSimulator {
         console.log(`[Simulator] removeKvRecords: Record ID ${id} not found`)
       }
     }
-    
+
     // Emit event for frontend clients
     if (removedRecords.length > 0) {
       try {
         emitKvRecordsRemoved(this.deviceId, {
           removedRecords,
           count: removedRecords.length,
-          type
+          type,
         })
       } catch (error) {
         console.error('[Simulator] Failed to emit kv_records_removed event:', error)
       }
     }
-    
+
     return createDeviceResponse(true, LatticeResponseCode.success)
   }
 
   /**
    * Simulates user approval or rejection of a request
-   * 
+   *
    * Simulates the user interaction flow where the user must approve
    * or reject an operation on the device screen.
-   * 
+   *
    * @param type - Type of operation requiring approval
    * @param timeoutMs - Maximum time to wait for user response
    * @returns Promise resolving to boolean indicating user approval
@@ -685,22 +795,22 @@ export class ServerLatticeSimulator {
    */
   private async simulateUserApproval(type: string, timeoutMs: number): Promise<boolean> {
     this.userApprovalRequired = true
-    
+
     // For testing/demo purposes, auto-approve after a delay
     await simulateDelay(2000, 1000)
-    
+
     this.userApprovalRequired = false
-    
+
     // Simulate 90% approval rate for demo
     return Math.random() > 0.1
   }
 
   /**
    * Derives private key for the specified path
-   * 
+   *
    * Generates a deterministic private key based on the derivation path
    * and pairing secret. This is a mock implementation for simulation.
-   * 
+   *
    * @param path - HD wallet derivation path
    * @returns Mock private key for the path
    * @private
@@ -715,7 +825,7 @@ export class ServerLatticeSimulator {
   // Public getters
   /**
    * Gets the device ID
-   * 
+   *
    * @returns The unique device identifier
    */
   getDeviceId(): string {
@@ -724,47 +834,50 @@ export class ServerLatticeSimulator {
 
   /**
    * Gets the shared secret for encrypted communication
-   * 
+   *
    * Derives the shared secret from the ephemeral key pair established
    * during the connect phase using ECDH key agreement.
-   * 
+   *
    * @returns The 32-byte shared secret, or null if no connection established
    */
-   getSharedSecret(): Buffer | null {
+  getSharedSecret(): Buffer | null {
     if (!this.ephemeralKeyPair || !this.clientPublicKey) {
       return null
     }
-    
+
     try {
       // Use proper ECDH: our_private_key.derive(client_public_key)
       const ec = new elliptic.ec('p256')
-      
+
       // Create KeyPair from our private key
       const ourKeyPair = ec.keyFromPrivate(this.ephemeralKeyPair.privateKey)
-      console.log('[Simulator] Our private key (hex):', this.ephemeralKeyPair.privateKey.toString('hex'))
-      
+      console.log(
+        '[Simulator] Our private key (hex):',
+        this.ephemeralKeyPair.privateKey.toString('hex'),
+      )
+
       // Create KeyPair from client's public key
       const clientKeyPair = ec.keyFromPublic(this.clientPublicKey)
       console.log('[Simulator] Client public key (hex):', this.clientPublicKey.toString('hex'))
-      
+
       // Derive shared secret
       const sharedSecret = ourKeyPair.derive(clientKeyPair.getPublic())
-      
+
       // Convert to 32-byte buffer (big endian)
       const sharedSecretBuffer = Buffer.from(sharedSecret.toArray('be', 32))
-      
+
       console.log('[Simulator] Generated ECDH shared secret:', sharedSecretBuffer.toString('hex'))
       return sharedSecretBuffer
     } catch (error) {
       console.error('[Simulator] ECDH shared secret generation failed:', error)
-      
+
       // Fallback to deterministic approach for debugging
       const hash = createHash('sha256')
         .update(this.ephemeralKeyPair.publicKey)
         .update(this.clientPublicKey)
         .update(Buffer.from('lattice-simulator-shared-secret'))
         .digest()
-      
+
       console.log('[Simulator] Using fallback shared secret:', hash.toString('hex'))
       return hash
     }
@@ -772,10 +885,10 @@ export class ServerLatticeSimulator {
 
   /**
    * Updates the ephemeral key pair for the next request
-   * 
+   *
    * Called after sending an encrypted response to update the key pair
    * that will be used for the next request's shared secret derivation.
-   * 
+   *
    * @param newKeyPair - The new ephemeral key pair to use
    */
   updateEphemeralKeyPair(newKeyPair: { publicKey: Buffer; privateKey: Buffer }): void {
@@ -785,7 +898,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Gets the pairing status
-   * 
+   *
    * @returns True if device is paired with a client
    */
   getIsPaired(): boolean {
@@ -794,7 +907,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Sets the pairing status
-   * 
+   *
    * @param paired - Whether the device is paired
    */
   setIsPaired(paired: boolean): void {
@@ -804,7 +917,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Gets the lock status
-   * 
+   *
    * @returns True if device is currently locked
    */
   getIsLocked(): boolean {
@@ -813,7 +926,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Gets the firmware version
-   * 
+   *
    * @returns Firmware version buffer [patch, minor, major, reserved]
    */
   getFirmwareVersion(): Buffer {
@@ -822,7 +935,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Gets the active wallets
-   * 
+   *
    * @returns Current active internal and external wallet information
    */
   getActiveWallets(): ActiveWallets {
@@ -831,7 +944,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Gets whether user approval is required
-   * 
+   *
    * @returns True if a request is pending user approval
    */
   getUserApprovalRequired(): boolean {
@@ -841,7 +954,7 @@ export class ServerLatticeSimulator {
   // Configuration methods
   /**
    * Sets the device lock status
-   * 
+   *
    * @param locked - Whether to lock or unlock the device
    */
   setLocked(locked: boolean): void {
@@ -850,7 +963,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Sets the auto-approval behavior
-   * 
+   *
    * @param autoApprove - Whether to automatically approve requests
    */
   setAutoApprove(autoApprove: boolean): void {
@@ -859,15 +972,15 @@ export class ServerLatticeSimulator {
 
   /**
    * Sets the device info
-   * 
+   *
    * @param deviceInfo - Device information to set
    */
   setDeviceInfo(deviceInfo: any): void {
     if (deviceInfo.deviceId) this.deviceId = deviceInfo.deviceId
     if (deviceInfo.firmwareVersion) {
       // Ensure firmwareVersion is a Buffer (handle case where it's serialized as Array)
-      this.firmwareVersion = Buffer.isBuffer(deviceInfo.firmwareVersion) 
-        ? deviceInfo.firmwareVersion 
+      this.firmwareVersion = Buffer.isBuffer(deviceInfo.firmwareVersion)
+        ? deviceInfo.firmwareVersion
         : Buffer.from(deviceInfo.firmwareVersion)
     }
     if (deviceInfo.isLocked !== undefined) this.isLocked = deviceInfo.isLocked
@@ -876,7 +989,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Sets the active wallets
-   * 
+   *
    * @param wallets - Active wallets to set (UIDs should be hex strings, names should be strings)
    */
   setActiveWallets(wallets: ActiveWallets): void {
@@ -886,7 +999,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Unpairs the device from any connected clients
-   * 
+   *
    * Clears pairing status, secrets, and ephemeral keys.
    */
   unpair(): void {
@@ -897,7 +1010,7 @@ export class ServerLatticeSimulator {
 
   /**
    * Resets the device to factory settings
-   * 
+   *
    * Clears all pairing information, stored data, and resets state
    * to initial conditions.
    */
@@ -914,26 +1027,29 @@ export class ServerLatticeSimulator {
 
   /**
    * Sets KV records directly (for state synchronization)
-   * 
+   *
    * This method is used to restore KV records from client state
    * during server startup or state synchronization.
-   * 
+   *
    * @param records - Map of key-value records to set
    */
   setKvRecordsDirectly(records: Record<string, string>): void {
     console.log('[Simulator] Setting KV records directly:', Object.keys(records))
     this.kvRecords = { ...records }
-    
+
     // Update the next ID counter to avoid conflicts
     this.nextKvRecordId = Object.keys(records).length
-    
+
     // Rebuild the ID to key mapping
     this.kvRecordIdToKey.clear()
     Object.keys(records).forEach((key, index) => {
       this.kvRecordIdToKey.set(index, key)
     })
-    
-    console.log('[Simulator] KV records set successfully, count:', Object.keys(this.kvRecords).length)
+
+    console.log(
+      '[Simulator] KV records set successfully, count:',
+      Object.keys(this.kvRecords).length,
+    )
   }
 
   /**
@@ -954,7 +1070,12 @@ export class ServerLatticeSimulator {
     console.log('[Simulator] Pairing mode will timeout in 60 seconds')
 
     // Emit pairing mode started event (fire-and-forget)
-    emitPairingModeStarted(this.deviceId, this.pairingCode, this.pairingTimeoutMs, this.pairingStartTime)
+    emitPairingModeStarted(
+      this.deviceId,
+      this.pairingCode,
+      this.pairingTimeoutMs,
+      this.pairingStartTime,
+    )
 
     // Set up timeout to exit pairing mode after 60 seconds
     this.pairingTimeoutId = setTimeout(() => {

@@ -71,53 +71,13 @@ export const BIP_CONSTANTS = {
 
 // Standard derivation paths
 export const DERIVATION_PATHS = {
-  ETH_DEFAULT: [
-    HARDENED_OFFSET + 44,
-    HARDENED_OFFSET + 60,
-    HARDENED_OFFSET,
-    0,
-    0,
-  ],
-  BTC_LEGACY: [
-    HARDENED_OFFSET + 44,
-    HARDENED_OFFSET + 0,
-    HARDENED_OFFSET,
-    0,
-    0,
-  ],
-  BTC_SEGWIT: [
-    HARDENED_OFFSET + 84,
-    HARDENED_OFFSET + 0,
-    HARDENED_OFFSET,
-    0,
-    0,
-  ],
-  BTC_WRAPPED_SEGWIT: [
-    HARDENED_OFFSET + 49,
-    HARDENED_OFFSET + 0,
-    HARDENED_OFFSET,
-    0,
-    0,
-  ],
-  SOLANA: [
-    HARDENED_OFFSET + 44,
-    HARDENED_OFFSET + 501,
-    HARDENED_OFFSET,
-    HARDENED_OFFSET,
-  ],
-  LEDGER_LIVE: [
-    HARDENED_OFFSET + 44,
-    HARDENED_OFFSET + 60,
-    HARDENED_OFFSET,
-    0,
-    0,
-  ],
-  LEDGER_LEGACY: [
-    HARDENED_OFFSET + 44,
-    HARDENED_OFFSET + 60,
-    HARDENED_OFFSET,
-    0,
-  ],
+  ETH_DEFAULT: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0],
+  BTC_LEGACY: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 0, HARDENED_OFFSET, 0, 0],
+  BTC_SEGWIT: [HARDENED_OFFSET + 84, HARDENED_OFFSET + 0, HARDENED_OFFSET, 0, 0],
+  BTC_WRAPPED_SEGWIT: [HARDENED_OFFSET + 49, HARDENED_OFFSET + 0, HARDENED_OFFSET, 0, 0],
+  SOLANA: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 501, HARDENED_OFFSET, HARDENED_OFFSET],
+  LEDGER_LIVE: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0],
+  LEDGER_LEGACY: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0],
 } as const
 
 // Address sizes
@@ -158,10 +118,11 @@ export const SIMULATOR_CONSTANTS = {
   DEFAULT_PAIRING_TIMEOUT_MS: 60000, // 60 seconds
   DEFAULT_USER_APPROVAL_TIMEOUT_MS: 300000, // 5 minutes
   DEFAULT_REQUEST_TIMEOUT_MS: 30000, // 30 seconds
-  
+
   // Default seeds for testing (NEVER use in production)
-  DEFAULT_MNEMONIC: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-  
+  DEFAULT_MNEMONIC:
+    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+
   // Supported firmware versions
   FIRMWARE_VERSIONS: {
     V0_15_0: [0, 15, 0],
@@ -169,21 +130,21 @@ export const SIMULATOR_CONSTANTS = {
     V0_17_0: [0, 17, 0],
     V0_18_0: [0, 18, 0],
   },
-  
+
   // Feature support by firmware version
   FEATURES_BY_VERSION: {
-    'addr_flags': [0, 10, 0],
-    'var_addr_path': [0, 10, 5],
-    'eip712': [0, 10, 5],
-    'prehash': [0, 10, 8],
-    'eth_msg_prehash': [0, 10, 10],
-    'new_eth_tx_types': [0, 11, 0],
-    'kv_actions': [0, 12, 0],
-    'btc_segwit': [0, 13, 0],
-    'generic_signing': [0, 14, 0],
-    'evm_decoder': [0, 15, 0],
-    'bls12_381': [0, 17, 0],
-    'eip7702': [0, 18, 0],
+    addr_flags: [0, 10, 0],
+    var_addr_path: [0, 10, 5],
+    eip712: [0, 10, 5],
+    prehash: [0, 10, 8],
+    eth_msg_prehash: [0, 10, 10],
+    new_eth_tx_types: [0, 11, 0],
+    kv_actions: [0, 12, 0],
+    btc_segwit: [0, 13, 0],
+    generic_signing: [0, 14, 0],
+    evm_decoder: [0, 15, 0],
+    bls12_381: [0, 17, 0],
+    eip7702: [0, 18, 0],
   },
 } as const
 

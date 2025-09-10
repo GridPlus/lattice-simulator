@@ -44,7 +44,7 @@ export interface EthereumWalletAccount extends BaseWalletAccount {
 }
 
 /**
- * Bitcoin wallet account  
+ * Bitcoin wallet account
  */
 export interface BitcoinWalletAccount extends BaseWalletAccount {
   coinType: 'BTC'
@@ -66,7 +66,7 @@ export interface SolanaWalletAccount extends BaseWalletAccount {
   /** Solana public key (base58) */
   address: string
   /** Public key bytes (hex string) */
-  publicKey: string  
+  publicKey: string
   /** Private key bytes (hex string) - only stored for internal accounts */
   privateKey?: string
 }
@@ -81,7 +81,7 @@ export type WalletAccount = EthereumWalletAccount | BitcoinWalletAccount | Solan
  */
 export interface ActiveWallets {
   ETH?: EthereumWalletAccount
-  BTC?: BitcoinWalletAccount  
+  BTC?: BitcoinWalletAccount
   SOL?: SolanaWalletAccount
 }
 
@@ -150,22 +150,22 @@ export interface CreateAccountParams {
 export interface WalletService {
   /** Generate a new wallet account */
   createAccount(params: CreateAccountParams): Promise<WalletDerivationResult>
-  
+
   /** Get all accounts for a coin type */
   getAccountsByCoin(coinType: WalletCoinType): WalletAccount[]
-  
+
   /** Get accounts by type (external/internal) */
   getAccountsByType(type: WalletAccountType): WalletAccount[]
-  
+
   /** Get active wallet for a coin type */
   getActiveWallet(coinType: WalletCoinType): WalletAccount | undefined
-  
+
   /** Set active wallet for a coin type */
   setActiveWallet(coinType: WalletCoinType, account: WalletAccount): void
-  
+
   /** Get all wallets */
   getAllWallets(): WalletCollection
-  
+
   /** Import accounts from mnemonic */
   importAccountsFromMnemonic(options: WalletGenerationOptions): Promise<WalletAccount[]>
 }

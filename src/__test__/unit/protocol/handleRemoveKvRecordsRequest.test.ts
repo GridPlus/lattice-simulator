@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtocolHandler } from '../../../lib/protocolHandler'
-import { LatticeSimulator } from '../../../lib/simulator'
 import { LatticeResponseCode } from '../../../types'
+import type { LatticeSimulator } from '../../../lib/simulator'
 
 describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
   let protocolHandler: ProtocolHandler
@@ -22,39 +22,39 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
     it('should correctly parse a valid removeKvRecords request', () => {
       // Create test data matching SDK format: [type (4 bytes LE)] + [numIds (1 byte)] + [ids... (4 bytes each LE)]
       const testData = Buffer.alloc(13) // 4 + 1 + 2*4 = 13 bytes
-      testData.writeUInt32LE(1, 0)     // type = 1
-      testData.writeUInt8(2, 4)        // numIds = 2
-      testData.writeUInt32LE(100, 5)   // id1 = 100
-      testData.writeUInt32LE(200, 9)   // id2 = 200
+      testData.writeUInt32LE(1, 0) // type = 1
+      testData.writeUInt8(2, 4) // numIds = 2
+      testData.writeUInt32LE(100, 5) // id1 = 100
+      testData.writeUInt32LE(200, 9) // id2 = 200
 
       const result = protocolHandler['parseRemoveKvRecordsRequest'](testData)
 
       expect(result).toEqual({
         type: 1,
-        ids: [100, 200]
+        ids: [100, 200],
       })
     })
 
     it('should handle single ID removal request', () => {
       const testData = Buffer.alloc(9) // 4 + 1 + 1*4 = 9 bytes
-      testData.writeUInt32LE(0, 0)     // type = 0
-      testData.writeUInt8(1, 4)        // numIds = 1
-      testData.writeUInt32LE(42, 5)    // id = 42
+      testData.writeUInt32LE(0, 0) // type = 0
+      testData.writeUInt8(1, 4) // numIds = 1
+      testData.writeUInt32LE(42, 5) // id = 42
 
       const result = protocolHandler['parseRemoveKvRecordsRequest'](testData)
 
       expect(result).toEqual({
         type: 0,
-        ids: [42]
+        ids: [42],
       })
     })
 
     it('should handle maximum number of IDs', () => {
       const maxIds = 10 // kvRemoveMaxNum from firmware constants
       const testData = Buffer.alloc(5 + maxIds * 4) // 4 + 1 + 10*4 = 45 bytes
-      testData.writeUInt32LE(2, 0)     // type = 2
-      testData.writeUInt8(maxIds, 4)   // numIds = 10
-      
+      testData.writeUInt32LE(2, 0) // type = 2
+      testData.writeUInt8(maxIds, 4) // numIds = 10
+
       for (let i = 0; i < maxIds; i++) {
         testData.writeUInt32LE(1000 + i, 5 + i * 4) // ids = 1000, 1001, ..., 1009
       }
@@ -78,9 +78,9 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
 
     it('should throw error for data length mismatch', () => {
       const testData = Buffer.alloc(10) // 4 + 1 + 1*4 = 9 bytes needed, but we have 10
-      testData.writeUInt32LE(0, 0)     // type = 0
-      testData.writeUInt8(2, 4)        // numIds = 2 (claims 2 ids)
-      testData.writeUInt32LE(100, 5)   // id1 = 100
+      testData.writeUInt32LE(0, 0) // type = 0
+      testData.writeUInt8(2, 4) // numIds = 2 (claims 2 ids)
+      testData.writeUInt32LE(100, 5) // id1 = 100
       // Missing second ID, but buffer is 10 bytes
 
       expect(() => {
@@ -90,14 +90,14 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
 
     it('should handle zero IDs gracefully', () => {
       const testData = Buffer.alloc(5) // 4 + 1 + 0*4 = 5 bytes
-      testData.writeUInt32LE(0, 0)     // type = 0
-      testData.writeUInt8(0, 4)        // numIds = 0
+      testData.writeUInt32LE(0, 0) // type = 0
+      testData.writeUInt8(0, 4) // numIds = 0
 
       const result = protocolHandler['parseRemoveKvRecordsRequest'](testData)
 
       expect(result).toEqual({
         type: 0,
-        ids: []
+        ids: [],
       })
     })
   })
@@ -108,15 +108,15 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       const mockSimulatorResponse = {
         code: LatticeResponseCode.success,
         success: true,
-        error: undefined
+        error: undefined,
       }
       vi.mocked(mockSimulator.removeKvRecords).mockResolvedValue(mockSimulatorResponse)
 
       // Create test request data
       const requestData = Buffer.alloc(9)
-      requestData.writeUInt32LE(0, 0)     // type = 0
-      requestData.writeUInt8(1, 4)        // numIds = 1
-      requestData.writeUInt32LE(42, 5)    // id = 42
+      requestData.writeUInt32LE(0, 0) // type = 0
+      requestData.writeUInt8(1, 4) // numIds = 1
+      requestData.writeUInt32LE(42, 5) // id = 42
 
       const result = await protocolHandler['handleRemoveKvRecordsRequest'](requestData)
 
@@ -130,15 +130,15 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       const mockSimulatorResponse = {
         code: LatticeResponseCode.success,
         success: true,
-        error: undefined
+        error: undefined,
       }
       vi.mocked(mockSimulator.removeKvRecords).mockResolvedValue(mockSimulatorResponse)
 
       const requestData = Buffer.alloc(13)
-      requestData.writeUInt32LE(1, 0)     // type = 1
-      requestData.writeUInt8(2, 4)        // numIds = 2
-      requestData.writeUInt32LE(100, 5)   // id1 = 100
-      requestData.writeUInt32LE(200, 9)   // id2 = 200
+      requestData.writeUInt32LE(1, 0) // type = 1
+      requestData.writeUInt8(2, 4) // numIds = 2
+      requestData.writeUInt32LE(100, 5) // id1 = 100
+      requestData.writeUInt32LE(200, 9) // id2 = 200
 
       const result = await protocolHandler['handleRemoveKvRecordsRequest'](requestData)
 
@@ -151,7 +151,7 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       const mockSimulatorResponse = {
         code: LatticeResponseCode.internalError,
         success: false,
-        error: 'Simulator error'
+        error: 'Simulator error',
       }
       vi.mocked(mockSimulator.removeKvRecords).mockResolvedValue(mockSimulatorResponse)
 
@@ -176,14 +176,16 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       requestData.writeUInt8(1, 4)
       requestData.writeUInt32LE(42, 5)
 
-      await expect(protocolHandler['handleRemoveKvRecordsRequest'](requestData)).rejects.toThrow(errorMessage)
+      await expect(protocolHandler['handleRemoveKvRecordsRequest'](requestData)).rejects.toThrow(
+        errorMessage,
+      )
     })
 
     it('should handle empty IDs array', async () => {
       const mockSimulatorResponse = {
         code: LatticeResponseCode.success,
         success: true,
-        error: undefined
+        error: undefined,
       }
       vi.mocked(mockSimulator.removeKvRecords).mockResolvedValue(mockSimulatorResponse)
 
@@ -202,14 +204,14 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       const mockSimulatorResponse = {
         code: LatticeResponseCode.success,
         success: true,
-        error: undefined
+        error: undefined,
       }
       vi.mocked(mockSimulator.removeKvRecords).mockResolvedValue(mockSimulatorResponse)
 
       const requestData = Buffer.alloc(9)
-      requestData.writeUInt32LE(5, 0)     // type = 5 (custom type)
-      requestData.writeUInt8(1, 4)        // numIds = 1
-      requestData.writeUInt32LE(999, 5)   // id = 999
+      requestData.writeUInt32LE(5, 0) // type = 5 (custom type)
+      requestData.writeUInt8(1, 4) // numIds = 1
+      requestData.writeUInt32LE(999, 5) // id = 999
 
       const result = await protocolHandler['handleRemoveKvRecordsRequest'](requestData)
 

@@ -1,16 +1,16 @@
 /**
  * SERVER-SIDE ONLY event system for device state changes
- * 
+ *
  * ⚠️  IMPORTANT: This is SERVER-SIDE ONLY and should not be used by client-side code.
  * This allows the server-side simulator to broadcast events via WebSocket connections.
- * 
+ *
  * Client-side components should listen for WebSocket events, not use this directly.
  */
 
-type DeviceEventType = 
-  | 'pairing_mode_started' 
-  | 'pairing_mode_ended' 
-  | 'connection_changed' 
+type DeviceEventType =
+  | 'pairing_mode_started'
+  | 'pairing_mode_ended'
+  | 'connection_changed'
   | 'pairing_changed'
   | 'kv_records_fetched'
   | 'kv_records_added'
@@ -40,11 +40,11 @@ class DeviceEventEmitter {
     if (!this.listeners.has(key)) {
       this.listeners.set(key, [])
     }
-    
+
     this.listeners.get(key)!.push(listener)
-    
+
     console.log(`[DeviceEvents] Subscribed to events for device: ${deviceId}`)
-    
+
     // Return unsubscribe function
     return () => {
       const listeners = this.listeners.get(key)
@@ -64,15 +64,20 @@ class DeviceEventEmitter {
   /**
    * Emit an event for a specific device
    */
-  async emit(deviceId: string, type: DeviceEventType, data: any, options?: { skipWebSocketBroadcast?: boolean }): Promise<void> {
+  async emit(
+    deviceId: string,
+    type: DeviceEventType,
+    data: any,
+    options?: { skipWebSocketBroadcast?: boolean },
+  ): Promise<void> {
     const event: DeviceEvent = {
       deviceId,
       type,
       data,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     }
 
-    console.log(`[DeviceEvents] Emitting event:`, event)
+    console.log('[DeviceEvents] Emitting event:', event)
 
     // Emit to local listeners (for backward compatibility)
     const listeners = this.listeners.get(deviceId) || []
@@ -80,7 +85,7 @@ class DeviceEventEmitter {
       try {
         listener(event)
       } catch (error) {
-        console.error(`[DeviceEvents] Error in event listener:`, error)
+        console.error('[DeviceEvents] Error in event listener:', error)
       }
     })
 
@@ -91,7 +96,7 @@ class DeviceEventEmitter {
         const { wsManager } = await import('./serverWebSocketManager')
         wsManager.broadcastDeviceEvent(deviceId, type, data)
       } catch (error) {
-        console.error(`[DeviceEvents] Error broadcasting to WebSocket:`, error)
+        console.error('[DeviceEvents] Error broadcasting to WebSocket:', error)
       }
     } else {
       console.log(`[DeviceEvents] Skipping WebSocket broadcast for event: ${type}`)
@@ -111,16 +116,21 @@ const globalForDeviceEvents = globalThis as unknown as {
   deviceEvents: DeviceEventEmitter | undefined
 }
 
-export const deviceEvents = 
+export const deviceEvents =
   globalForDeviceEvents.deviceEvents ??
   (globalForDeviceEvents.deviceEvents = new DeviceEventEmitter())
 
 // Helper functions for common events
-export const emitPairingModeStarted = (deviceId: string, pairingCode: string, timeoutMs: number = 60000, pairingStartTime = Date.now()) => {
+export const emitPairingModeStarted = (
+  deviceId: string,
+  pairingCode: string,
+  timeoutMs: number = 60000,
+  pairingStartTime = Date.now(),
+) => {
   deviceEvents.emit(deviceId, 'pairing_mode_started', {
     pairingCode,
     timeoutMs,
-    pairingStartTime
+    pairingStartTime,
   })
 }
 
@@ -129,7 +139,9 @@ export const emitPairingModeEnded = (deviceId: string) => {
 }
 
 export const emitConnectionChanged = (deviceId: string, isConnected: boolean) => {
-  console.log(`[DeviceEvents] emitConnectionChanged for device: ${deviceId}, isConnected: ${isConnected}`)
+  console.log(
+    `[DeviceEvents] emitConnectionChanged for device: ${deviceId}, isConnected: ${isConnected}`,
+  )
   deviceEvents.emit(deviceId, 'connection_changed', {
     isConnected,
   })
