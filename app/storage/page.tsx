@@ -53,9 +53,10 @@ export default function StoragePage() {
     try {
       setIsLoading(true)
       setKvRecord(key, value, type)
-      setIsAddModalVisible(false)
+      // Don't close modal here - let the modal handle its own closing timing
     } catch (error) {
       console.error('Failed to add KV record:', error)
+      throw error // Re-throw so modal can handle the error
     } finally {
       setIsLoading(false)
     }

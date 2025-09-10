@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react'
-import { Tag, Database, Info, X } from 'lucide-react'
+import { Tag, Database, Info, X, Check, AlertCircle, Loader2 } from 'lucide-react'
 import { validateKvRecord, KV_RECORDS_CONSTANTS } from '@/types/kvRecords'
 
 interface AddKvRecordModalProps {
@@ -33,6 +33,11 @@ export function AddKvRecordModal({ visible, onCancel, onAdd, loading }: AddKvRec
     description: ''
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  // Operation status for enhanced UX feedback
+  type OperationStatus = 'idle' | 'loading' | 'success' | 'error'
+  const [operationStatus, setOperationStatus] = useState<OperationStatus>('idle')
+  const [statusMessage, setStatusMessage] = useState('')
 
   // Reset form when modal opens/closes
   useEffect(() => {
@@ -43,36 +48,73 @@ export function AddKvRecordModal({ visible, onCancel, onAdd, loading }: AddKvRec
         type: 0,
         description: ''
       })
+      setOperationStatus('idle')
+      setStatusMessage('')
     }
   }, [visible])
+
+  // Auto-reset status after showing success/error
+  useEffect(() => {
+    if (operationStatus === 'success' || operationStatus === 'error') {
+      const resetDelay = operationStatus === 'success' ? 2500 : 4000 // Success: 2.5s, Error: 4s
+      
+      const timer = setTimeout(() => {
+        setOperationStatus('idle')
+        setStatusMessage('')
+        
+        // If successful, close modal after showing success
+        if (operationStatus === 'success') {
+          setTimeout(() => {
+            onCancel() // Close modal
+          }, 300)
+        }
+      }, resetDelay)
+      
+      return () => clearTimeout(timer)
+    }
+  }, [operationStatus, onCancel])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
     try {
       setIsSubmitting(true)
+      setOperationStatus('loading')
+      setStatusMessage('Adding record...')
       
       // Validate the record
       const validation = validateKvRecord(formData.key, formData.value)
       if (!validation.isValid) {
-        alert(validation.error)
+        // Add a small delay to show the loading state briefly
+        await new Promise(resolve => setTimeout(resolve, 800))
+        setOperationStatus('error')
+        setStatusMessage(validation.error || 'Validation failed')
         return
       }
 
-      // Add the record
-      await onAdd(formData.key, formData.value, formData.type)
+      // Add minimum loading time to show the loading state (1.5 seconds)
+      const [addResult] = await Promise.all([
+        onAdd(formData.key, formData.value, formData.type),
+        new Promise(resolve => setTimeout(resolve, 1500))
+      ])
       
-      // Reset form and close modal
+      // Show success with improved message
+      setOperationStatus('success')
+      setStatusMessage(`✨ ${isAddressTag ? 'Address tag' : 'Record'} added successfully!`)
+      
+      // Reset form 
       setFormData({
         key: '',
         value: '',
         type: 0,
         description: ''
       })
-      alert('Record added successfully')
     } catch (error) {
       console.error('Failed to add record:', error)
-      alert('Failed to add record')
+      // Ensure minimum loading time even on error
+      await new Promise(resolve => setTimeout(resolve, 800))
+      setOperationStatus('error')
+      setStatusMessage(error instanceof Error ? error.message : 'Failed to add record')
     } finally {
       setIsSubmitting(false)
     }
@@ -94,6 +136,38 @@ export function AddKvRecordModal({ visible, onCancel, onAdd, loading }: AddKvRec
 
   const isAddressTag = formData.type === 0
   const isSubmittingOrLoading = isSubmitting || loading
+
+  // Get button content based on operation status
+  const getButtonContent = () => {
+    switch (operationStatus) {
+      case 'loading':
+        return {
+          icon: <Loader2 className="w-4 h-4 animate-spin" />,
+          text: `Adding ${isAddressTag ? 'tag' : 'record'}...`,
+          className: 'bg-blue-500 hover:bg-blue-600 cursor-wait'
+        }
+      case 'success':
+        return {
+          icon: <Check className="w-4 h-4" />,
+          text: 'Successfully Added!',
+          className: 'bg-green-500 hover:bg-green-600'
+        }
+      case 'error':
+        return {
+          icon: <AlertCircle className="w-4 h-4" />,
+          text: 'Add Failed',
+          className: 'bg-red-500 hover:bg-red-600'
+        }
+      default:
+        return {
+          icon: isAddressTag ? <Tag className="w-4 h-4" /> : <Database className="w-4 h-4" />,
+          text: `Add ${isAddressTag ? 'Address Tag' : 'Record'}`,
+          className: 'bg-blue-600 hover:bg-blue-700'
+        }
+    }
+  }
+
+  const buttonContent = getButtonContent()
 
   if (!visible) return null
 
@@ -231,6 +305,20 @@ export function AddKvRecordModal({ visible, onCancel, onAdd, loading }: AddKvRec
             </div>
           </div>
 
+          {/* Status Message */}
+          {statusMessage && operationStatus !== 'idle' && (
+            <div className={`mt-4 p-3 rounded-md text-sm flex items-center gap-2 transition-all duration-500 ease-in-out transform animate-in slide-in-from-top-2 ${
+              operationStatus === 'success' ? 'bg-green-50 text-green-800 border border-green-200 dark:bg-green-900/20 dark:text-green-200 dark:border-green-800' :
+              operationStatus === 'error' ? 'bg-red-50 text-red-800 border border-red-200 dark:bg-red-900/20 dark:text-red-200 dark:border-red-800' :
+              'bg-blue-50 text-blue-800 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-200 dark:border-blue-800'
+            }`}>
+              {operationStatus === 'loading' && <Loader2 className="w-4 h-4 animate-spin" />}
+              {operationStatus === 'success' && <Check className="w-4 h-4 animate-pulse" />}
+              {operationStatus === 'error' && <AlertCircle className="w-4 h-4 animate-pulse" />}
+              <span className="font-medium">{statusMessage}</span>
+            </div>
+          )}
+
           {/* Form Actions */}
           <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
@@ -243,11 +331,11 @@ export function AddKvRecordModal({ visible, onCancel, onAdd, loading }: AddKvRec
             </button>
             <button
               type="submit"
-              disabled={isSubmittingOrLoading}
-              className="px-4 py-2 bg-blue-600 text-white hover:bg-blue-700 rounded-md disabled:opacity-50 flex items-center gap-2"
+              disabled={isSubmittingOrLoading || operationStatus === 'success'}
+              className={`px-4 py-2 text-white rounded-md disabled:opacity-50 flex items-center gap-2 transition-all duration-300 ${buttonContent.className}`}
             >
-              {isAddressTag ? <Tag className="w-4 h-4" /> : <Database className="w-4 h-4" />}
-              Add {isAddressTag ? 'Address Tag' : 'Record'}
+              {buttonContent.icon}
+              {buttonContent.text}
             </button>
           </div>
         </form>
