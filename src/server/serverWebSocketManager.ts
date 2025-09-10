@@ -54,11 +54,11 @@ class ServerWebSocketManager {
    * Add a WebSocket connection for a device
    */
   addConnection(deviceId: string, ws: WebSocket): void {
-    if (this.connections.has(deviceId)) {
-      console.log(`[ServerWsManager] Connection already exists for device: ${deviceId}`)
-      return
+    if (!this.connections.has(deviceId)) {
+      this.connections.set(deviceId, new Set())
     }
-    this.connections.set(deviceId, new Set())    
+    
+    // Add the new connection to the set (allows multiple connections per device)
     this.connections.get(deviceId)!.add(ws)
     console.log(`[ServerWsManager] Added connection for device: ${deviceId} (total: ${this.connections.get(deviceId)!.size})`)
 
@@ -106,7 +106,7 @@ class ServerWebSocketManager {
     }
 
     this.broadcast(deviceId, message)
-    console.log(`[ServerWsManager] Sent server request: ${requestId} (${requestType}) to device: ${deviceId}`)
+    console.log(`[ServerWsManager] Sent server request: ${requestId} (${requestType}) to device: ${deviceId}, message: ${JSON.stringify(message)}`)
   }
 
   /**
@@ -187,6 +187,8 @@ class ServerWebSocketManager {
    */
   private handleMessage(message: WebSocketMessage, deviceId: string, ws: WebSocket): void {
     console.log(`[ServerWsManager] Received message from device ${deviceId}:`, JSON.stringify(message))
+    console.log(`[ServerWsManager] Current connection count for ${deviceId}: ${this.getConnectionCount(deviceId)}`)
+    console.log(`[ServerWsManager] Message type: ${message.type}, Handler exists: ${this.messageHandlers.has(message.type)}`)
 
     const handler = this.messageHandlers.get(message.type)
     if (handler) {
@@ -208,6 +210,19 @@ class ServerWebSocketManager {
   private handleClientResponse(message: WebSocketMessage, deviceId: string, ws: WebSocket): void {
     const response = message as ClientResponse
     const { requestId, requestType, data, error } = response.data
+
+    // Validate that this is a proper client response with requestId
+    if (!requestId || !requestType) {
+      console.warn(`[ServerWsManager] Invalid client response - missing requestId or requestType:`, response.data)
+      this.sendError(ws, 'Invalid response format')
+      return
+    }
+
+    // Filter out heartbeat-related messages (shouldn't reach here but be safe)
+    if (requestType === 'heartbeat' || requestType === 'heartbeat_response') {
+      console.warn(`[ServerWsManager] Heartbeat message incorrectly routed to handleClientResponse`)
+      return
+    }
 
     console.log(`[ServerWsManager] Received client response:`, {
       requestId,

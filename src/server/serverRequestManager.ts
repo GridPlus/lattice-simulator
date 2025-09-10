@@ -45,6 +45,11 @@ class RequestManager {
     payload: any,
     timeoutMs: number = this.defaultTimeoutMs
   ): Promise<T> {
+    // Prevent heartbeat types from being used as server requests
+    if (type === 'heartbeat' || type === 'heartbeat_response') {
+      throw new Error(`Invalid request type: ${type}. Heartbeat messages should not use RequestManager.`)
+    }
+
     const requestId = uuidv4()
     
     return new Promise<T>((resolve, reject) => {
@@ -85,10 +90,28 @@ class RequestManager {
    * Handle client response to a pending request
    */
   handleClientResponse(response: ClientResponse): boolean {
+    // Validate request ID format (should be UUID)
+    if (!response.requestId || typeof response.requestId !== 'string') {
+      console.warn(`[RequestManager] Invalid requestId:`, response.requestId)
+      return false
+    }
+
+    // Filter out heartbeat types that shouldn't be here
+    if (response.type === 'heartbeat' || response.type === 'heartbeat_response') {
+      console.warn(`[RequestManager] Heartbeat message incorrectly sent to handleClientResponse`)
+      return false
+    }
+
     const pendingRequest = this.pendingRequests.get(response.requestId)
     
     if (!pendingRequest) {
       console.warn(`[RequestManager] No pending request found for: ${response.requestId}`)
+      return false
+    }
+
+    // Additional validation: ensure request types match
+    if (pendingRequest.type !== response.type) {
+      console.warn(`[RequestManager] Request type mismatch. Expected: ${pendingRequest.type}, Got: ${response.type}`)
       return false
     }
 

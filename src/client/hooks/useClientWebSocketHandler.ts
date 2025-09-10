@@ -34,11 +34,24 @@ export function useServerRequestHandler(deviceId: string) {
   // WebSocket connection reference
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  // Queue for failed responses to retry on reconnection
+  const pendingResponses = useRef<Array<{request: ServerRequest, responseData: any, error?: string}>>([])
+  const maxPendingResponses = 10 // Limit queue size
 
   const sendResponse = useCallback((request: ServerRequest, responseData: any, error?: string) => {
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.error('[ClientWebSocketHandler] WebSocket not connected, cannot send response')
+      console.error(`[ClientWebSocketHandler] WebSocket not connected, cannot send response. ReadyState: ${ws?.readyState || 'null'}`)
+      console.error(`[ClientWebSocketHandler] Failed to send response for request: ${request.requestId}`)
+      
+      // Queue the response for retry when connection is restored
+      if (pendingResponses.current.length < maxPendingResponses) {
+        pendingResponses.current.push({ request, responseData, error })
+        console.log(`[ClientWebSocketHandler] Queued response for retry. Queue size: ${pendingResponses.current.length}`)
+      } else {
+        console.warn(`[ClientWebSocketHandler] Response queue full, dropping response for: ${request.requestId}`)
+      }
+      
       return
     }
 
@@ -53,8 +66,13 @@ export function useServerRequestHandler(deviceId: string) {
       timestamp: Date.now()
     }
 
-    ws.send(JSON.stringify(response))
-    console.log(`[ClientWebSocketHandler] Sent WebSocket response for: ${request.requestId}`)
+    try {
+      ws.send(JSON.stringify(response))
+      console.log(`[ClientWebSocketHandler] Sent WebSocket response for: ${request.requestId}, data: ${JSON.stringify(responseData)}`)
+    } catch (sendError) {
+      console.error(`[ClientWebSocketHandler] Error sending WebSocket response:`, sendError)
+      console.error(`[ClientWebSocketHandler] Failed to send response for request: ${request.requestId}`)
+    }
   }, [])
 
   const handleServerRequest = useCallback(async (request: ServerRequest) => {
@@ -332,16 +350,23 @@ export function useServerRequestHandler(deviceId: string) {
         console.log(`[ClientWebSocketHandler] WebSocket connected successfully for device: ${deviceId}`)
         console.log(`[ClientWebSocketHandler] WebSocket readyState: ${ws.readyState}`)
         console.log(`[ClientWebSocketHandler] WebSocket URL: ${wsUrl}`)
+        console.log(`[ClientWebSocketHandler] WebSocket protocol: ${ws.protocol}`)
+        console.log(`[ClientWebSocketHandler] WebSocket extensions: ${ws.extensions}`)
         
         // Send heartbeat to keep connection alive
         const heartbeat = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
             console.log(`[ClientWebSocketHandler] Sending heartbeat for device: ${deviceId}`)
-            ws.send(JSON.stringify({
-              type: 'heartbeat',
-              data: { deviceId },
-              timestamp: Date.now()
-            }))
+            try {
+              ws.send(JSON.stringify({
+                type: 'heartbeat',
+                data: { deviceId },
+                timestamp: Date.now()
+              }))
+            } catch (heartbeatError) {
+              console.error(`[ClientWebSocketHandler] Error sending heartbeat:`, heartbeatError)
+              clearInterval(heartbeat)
+            }
           } else {
             console.log(`[ClientWebSocketHandler] Stopping heartbeat, WebSocket not open. ReadyState: ${ws.readyState}`)
             clearInterval(heartbeat)
@@ -350,6 +375,36 @@ export function useServerRequestHandler(deviceId: string) {
 
         // Store heartbeat interval for cleanup
         ;(ws as any).heartbeatInterval = heartbeat
+        
+        // Retry any pending responses that failed to send
+        if (pendingResponses.current.length > 0) {
+          console.log(`[ClientWebSocketHandler] Retrying ${pendingResponses.current.length} pending responses`)
+          const responses = [...pendingResponses.current]
+          pendingResponses.current = [] // Clear the queue
+          
+          // Retry each pending response directly (avoid callback dependency)
+          responses.forEach(({ request, responseData, error }) => {
+            console.log(`[ClientWebSocketHandler] Retrying response for: ${request.requestId}`)
+            
+            const response: WebSocketMessage = {
+              type: 'client_response',
+              data: {
+                requestId: request.requestId,
+                requestType: request.requestType,
+                data: responseData,
+                error: error
+              },
+              timestamp: Date.now()
+            }
+
+            try {
+              ws.send(JSON.stringify(response))
+              console.log(`[ClientWebSocketHandler] Successfully retried response for: ${request.requestId}`)
+            } catch (retryError) {
+              console.error(`[ClientWebSocketHandler] Failed to retry response for: ${request.requestId}`, retryError)
+            }
+          })
+        }
       }
 
       ws.onmessage = (event) => {
