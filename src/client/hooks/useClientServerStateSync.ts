@@ -12,13 +12,14 @@ import { sendSyncClientStateCommand } from '../clientWebSocketCommands'
 export function useClientStateSync() {
   const hasSynced = useRef(false)
   const deviceId = useDeviceStore(state => state.deviceInfo.deviceId)
+  const hasHydrated = useDeviceStore(state => state._hasHydrated)
 
   useEffect(() => {
-    console.log('[ClientStateSync] Hook called, hasSynced:', hasSynced.current, 'window:', typeof window !== 'undefined')
+    console.log('[ClientStateSync] Hook called, hasSynced:', hasSynced.current, 'hasHydrated:', hasHydrated, 'window:', typeof window !== 'undefined')
     
-    // Only sync once per session and only on client side
-    if (hasSynced.current || typeof window === 'undefined') {
-      console.log('[ClientStateSync] Skipping sync - already synced or server-side')
+    // Only sync once per session, only on client side, and after rehydration
+    if (hasSynced.current || typeof window === 'undefined' || !hasHydrated) {
+      console.log('[ClientStateSync] Skipping sync - already synced, server-side, or not hydrated')
       return
     }
 
@@ -26,9 +27,14 @@ export function useClientStateSync() {
       try {
         console.log('[ClientStateSync] Starting client-to-server state sync...')
         
+        // Wait a bit more to ensure Zustand rehydration has completed
+        // The rehydration logs show it completes very quickly, but we need to wait for state updates
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
         // Get current client state from Zustand store
         const clientState = useDeviceStore.getState()
         console.log(`hereis clientState: ${JSON.stringify(clientState)}`)
+        console.log(`localStorage content:`, localStorage.getItem('lattice-device-store'))
         
         // Always sync state to ensure server has correct initial state
         // Even if device is not paired, we need to sync the initial state
@@ -75,13 +81,13 @@ export function useClientStateSync() {
       }
     }
 
-    // Small delay to ensure the page is fully loaded
-    const timeoutId = setTimeout(syncClientStateToServer, 1000)
+    // Longer delay to ensure Zustand rehydration has completed and state is properly updated
+    const timeoutId = setTimeout(syncClientStateToServer, 2000)
 
     return () => {
       clearTimeout(timeoutId)
     }
-  }, [deviceId])
+  }, [deviceId, hasHydrated])
 
   return {
     hasSynced: hasSynced.current

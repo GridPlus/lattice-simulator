@@ -103,6 +103,8 @@ const INITIAL_STATE: DeviceState = {
 interface DeviceStore extends DeviceState {
   /** Simulator configuration settings */
   config: SimulatorConfig
+  /** Whether the store has been rehydrated from persistence */
+  _hasHydrated: boolean
   
   // Connection and pairing actions
   /** Disconnects from the current device */
@@ -168,416 +170,286 @@ interface DeviceStore extends DeviceState {
  * store.exitPairingMode();  // Sends WebSocket command to server
  * ```
  */
-// Custom storage implementation that handles SSR
-const createStorage = () => {
-  if (typeof window === 'undefined') {
-    // Server-side: return a no-op storage that never rehydrates
-    return {
-      getItem: () => {
-        console.log('[DeviceStore] Server-side: getItem returning null (no rehydration)')
-        return null
-      },
-      setItem: () => {
-        console.log('[DeviceStore] Server-side: setItem no-op')
-      },
-      removeItem: () => {
-        console.log('[DeviceStore] Server-side: removeItem no-op')
-      },
-    }
-  }
-  
-  // Client-side: use localStorage
-  return {
-    getItem: (key: string) => {
-      try {
-        const value = localStorage.getItem(key)
-        return value ? JSON.parse(value) : null
-      } catch (error) {
-        console.warn('[DeviceStore] localStorage.getItem failed:', error)
-        return null
-      }
-    },
-    setItem: (key: string, value: any) => {
-      try {
-        console.log('[DeviceStore] Saving to localStorage:', key, value)
-        localStorage.setItem(key, JSON.stringify(value))
-        console.log('[DeviceStore] Successfully saved to localStorage')
-      } catch (error) {
-        console.warn('[DeviceStore] localStorage.setItem failed:', error)
-      }
-    },
-    removeItem: (key: string) => {
-      try {
-        localStorage.removeItem(key)
-      } catch (error) {
-        console.warn('[DeviceStore] localStorage.removeItem failed:', error)
-      }
-    },
-  }
-}
 
-// Create the base store without persistence
-const createBaseStore = (): StateCreator<DeviceStore, [], [["zustand/subscribeWithSelector", never], ["zustand/immer", never]]> => 
-  subscribeWithSelector(
-    immer((set, get) => ({
-      ...INITIAL_STATE,
-      config: DEFAULT_SIMULATOR_CONFIG,
-      
-      
-      disconnect: () => {
-        set((draft) => {
-          draft.isConnected = false
-          draft.isPairingMode = false
-          draft.ephemeralPub = undefined
-          draft.sharedSecret = undefined
-          draft.pendingRequests = []
-          draft.currentRequest = undefined
-          draft.userApprovalRequired = false
-        })
-        const state = get()
-        sendConnectionChangedCommand(state.deviceInfo.deviceId, false)
-      },
-      
-      
-      unpair: () => {
-        const state = get()
-        // Clear the pairing timeout if it exists
-        if (state.pairingTimeoutId) {
-          clearTimeout(state.pairingTimeoutId)
-          console.log('[DeviceStore] Cleared pairing mode timeout during unpair')
-        }
-        
-        set((draft) => {
-          draft.isPaired = false
-          draft.pairingSecret = undefined
-          draft.ephemeralPub = undefined
-          draft.sharedSecret = undefined
-          draft.pendingRequests = []
-          draft.currentRequest = undefined
-          draft.userApprovalRequired = false
-          draft.isPairingMode = false
-          draft.pairingCode = undefined
-          draft.pairingStartTime = undefined
-          draft.pairingTimeoutId = undefined
-        })
-        const newState = get()
-        sendPairingChangedCommand(newState.deviceInfo.deviceId, false)
-      },
-      
-      enterPairingMode: ({ deviceId, pairingCode, timeoutMs, pairingStartTime }: { deviceId: string; pairingCode: string, timeoutMs: number, pairingStartTime: number}) => {
-        const state = get()
-        if (state.deviceInfo.deviceId != deviceId) {
-          console.log(`[DeviceStore] Ignoring pairing mode event for deviceId: ${deviceId} - current deviceId: ${state.deviceInfo.deviceId}`)
-          return
-        }
-        set((draft) => {
-          draft.isConnected = true
-          draft.isPairingMode = true
-          draft.pairingStartTime = pairingStartTime
-          draft.pairingCode = pairingCode
-          draft.pairingTimeoutMs = timeoutMs
-        })
-      },
-      
-      exitPairingMode: () => {
-        set((draft) => {
-          draft.isPairingMode = false
-        })
-        // sendExitPairingModeCommand(state.deviceInfo.deviceId)
-      },
-      
-      validatePairingCode: (code: string) => {
-        const state = get()
-        return state.isPairingMode && state.pairingCode === code
-      },
-      
-      setDeviceInfo: (info: Partial<DeviceInfo>) => {
-        set((draft) => {
-          Object.assign(draft.deviceInfo, info)
-        })
-      },
-      
-      setLocked: (locked: boolean) => {
-        set((draft) => {
-          draft.isLocked = locked
-          draft.deviceInfo.isLocked = locked
-        })
-      },
-      
-      setBusy: (busy: boolean) => {
-        set((draft) => {
-          draft.isBusy = busy
-        })
-      },
-      
-      setConnectionState: (isConnected: boolean, isPaired: boolean) => {
-        console.log('[DeviceStore] setConnectionState called:', { isConnected, isPaired })
-        console.log('[DeviceStore] Current environment:', typeof window !== 'undefined' ? 'client' : 'server')
-        set((draft) => {
-          draft.isConnected = isConnected
-          draft.isPaired = isPaired
-        })
-        const newState = get()
-        console.log('[DeviceStore] setConnectionState completed. New state:', {
-          isConnected: newState.isConnected,
-          isPaired: newState.isPaired
-        })
-        console.log('[DeviceStore] Full state after setConnectionState:', {
-          isConnected: newState.isConnected,
-          isPaired: newState.isPaired,
-          isPairingMode: newState.isPairingMode,
-          pairingCode: newState.pairingCode
-        })
-        
-        // Force a manual localStorage save to test if persistence is working
-        if (typeof window !== 'undefined') {
-          try {
-            const stateToSave = {
-              deviceInfo: {
-                ...newState.deviceInfo,
-                firmwareVersion: newState.deviceInfo.firmwareVersion ? Array.from(newState.deviceInfo.firmwareVersion) : null,
-              },
-              isConnected: newState.isConnected,
-              isPaired: newState.isPaired,
-              isPairingMode: newState.isPairingMode,
-              pairingCode: newState.pairingCode,
-              pairingStartTime: newState.pairingStartTime,
-              config: newState.config,
-              kvRecords: newState.kvRecords,
-            }
-            console.log('[DeviceStore] Manually saving to localStorage:', stateToSave)
-            localStorage.setItem('lattice-device-store', JSON.stringify(stateToSave))
-            console.log('[DeviceStore] Manual localStorage save completed')
-          } catch (error) {
-            console.error('[DeviceStore] Manual localStorage save failed:', error)
-          }
-        }
-      },
-      addPendingRequest: (request: PendingRequest) => {
-        set((draft) => {
-          draft.pendingRequests.push(request)
-          if (!draft.currentRequest) {
-            draft.currentRequest = request
-            draft.userApprovalRequired = true
-          }
-        })
-      },
-      
-      removePendingRequest: (requestId: string) => {
-        set((draft) => {
-          draft.pendingRequests = draft.pendingRequests.filter(
-            (req: PendingRequest) => req.id !== requestId
-          )
-          if (draft.currentRequest?.id === requestId) {
-            draft.currentRequest = draft.pendingRequests[0]
-            draft.userApprovalRequired = !!draft.currentRequest
-          }
-        })
-      },
-      
-      approveCurrentRequest: () => {
-        const state = get()
-        if (state.currentRequest) {
-          get().removePendingRequest(state.currentRequest.id)
-        }
-      },
-      
-      declineCurrentRequest: () => {
-        const state = get()
-        if (state.currentRequest) {
-          get().removePendingRequest(state.currentRequest.id)
-        }
-      },
-      
-      setActiveWallets: (wallets: ActiveWallets) => {
-        set((draft) => {
-          draft.activeWallets = wallets
-        })
-      },
-      
-      setKvRecord: (key: string, value: string, type: number = 0) => {
-        set((draft) => {
-          draft.kvRecords[key.toLowerCase()] = value
-        })
-      },
-      
-      getKvRecord: (key: string) => {
-        const state = get()
-        const normalizedKey = key.toLowerCase()
-        return state.kvRecords[normalizedKey]
-      },
-      
-      getAllKvRecords: () => {
-        const state = get()
-        return { ...state.kvRecords }
-      },
-      
-      updateKvRecord: (key: string, newValue: string) => {
-        set((draft) => {
-          const normalizedKey = key.toLowerCase()
-          if (draft.kvRecords[normalizedKey]) {
-            draft.kvRecords[normalizedKey] = newValue
-          } else {
-            throw new Error(`KV record not found for key: ${key}`)
-          }
-        })
-      },
-      
-      removeKvRecord: (key: string) => {
-        set((draft) => {
-          delete draft.kvRecords[key]
-        })
-      },
-      
-      updateConfig: (config: Partial<SimulatorConfig>) => {
-        set((draft) => {
-          Object.assign(draft.config, config)
-        })
-      },
-      
-      reset: () => {
-        set(() => ({
-          ...INITIAL_STATE,
-          config: DEFAULT_SIMULATOR_CONFIG,
-        }))
-      },
-
-      resetConnectionState: async () => {
-        const state = get()
-        const deviceId = state.deviceInfo.deviceId
-        
-        try {
-          console.log(`[DeviceStore] Resetting connection state for: ${deviceId}`)
-          
-          // Send WebSocket command to reset server-side connection state
-          sendResetDeviceCommand(deviceId, 'connection')
-          console.log(`[DeviceStore] Reset connection command sent to server for: ${deviceId}`)
-          
-          // Reset only connection and pairing related fields, preserve KV records
-          set((draft) => {
-            draft.isConnected = false
-            draft.isPaired = false
-            draft.isPairingMode = false
-            draft.pairingCode = undefined
-            draft.pairingStartTime = undefined
-            draft.pairingTimeoutId = undefined
-            draft.ephemeralPub = undefined
-            draft.sharedSecret = undefined
-            draft.pendingRequests = []
-            draft.currentRequest = undefined
-            draft.userApprovalRequired = false
-            // Keep KV records, device info, config, etc.
-          })
-                      
-          console.log(`[DeviceStore] Connection state reset completed for: ${deviceId}`)
-        } catch (error) {
-          console.error(`[DeviceStore] Error resetting connection state:`, error)
-          
-          // Still reset connection state even if server reset fails
-          set((draft) => {
-            draft.isConnected = false
-            draft.isPaired = false
-            draft.isPairingMode = false
-            draft.pairingCode = undefined
-            draft.pairingStartTime = undefined
-            draft.pairingTimeoutId = undefined
-            draft.ephemeralPub = undefined
-            draft.sharedSecret = undefined
-            draft.pendingRequests = []
-            draft.currentRequest = undefined
-            draft.userApprovalRequired = false
-          })
-        }
-      },
-
-      resetDeviceState: async () => {
-        const state = get()
-        const deviceId = state.deviceInfo.deviceId
-        
-        try {
-          console.log(`[DeviceStore] Resetting full device state for: ${deviceId}`)
-          
-          // Send WebSocket command to reset server-side state  
-          sendResetDeviceCommand(deviceId, 'full')
-          console.log(`[DeviceStore] Reset device command sent to server for: ${deviceId}`)
-          
-          // Reset client-side state (including KV records)
-          set(() => ({
-            ...INITIAL_STATE,
-            config: DEFAULT_SIMULATOR_CONFIG,
-          }))
-          
-          // Emit events to notify other components
-          sendConnectionChangedCommand(deviceId, false)
-          sendPairingChangedCommand(deviceId, false)
-          
-          console.log(`[DeviceStore] Full device reset completed for: ${deviceId}`)
-        } catch (error) {
-          console.error(`[DeviceStore] Error resetting device state:`, error)
-          
-          // Still reset client state even if server reset fails
-          set(() => ({
-            ...INITIAL_STATE,
-            config: DEFAULT_SIMULATOR_CONFIG,
-          }))
-          
-          sendConnectionChangedCommand(deviceId, false)
-          sendPairingChangedCommand(deviceId, false)
-        }
-      },
-    }))
-  )
-
-// Create the store with or without persistence based on environment
-console.log('[DeviceStore] Creating store instance...', typeof window !== 'undefined' ? 'client' : 'server')
-// Create the store with proper typing
+// Create the store with persistence on client-side only
 const createStore = () => {
-  if (typeof window !== 'undefined') {
-    // Client-side: use persistence
+  if (typeof window === 'undefined') {
+    console.log('[DeviceStore] Server-side: do not create')
+    return null
+  }
+
+  console.log('[DeviceStore] Client-side: creating store with persistence')
+  
     return create<DeviceStore>()(
       persist(
-        createBaseStore(),
-        {
-          name: 'lattice-device-store',
-          storage: createStorage(),
-          // Only persist essential state, not sensitive or temporary data
-          partialize: (state) => ({
-            deviceInfo: {
-              ...state.deviceInfo,
-              // Convert Buffer to array for serialization
-              firmwareVersion: state.deviceInfo.firmwareVersion ? Array.from(state.deviceInfo.firmwareVersion) : null,
-            },
-            isConnected: state.isConnected,
-            isPaired: state.isPaired,
-            isPairingMode: state.isPairingMode,
-            pairingCode: state.pairingCode,
-            pairingStartTime: state.pairingStartTime,
-            config: state.config,
-            kvRecords: state.kvRecords,
-          }),
-          // Custom deserializer to convert arrays back to Buffers
-          onRehydrateStorage: () => (state) => {
-            console.log('[DeviceStore] onRehydrateStorage called!', typeof window !== 'undefined' ? 'client' : 'server')
+      (set, get) => {
+        // Create a vanilla version of the base store logic
+        const storeImpl = {
+          ...INITIAL_STATE,
+          config: DEFAULT_SIMULATOR_CONFIG,
+          _hasHydrated: false,
+          
+          // Device management
+          setDeviceInfo: (info: Partial<DeviceInfo>) => {
+            set((state) => ({ 
+              ...state, 
+              deviceInfo: { ...state.deviceInfo, ...info }
+            }))
+          },
+          
+          setLocked: (isLocked: boolean) => {
+            set((state) => ({ ...state, isLocked }))
+          },
+          
+          setBusy: (isBusy: boolean) => {
+            set((state) => ({ ...state, isBusy }))
+          },
+          
+          // Connection & Pairing
+          setConnectionState: (isConnected: boolean, isPaired: boolean) => {
+            set((state) => ({
+              ...state,
+              isConnected,
+              isPaired
+            }))
             
-            if (typeof window === 'undefined') {
-              console.log('[DeviceStore] Server-side: Skipping rehydration callback')
+            const state = get()
+            sendConnectionChangedCommand(state.deviceInfo.deviceId, isConnected)
+            sendPairingChangedCommand(state.deviceInfo.deviceId, isPaired)
+          },
+          
+          disconnect: () => {
+            set((state) => ({
+              ...state,
+              isConnected: false,
+              isPairingMode: false,
+              ephemeralPub: undefined,
+              sharedSecret: undefined,
+              pendingRequests: [],
+              currentRequest: undefined,
+              userApprovalRequired: false
+            }))
+            const state = get()
+            sendConnectionChangedCommand(state.deviceInfo.deviceId, false)
+          },
+          
+          unpair: () => {
+            const state = get()
+            if (state.pairingTimeoutId) {
+              clearTimeout(state.pairingTimeoutId)
+            }
+            set((prevState) => ({
+              ...prevState,
+              isConnected: false,
+              isPaired: false,
+              isPairingMode: false,
+              pairingCode: undefined,
+              pairingStartTime: undefined,
+              pairingTimeoutId: undefined
+            }))
+            sendConnectionChangedCommand(state.deviceInfo.deviceId, false)
+            sendPairingChangedCommand(state.deviceInfo.deviceId, false)
+          },
+          
+          // Request management
+          addPendingRequest: (request: PendingRequest) => {
+            set((state) => ({
+              ...state,
+              pendingRequests: [...state.pendingRequests, request],
+              currentRequest: state.currentRequest || request,
+              userApprovalRequired: true
+            }))
+          },
+          
+          removePendingRequest: (requestId: string) => {
+            set((state) => {
+              const updatedRequests = state.pendingRequests.filter(req => req.id !== requestId)
+              return {
+                ...state,
+                pendingRequests: updatedRequests,
+                currentRequest: updatedRequests[0] || undefined,
+                userApprovalRequired: updatedRequests.length > 0
+              }
+            })
+          },
+          
+          approveCurrentRequest: () => {
+            const state = get()
+            if (state.currentRequest) {
+              storeImpl.removePendingRequest(state.currentRequest.id)
+            }
+          },
+          
+          declineCurrentRequest: () => {
+            const state = get()
+            if (state.currentRequest) {
+              storeImpl.removePendingRequest(state.currentRequest.id)
+            }
+          },
+          
+          // Wallet management
+          setActiveWallets: (activeWallets: ActiveWallets) => {
+            set((state) => ({ ...state, activeWallets }))
+          },
+          
+          // KV Records management
+          setKvRecord: (key: string, value: string, type: number = 0) => {
+            set((state) => ({
+              ...state,
+              kvRecords: { ...state.kvRecords, [key.toLowerCase()]: value }
+            }))
+          },
+          
+          getKvRecord: (key: string) => {
+            const state = get()
+            const normalizedKey = key.toLowerCase()
+            return state.kvRecords[normalizedKey]
+          },
+          
+          getAllKvRecords: () => {
+            const state = get()
+            return { ...state.kvRecords }
+          },
+          
+          updateKvRecord: (key: string, newValue: string) => {
+            set((state) => {
+              const normalizedKey = key.toLowerCase()
+              if (state.kvRecords[normalizedKey]) {
+                return {
+                  ...state,
+                  kvRecords: { ...state.kvRecords, [normalizedKey]: newValue }
+                }
+              } else {
+                throw new Error(`KV record not found for key: ${key}`)
+              }
+            })
+          },
+          
+          removeKvRecord: (key: string) => {
+            set((state) => {
+              const newRecords = { ...state.kvRecords }
+              delete newRecords[key]
+              return { ...state, kvRecords: newRecords }
+            })
+          },
+          
+          // Configuration
+          updateConfig: (config: Partial<SimulatorConfig>) => {
+            set((state) => ({
+              ...state,
+              config: { ...state.config, ...config }
+            }))
+          },
+          
+          // Reset functions
+          reset: () => {
+            set(INITIAL_STATE)
+          },
+          
+          resetConnectionState: async () => {
+            const state = get()
+            const deviceId = state.deviceInfo.deviceId
+            
+            try {
+              // Send WebSocket command to reset server-side connection state
+              sendResetDeviceCommand(deviceId, 'connection')
+              
+              set((state) => ({
+                ...state,
+                isConnected: false,
+                isPaired: false,
+                isPairingMode: false,
+                pairingCode: undefined,
+                pairingStartTime: undefined,
+                pairingTimeoutId: undefined,
+                ephemeralPub: undefined,
+                sharedSecret: undefined
+              }))
+            } catch (error) {
+              console.error(`[DeviceStore] Failed to reset connection state for ${deviceId}:`, error)
+            }
+          },
+          
+          resetDeviceState: async () => {
+            const state = get()
+            const deviceId = state.deviceInfo.deviceId
+            
+            try {
+              // Send WebSocket command to reset server-side state  
+              sendResetDeviceCommand(deviceId, 'full')
+              
+              // Reset client-side state (including KV records)
+              set(() => ({
+                ...INITIAL_STATE,
+                config: DEFAULT_SIMULATOR_CONFIG,
+              }))
+              
+              // Emit events to notify other components
+              sendConnectionChangedCommand(deviceId, false)
+              sendPairingChangedCommand(deviceId, false)
+            } catch (error) {
+              console.error(`[DeviceStore] Failed to reset device state for ${deviceId}:`, error)
+              
+              // Still reset client state even if server reset fails
+              set(() => ({
+                ...INITIAL_STATE,
+                config: DEFAULT_SIMULATOR_CONFIG,
+              }))
+              
+              sendConnectionChangedCommand(deviceId, false)
+              sendPairingChangedCommand(deviceId, false)
+            }
+          },
+          
+          // Pairing mode
+          enterPairingMode: ({ deviceId, pairingCode, timeoutMs, pairingStartTime }: { deviceId: string; pairingCode: string, timeoutMs: number, pairingStartTime: number}) => {
+            const state = get()
+            if (state.deviceInfo.deviceId != deviceId) {
+              console.log(`[DeviceStore] Ignoring pairing mode event for deviceId: ${deviceId} - current deviceId: ${state.deviceInfo.deviceId}`)
               return
             }
             
-            if (state?.deviceInfo?.firmwareVersion && Array.isArray(state.deviceInfo.firmwareVersion)) {
-              state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
-            }
-            console.log('[DeviceStore] Rehydrated state:', state)
-            console.log('[DeviceStore] Rehydration timestamp:', new Date().toISOString())
-            console.log('[DeviceStore] Current localStorage content:', typeof window !== 'undefined' ? localStorage.getItem('lattice-device-store') : 'N/A')
+             set((state) => ({
+               ...state,
+               isConnected: true,
+               isPairingMode: true,
+               pairingStartTime: pairingStartTime,
+               pairingCode: pairingCode,
+               pairingTimeoutMs: timeoutMs
+             }))
           },
+          
+          exitPairingMode: () => {
+            set((state) => ({ ...state, isPairingMode: false }))
+          },
+          
+          validatePairingCode: (code: string) => {
+            const state = get()
+            return state.pairingCode === code
+          }
         }
-      )
+        
+        return storeImpl
+      },
+      {
+        name: 'lattice-device-store',
+        partialize: (state) => ({
+          isConnected: state.isConnected,
+          isPaired: state.isPaired,
+          isPairingMode: state.isPairingMode,
+          deviceInfo: state.deviceInfo,
+          kvRecords: state.kvRecords,
+          config: state.config,
+        }),
+        onRehydrateStorage: () => (state, error) => {
+          // Handle Buffer conversion for firmwareVersion
+          if (state && state.deviceInfo && Array.isArray(state.deviceInfo.firmwareVersion)) {
+            state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
+          }
+        },
+      } 
     )
-  } else {
-    // Server-side: no persistence
-    return create<DeviceStore>()(createBaseStore())
-  }
+  )
 }
 
 export const useDeviceStore = createStore()

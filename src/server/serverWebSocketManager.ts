@@ -54,10 +54,11 @@ class ServerWebSocketManager {
    * Add a WebSocket connection for a device
    */
   addConnection(deviceId: string, ws: WebSocket): void {
-    if (!this.connections.has(deviceId)) {
-      this.connections.set(deviceId, new Set())
+    if (this.connections.has(deviceId)) {
+      console.log(`[ServerWsManager] Connection already exists for device: ${deviceId}`)
+      return
     }
-
+    this.connections.set(deviceId, new Set())    
     this.connections.get(deviceId)!.add(ws)
     console.log(`[ServerWsManager] Added connection for device: ${deviceId} (total: ${this.connections.get(deviceId)!.size})`)
 
@@ -78,7 +79,7 @@ class ServerWebSocketManager {
    */
   removeConnection(deviceId: string, ws: WebSocket): void {
     const connections = this.connections.get(deviceId)
-    if (connections) {
+    if (connections && connections.size > 0) {
       connections.delete(ws)
       console.log(`[ServerWsManager] Removed connection for device: ${deviceId} (remaining: ${connections.size})`)
       console.log(`[ServerWsManager] WebSocket readyState when removing: ${ws.readyState}`)

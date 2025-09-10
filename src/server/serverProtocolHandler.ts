@@ -353,7 +353,7 @@ export class ProtocolHandler {
       console.log('[ProtocolHandler] Parsed connect request:', request)
       
       const response = await this.simulator.connect(request)
-      console.log('[ProtocolHandler] Simulator connect response:', response)
+      console.log('[ProtocolHandler] Simulator connect response received.')
       
       return {
         code: response.code,
