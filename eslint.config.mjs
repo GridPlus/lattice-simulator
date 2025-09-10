@@ -83,7 +83,6 @@ export default [
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       '@typescript-eslint/no-non-null-assertion': 'warn',
-      '@typescript-eslint/prefer-const': 'error',
       '@typescript-eslint/no-var-requires': 'error',
       '@typescript-eslint/no-empty-interface': 'warn',
       '@typescript-eslint/consistent-type-imports': [
@@ -149,9 +148,7 @@ export default [
         },
       ],
 
-      // Accessibility rules
-      'jsx-a11y/alt-text': 'warn',
-      'jsx-a11y/anchor-is-valid': 'warn',
+      // Accessibility rules (extended)
       'jsx-a11y/click-events-have-key-events': 'warn',
       'jsx-a11y/no-static-element-interactions': 'warn',
 
@@ -168,9 +165,9 @@ export default [
       'quotes': ['error', 'single', { avoidEscape: true }],
       'semi': ['error', 'never'],
 
-      // Next.js specific
-      '@next/next/no-img-element': 'warn',
-      '@next/next/no-html-link-for-pages': 'off',
+      // HTML and JSX rules
+      'jsx-a11y/alt-text': 'warn',
+      'jsx-a11y/anchor-is-valid': 'warn',
     },
   },
 
