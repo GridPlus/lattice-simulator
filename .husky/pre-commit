@@ -1,0 +1,8 @@
+# Run lint-staged
+pnpm exec lint-staged
+
+# Run type check on staged TypeScript files
+if git diff --cached --name-only | grep -qE '\.(ts|tsx)$'; then
+  echo "🔍 Running type check..."
+  pnpm run type-check
+fi

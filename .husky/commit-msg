@@ -1,0 +1,2 @@
+# Check if commit message follows conventional commit format
+npx --no -- commitlint --edit $1
