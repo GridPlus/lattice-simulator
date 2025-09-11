@@ -708,24 +708,44 @@ export class ProtocolHandler {
   }
 
   private parseGetAddressesRequest(data: Buffer): GetAddressesRequest {
-    let offset = 0
-
-    // Parse start path
-    const pathLength = data.readUInt8(offset)
-    offset += 1
-
-    const startPath: number[] = []
-    for (let i = 0; i < pathLength; i++) {
-      startPath.push(data.readUInt32BE(offset))
-      offset += 4
+    // Match the SDK's encodeGetAddressesRequest format:
+    // wallet.uid (32) + pathDepth_IterIdx (1) + startPath (20) + countVal|flagVal (1) = 54 bytes total
+    if (data.length < 54) {
+      throw new Error(`Invalid getAddresses request: expected 54 bytes, got ${data.length}`)
     }
 
-    // Parse number of addresses
-    const n = data.readUInt8(offset)
+    let offset = 0
+
+    // Skip wallet.uid (32 bytes) - not needed for parsing in simulator
+    offset += 32
+
+    // Parse pathDepth_IterIdx (1 byte)
+    const pathDepth_IterIdx = data.readUInt8(offset)
     offset += 1
 
-    // Parse flag (optional)
-    const flag = offset < data.length ? data.readUInt8(offset) : undefined
+    const iterIdx = (pathDepth_IterIdx >> 4) & 0x0f
+    const pathLength = pathDepth_IterIdx & 0x0f
+
+    // Parse startPath (20 bytes = 5 × 4-byte values)
+    const startPath: number[] = []
+    for (let i = 0; i < 5; i++) {
+      const val = data.readUInt32BE(offset)
+      offset += 4
+
+      // Only include non-zero values up to pathLength
+      if (i < pathLength) {
+        startPath.push(val)
+      }
+    }
+
+    // Parse countVal|flagVal (1 byte)
+    const countVal_flagVal = data.readUInt8(offset)
+    const n = countVal_flagVal & 0x0f
+    const flag = (countVal_flagVal >> 4) & 0x0f
+
+    console.log(
+      `[ProtocolHandler] Parsed getAddresses: pathLength=${pathLength}, iterIdx=${iterIdx}, startPath=[${startPath.join(',')}], n=${n}, flag=${flag}`,
+    )
 
     return { startPath, n, flag }
   }
