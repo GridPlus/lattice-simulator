@@ -20,7 +20,7 @@ let isInitialized = false
 let ECPairFactory: ReturnType<typeof ECPair>
 
 function initializeBitcoinLibs() {
-  if (isInitialized || typeof window === 'undefined') {
+  if (isInitialized) {
     return
   }
 
