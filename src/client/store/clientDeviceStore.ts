@@ -578,6 +578,11 @@ export const useDeviceStore =
       enterPairingMode: () => {},
       resetConnectionState: () => {},
       setDeviceInfo: () => {},
+      // Signing request methods for SSR compatibility
+      getPendingSigningRequests: () => [],
+      approveSigningRequest: () => {},
+      rejectSigningRequest: () => {},
+      getCurrentSigningRequest: () => undefined,
       activeWallets: [],
       config: INITIAL_STATE.config,
       _hasHydrated: true,

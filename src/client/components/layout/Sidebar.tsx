@@ -10,6 +10,7 @@ import { Home, Wifi, Wallet, FileText, Clock, Database } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import React from 'react'
+import { useDeviceStore } from '@/client/store/clientDeviceStore'
 
 interface NavItem {
   id: string
@@ -19,7 +20,7 @@ interface NavItem {
   badge?: string
 }
 
-const navigationItems: NavItem[] = [
+const getNavigationItems = (pendingCount: number): NavItem[] => [
   {
     id: 'dashboard',
     label: 'Dashboard',
@@ -43,7 +44,7 @@ const navigationItems: NavItem[] = [
     label: 'Pending Requests',
     icon: Clock,
     href: '/requests',
-    badge: '2',
+    badge: pendingCount > 0 ? pendingCount.toString() : undefined,
   },
   {
     id: 'transactions',
@@ -66,6 +67,11 @@ const navigationItems: NavItem[] = [
  */
 export function Sidebar() {
   const pathname = usePathname()
+  const pendingSigningRequests = useDeviceStore(
+    (state: any) => state.getPendingSigningRequests?.() || [],
+  )
+
+  const navigationItems = getNavigationItems(pendingSigningRequests.length)
 
   return (
     <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 min-h-screen">
