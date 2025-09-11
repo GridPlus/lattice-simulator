@@ -34,6 +34,115 @@ export interface PendingRequest {
   timeoutMs: number
 }
 
+/**
+ * Enhanced signing request for user approval flow
+ */
+export interface SigningRequest extends PendingRequest {
+  type: 'SIGN'
+  data: {
+    /** HD derivation path for the signing key */
+    path: number[]
+    /** Data to sign (transaction or message) */
+    data: Buffer
+    /** Signature curve */
+    curve?: number
+    /** Signature encoding format */
+    encoding?: number
+    /** Hash type for signing */
+    hashType?: number
+    /** Schema type (transaction vs message) */
+    schema?: number
+    /** Cryptocurrency type */
+    coinType: 'ETH' | 'BTC' | 'SOL'
+    /** Type of data being signed */
+    transactionType: 'transaction' | 'message'
+  }
+  /** Additional transaction metadata for display */
+  metadata?: {
+    /** From address */
+    from?: string
+    /** To address */
+    to?: string
+    /** Transaction value */
+    value?: string
+    /** Gas limit (ETH) */
+    gasLimit?: string
+    /** Gas price (ETH) */
+    gasPrice?: string
+    /** Token symbol */
+    tokenSymbol?: string
+    /** Contract address for token transfers */
+    contractAddress?: string
+    /** Human-readable description */
+    description?: string
+  }
+}
+
+/**
+ * Other request types for future extensibility
+ */
+export interface AddressRequest extends PendingRequest {
+  type: 'GET_ADDRESSES'
+  data: {
+    startPath: number[]
+    count: number
+    flag?: number
+  }
+}
+
+export interface KvRequest extends PendingRequest {
+  type: 'ADD_KV_RECORDS' | 'REMOVE_KV_RECORDS' | 'GET_KV_RECORDS'
+  data: any
+}
+
+/**
+ * Union type for all possible request types
+ */
+export type AnyPendingRequest = SigningRequest | AddressRequest | KvRequest | PendingRequest
+
+/**
+ * Transaction record for completed signing operations
+ */
+export interface TransactionRecord {
+  /** Unique transaction ID */
+  id: string
+  /** Timestamp when transaction was completed */
+  timestamp: number
+  /** Cryptocurrency type */
+  coinType: 'ETH' | 'BTC' | 'SOL'
+  /** Type of transaction */
+  type: 'transaction' | 'message'
+  /** Final status */
+  status: 'approved' | 'rejected'
+  /** Resulting signature (if approved) */
+  signature?: Buffer
+  /** Recovery ID for ECDSA signatures */
+  recovery?: number
+  /** Original signing request */
+  originalRequest: SigningRequest
+  /** Processed metadata */
+  metadata: {
+    /** From address */
+    from?: string
+    /** To address */
+    to?: string
+    /** Transaction value */
+    value?: string
+    /** Transaction hash (if available) */
+    hash?: string
+    /** Token symbol */
+    tokenSymbol?: string
+    /** Gas used (ETH) */
+    gasUsed?: string
+    /** Transaction fee */
+    fee?: string
+    /** Human-readable description */
+    description?: string
+    /** Block number (if confirmed) */
+    blockNumber?: number
+  }
+}
+
 export interface DeviceState {
   // Connection & Pairing
   isConnected: boolean

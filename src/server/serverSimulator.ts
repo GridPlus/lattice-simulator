@@ -13,6 +13,8 @@ import {
   emitKvRecordsRemoved,
   emitKvRecordsFetched,
 } from './serverDeviceEvents'
+import { signingService } from '../services/signingService'
+import { walletManager } from '../services/walletManager'
 import { EXTERNAL } from '../shared/constants'
 import {
   LatticeResponseCode,
@@ -26,13 +28,13 @@ import {
   type SignResponse,
   type WalletPath,
   type ActiveWallets,
+  type SigningRequest,
 } from '../shared/types'
 import {
   generateDeviceId,
   generateKeyPair,
   generateMockAddresses,
   detectCoinTypeFromPath,
-  mockSign,
   simulateDelay,
   createDeviceResponse,
   supportsFeature,
@@ -117,6 +119,9 @@ export class ServerLatticeSimulator {
   /** Timeout ID for pairing mode timeout */
   private pairingTimeoutId?: NodeJS.Timeout
 
+  /** Pending signing requests awaiting user approval */
+  private pendingSigningRequests: Map<string, SigningRequest> = new Map()
+
   /**
    * Creates a new Lattice1 Device Simulator instance
    *
@@ -132,6 +137,9 @@ export class ServerLatticeSimulator {
   }) {
     this.deviceId = options?.deviceId || generateDeviceId()
     this.autoApprove = options?.autoApprove || false
+
+    // Initialize wallet manager
+    this.initializeWalletManager()
 
     // Set firmware version [patch, minor, major, reserved]
     const [major, minor, patch] = options?.firmwareVersion || [0, 15, 0]
@@ -160,6 +168,18 @@ export class ServerLatticeSimulator {
         name: '',
         capabilities: 0,
       },
+    }
+  }
+
+  /**
+   * Initialize wallet manager for real cryptographic signing
+   */
+  private async initializeWalletManager(): Promise<void> {
+    try {
+      await walletManager.initialize()
+      console.log('[Simulator] Wallet manager initialized successfully')
+    } catch (error) {
+      console.warn('[Simulator] Failed to initialize wallet manager:', error)
     }
   }
 
@@ -455,24 +475,85 @@ export class ServerLatticeSimulator {
       )
     }
 
-    // Check if signing requires user approval
+    // Check if auto-approve is disabled - create pending request for user approval
     if (!this.autoApprove) {
-      const approved = await this.simulateUserApproval() // 5 minutes
-      if (!approved) {
-        return createDeviceResponse(false, LatticeResponseCode.userDeclined)
+      const pendingRequest = await this.createSigningRequest(request)
+
+      // Return a pending response - we'll need to change the response type or handle this differently
+      // For now, return a user declined response to indicate approval is needed
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.userDeclined,
+        undefined,
+        `Pending approval: ${pendingRequest.id}`,
+      )
+    }
+
+    try {
+      // Use enhanced signing service for real cryptographic signatures
+      console.log('[Simulator] Using enhanced signing service for crypto signing')
+
+      // Prepare signing request
+      const signingRequest = {
+        path: request.path,
+        data: request.data,
+        curve: request.curve,
+        encoding: request.encoding,
+        hashType: request.hashType,
+        schema: request.schema,
+        isTransaction: true, // Assume transaction unless proven otherwise
       }
+
+      // Validate signing request
+      if (!signingService.validateSigningRequest(signingRequest)) {
+        return createDeviceResponse<SignResponse>(
+          false,
+          LatticeResponseCode.invalidMsg,
+          undefined,
+          'Invalid signing request parameters',
+        )
+      }
+
+      // Ensure wallet manager is initialized
+      if (!walletManager.isInitialized()) {
+        console.warn('[Simulator] Wallet manager not initialized, initializing now...')
+        await walletManager.initialize()
+      }
+
+      // Get wallet accounts for signing
+      const walletAccounts = walletManager.getAllWalletAccounts()
+
+      // Sign the data
+      const signatureResult = await signingService.signData(signingRequest, walletAccounts)
+
+      console.log('[Simulator] Enhanced signing completed:', {
+        signatureFormat: signatureResult.format,
+        signatureLength: signatureResult.signature.length,
+        recovery: signatureResult.recovery,
+        metadata: signatureResult.metadata,
+      })
+
+      const response: SignResponse = {
+        signature: signatureResult.signature,
+        recovery: signatureResult.recovery,
+      }
+
+      return createDeviceResponse(true, LatticeResponseCode.success, response)
+    } catch (error) {
+      console.error('[Simulator] Enhanced signing failed:', error)
+
+      // Fallback to mock signing for backwards compatibility
+      console.warn('[Simulator] Falling back to mock signing')
+      const privateKey = this.derivePrivateKey(request.path)
+      const mockSignature = this.mockSign(request.data, privateKey)
+
+      const response: SignResponse = {
+        signature: mockSignature,
+        recovery: request.curve === EXTERNAL.SIGNING.CURVES.SECP256K1 ? 0 : undefined,
+      }
+
+      return createDeviceResponse(true, LatticeResponseCode.success, response)
     }
-
-    // Mock signature generation
-    const privateKey = this.derivePrivateKey(request.path)
-    const signature = mockSign(request.data, privateKey)
-
-    const response: SignResponse = {
-      signature,
-      recovery: request.curve === EXTERNAL.SIGNING.CURVES.SECP256K1 ? 0 : undefined,
-    }
-
-    return createDeviceResponse(true, LatticeResponseCode.success, response)
   }
 
   /**
@@ -822,6 +903,26 @@ export class ServerLatticeSimulator {
     return randomBytes(32) // Mock private key
   }
 
+  /**
+   * Generates mock signature (fallback)
+   *
+   * Creates a deterministic signature for simulation purposes when
+   * enhanced signing fails.
+   *
+   * @param data - Data to sign
+   * @param privateKey - Private key for signing
+   * @returns 64-byte signature buffer
+   * @private
+   */
+  private mockSign(data: Buffer, privateKey: Buffer): Buffer {
+    const hash = createHash('sha256')
+      .update(Buffer.concat([data, privateKey]))
+      .digest()
+
+    // Return a 64-byte signature (32 bytes r + 32 bytes s)
+    return Buffer.concat([hash, createHash('sha256').update(hash).digest()])
+  }
+
   // Public getters
   /**
    * Gets the device ID
@@ -1123,5 +1224,230 @@ export class ServerLatticeSimulator {
    */
   validatePairingCode(code: string): boolean {
     return this.isPairingMode && this.pairingCode === code
+  }
+
+  /**
+   * Creates a signing request for user approval
+   *
+   * Converts a raw sign request into a structured signing request
+   * that will be displayed to the user for approval.
+   *
+   * @param request - Raw signing request from protocol
+   * @returns Promise resolving to pending signing request
+   * @private
+   */
+  private async createSigningRequest(request: SignRequest): Promise<SigningRequest> {
+    // Detect coin type and transaction type
+    const coinType = detectCoinTypeFromPath(request.path)
+    const transactionType = request.schema === 1 ? 'message' : 'transaction' // Simplified detection
+
+    // Generate unique ID for this request
+    const requestId = `sign_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`
+
+    // Extract metadata for display (this would be enhanced in a real implementation)
+    const metadata = await this.extractTransactionMetadata(request, coinType as any)
+
+    const signingRequest: SigningRequest = {
+      id: requestId,
+      type: 'SIGN',
+      timestamp: Date.now(),
+      timeoutMs: 300000, // 5 minutes timeout
+      data: {
+        path: request.path,
+        data: request.data,
+        curve: request.curve,
+        encoding: request.encoding,
+        hashType: request.hashType,
+        schema: request.schema,
+        coinType: coinType as any,
+        transactionType,
+      },
+      metadata,
+    }
+
+    // Store the pending request
+    this.pendingSigningRequests.set(requestId, signingRequest)
+
+    console.log(`[Simulator] Created signing request: ${requestId}`)
+    console.log(`[Simulator] Coin: ${coinType}, Type: ${transactionType}`)
+
+    return signingRequest
+  }
+
+  /**
+   * Extracts transaction metadata for display
+   *
+   * Analyzes the transaction data to extract human-readable information
+   * like addresses, amounts, and transaction purpose.
+   *
+   * @param request - Raw signing request
+   * @param coinType - Detected cryptocurrency type
+   * @returns Promise resolving to metadata object
+   * @private
+   */
+  private async extractTransactionMetadata(
+    request: SignRequest,
+    coinType: 'ETH' | 'BTC' | 'SOL',
+  ): Promise<SigningRequest['metadata']> {
+    // This is a simplified implementation
+    // In a real implementation, you would parse the transaction data
+    // to extract addresses, amounts, gas prices, etc.
+
+    const metadata: SigningRequest['metadata'] = {
+      description: `${coinType} ${request.schema === 1 ? 'message' : 'transaction'} signing`,
+    }
+
+    // For Ethereum, we might parse transaction fields
+    if (coinType === 'ETH') {
+      metadata.tokenSymbol = 'ETH'
+      // Could parse RLP-encoded transaction to get to/from/value
+      // For now, just add placeholder metadata
+      metadata.description = request.schema === 1 ? 'Sign message' : 'Send ETH transaction'
+    }
+
+    // For Bitcoin, we might parse transaction inputs/outputs
+    if (coinType === 'BTC') {
+      metadata.tokenSymbol = 'BTC'
+      metadata.description = 'Send BTC transaction'
+    }
+
+    // For Solana, we might parse instruction data
+    if (coinType === 'SOL') {
+      metadata.tokenSymbol = 'SOL'
+      metadata.description = 'Sign Solana transaction'
+    }
+
+    return metadata
+  }
+
+  /**
+   * Approves a pending signing request
+   *
+   * Performs the actual cryptographic signing for an approved request
+   * and returns the signature to the client.
+   *
+   * @param requestId - ID of the request to approve
+   * @returns Promise resolving to signature response
+   */
+  async approveSigningRequest(requestId: string): Promise<DeviceResponse<SignResponse>> {
+    const signingRequest = this.pendingSigningRequests.get(requestId)
+
+    if (!signingRequest) {
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Signing request not found',
+      )
+    }
+
+    try {
+      // Use enhanced signing service for real cryptographic signatures
+      console.log(`[Simulator] Approving signing request: ${requestId}`)
+
+      // Prepare signing request for service
+      const serviceRequest = {
+        path: signingRequest.data.path,
+        data: signingRequest.data.data,
+        curve: signingRequest.data.curve,
+        encoding: signingRequest.data.encoding,
+        hashType: signingRequest.data.hashType,
+        schema: signingRequest.data.schema,
+        isTransaction: signingRequest.data.transactionType === 'transaction',
+      }
+
+      // Validate signing request
+      if (!signingService.validateSigningRequest(serviceRequest)) {
+        return createDeviceResponse<SignResponse>(
+          false,
+          LatticeResponseCode.invalidMsg,
+          undefined,
+          'Invalid signing request parameters',
+        )
+      }
+
+      // Ensure wallet manager is initialized
+      if (!walletManager.isInitialized()) {
+        console.warn('[Simulator] Wallet manager not initialized, initializing now...')
+        await walletManager.initialize()
+      }
+
+      // Get wallet accounts for signing
+      const walletAccounts = walletManager.getAllWalletAccounts()
+
+      // Sign the data
+      const signatureResult = await signingService.signData(serviceRequest, walletAccounts)
+
+      console.log(`[Simulator] Enhanced signing completed for request ${requestId}:`, {
+        signatureFormat: signatureResult.format,
+        signatureLength: signatureResult.signature.length,
+        recovery: signatureResult.recovery,
+        metadata: signatureResult.metadata,
+      })
+
+      // Remove from pending requests
+      this.pendingSigningRequests.delete(requestId)
+
+      const response: SignResponse = {
+        signature: signatureResult.signature,
+        recovery: signatureResult.recovery,
+      }
+
+      return createDeviceResponse(true, LatticeResponseCode.success, response)
+    } catch (error) {
+      console.error(`[Simulator] Enhanced signing failed for request ${requestId}:`, error)
+
+      // Remove from pending requests even on error
+      this.pendingSigningRequests.delete(requestId)
+
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Signing failed: ' + (error as Error).message,
+      )
+    }
+  }
+
+  /**
+   * Rejects a pending signing request
+   *
+   * Removes the request from pending queue and returns rejection response.
+   *
+   * @param requestId - ID of the request to reject
+   * @returns Promise resolving to rejection response
+   */
+  async rejectSigningRequest(requestId: string): Promise<DeviceResponse<null>> {
+    const signingRequest = this.pendingSigningRequests.get(requestId)
+
+    if (!signingRequest) {
+      return createDeviceResponse<null>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        null,
+        'Signing request not found',
+      )
+    }
+
+    console.log(`[Simulator] Rejecting signing request: ${requestId}`)
+
+    // Remove from pending requests
+    this.pendingSigningRequests.delete(requestId)
+
+    return createDeviceResponse(
+      false,
+      LatticeResponseCode.userDeclined,
+      null,
+      'User rejected transaction',
+    )
+  }
+
+  /**
+   * Gets all pending signing requests
+   *
+   * @returns Array of pending signing requests
+   */
+  getPendingSigningRequests(): SigningRequest[] {
+    return Array.from(this.pendingSigningRequests.values())
   }
 }

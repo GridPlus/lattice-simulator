@@ -19,6 +19,8 @@ import type {
   ActiveWallets,
   PendingRequest,
   SimulatorConfig,
+  SigningRequest,
+  AnyPendingRequest,
 } from '@/shared/types'
 
 const EMPTY_WALLET_UID = '0'.repeat(64) // 32 bytes as hex string
@@ -132,10 +134,17 @@ interface DeviceStore extends DeviceState {
   setConnectionState: (isConnected: boolean, isPaired: boolean) => void
 
   // Request Management
-  addPendingRequest: (request: PendingRequest) => void
+  addPendingRequest: (request: AnyPendingRequest) => void
   removePendingRequest: (requestId: string) => void
   approveCurrentRequest: () => void
   declineCurrentRequest: () => void
+
+  // Enhanced Signing Request Management
+  addSigningRequest: (request: SigningRequest) => void
+  approveSigningRequest: (requestId: string, signature: Buffer, recovery?: number) => void
+  rejectSigningRequest: (requestId: string, reason?: string) => void
+  getCurrentSigningRequest: () => SigningRequest | undefined
+  getPendingSigningRequests: () => SigningRequest[]
 
   // Wallet Management
   setActiveWallets: (wallets: ActiveWallets) => void
@@ -292,6 +301,81 @@ const createStore = () => {
             if (state.currentRequest) {
               storeImpl.removePendingRequest(state.currentRequest.id)
             }
+          },
+
+          // Enhanced signing request management
+          addSigningRequest: (request: SigningRequest) => {
+            console.log(`[DeviceStore] Adding signing request: ${request.id}`)
+            storeImpl.addPendingRequest(request)
+          },
+
+          approveSigningRequest: (requestId: string, signature: Buffer, recovery?: number) => {
+            const state = get()
+            const request = state.pendingRequests.find(
+              req => req.id === requestId,
+            ) as SigningRequest
+
+            if (!request || request.type !== 'SIGN') {
+              console.error(`[DeviceStore] Signing request not found: ${requestId}`)
+              return
+            }
+
+            console.log(`[DeviceStore] Approving signing request: ${requestId}`)
+
+            // Import transaction store dynamically to avoid circular imports
+            import('./clientTransactionStore')
+              .then(({ useTransactionStore }) => {
+                const transactionStore = useTransactionStore.getState()
+                transactionStore.createApprovedTransaction(request, signature, recovery)
+              })
+              .catch(error => {
+                console.error('[DeviceStore] Failed to create transaction record:', error)
+              })
+
+            storeImpl.removePendingRequest(requestId)
+          },
+
+          rejectSigningRequest: (requestId: string, reason?: string) => {
+            const state = get()
+            const request = state.pendingRequests.find(
+              req => req.id === requestId,
+            ) as SigningRequest
+
+            if (!request || request.type !== 'SIGN') {
+              console.error(`[DeviceStore] Signing request not found: ${requestId}`)
+              return
+            }
+
+            console.log(
+              `[DeviceStore] Rejecting signing request: ${requestId}`,
+              reason ? `Reason: ${reason}` : '',
+            )
+
+            // Import transaction store dynamically to avoid circular imports
+            import('./clientTransactionStore')
+              .then(({ useTransactionStore }) => {
+                const transactionStore = useTransactionStore.getState()
+                transactionStore.createRejectedTransaction(request, {
+                  description: reason || 'User rejected transaction',
+                })
+              })
+              .catch(error => {
+                console.error('[DeviceStore] Failed to create transaction record:', error)
+              })
+
+            storeImpl.removePendingRequest(requestId)
+          },
+
+          getCurrentSigningRequest: () => {
+            const state = get()
+            return state.currentRequest?.type === 'SIGN'
+              ? (state.currentRequest as SigningRequest)
+              : undefined
+          },
+
+          getPendingSigningRequests: () => {
+            const state = get()
+            return state.pendingRequests.filter(req => req.type === 'SIGN') as SigningRequest[]
           },
 
           // Wallet management
