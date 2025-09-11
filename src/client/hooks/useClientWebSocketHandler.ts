@@ -7,7 +7,9 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react'
+import { sendDeriveAddressesCommand } from '@/client/clientWebSocketCommands'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
+import { useWalletStore } from '@/client/store/clientWalletStore'
 
 interface ServerRequest {
   requestId: string
@@ -28,6 +30,10 @@ export function useServerRequestHandler(deviceId: string) {
   const removeKvRecord = useDeviceStore((state: any) => state.removeKvRecord)
   const setConnectionState = useDeviceStore((state: any) => state.setConnectionState)
   const exitPairingMode = useDeviceStore((state: any) => state.exitPairingMode)
+
+  // Wallet store methods
+  const initializeWallets = useWalletStore((state: any) => state.initializeWallets)
+  const isWalletInitialized = useWalletStore((state: any) => state.isInitialized)
 
   // Keep track of processed requests to avoid duplicates
   const processedRequests = useRef(new Set<string>())
@@ -295,6 +301,32 @@ export function useServerRequestHandler(deviceId: string) {
     [setConnectionState],
   )
 
+  const handleWalletAddressesRequest = useCallback(
+    async (data: any) => {
+      console.log('[ClientWebSocketHandler] Wallet addresses request:', data)
+
+      // Ensure wallet store is initialized
+      if (!isWalletInitialized) {
+        console.log('[ClientWebSocketHandler] Initializing wallets before address derivation')
+        await initializeWallets()
+      }
+
+      // Use the sendDeriveAddressesCommand to request addresses from server
+      // This will derive the addresses and emit them back via WebSocket
+      sendDeriveAddressesCommand(deviceId, {
+        coinType: data.coinType,
+        startIndex: data.startPath[4] || 0, // BIP44 address index
+        count: data.count,
+        accountIndex: data.startPath[2] || 0, // BIP44 account index
+        walletType: data.startPath[3] === 0 ? 'external' : 'internal', // BIP44 change
+        addressType: 'segwit', // Default to segwit for BTC
+      })
+
+      console.log('[ClientWebSocketHandler] Sent address derivation request to server')
+    },
+    [deviceId, initializeWallets, isWalletInitialized],
+  )
+
   // Listen for custom device events from deviceEvents.ts
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -481,6 +513,8 @@ export function useServerRequestHandler(deviceId: string) {
             handleConnectionChanged(message.data)
           } else if (message.type === 'pairing_changed') {
             handlePairingChanged(message.data)
+          } else if (message.type === 'wallet_addresses_request') {
+            handleWalletAddressesRequest(message.data)
           } else if (message.type === 'heartbeat_response') {
             // Heartbeat acknowledgment - silent
           } else {
@@ -568,6 +602,7 @@ export function useServerRequestHandler(deviceId: string) {
     handlePairingModeEnded,
     handleConnectionChanged,
     handlePairingChanged,
+    handleWalletAddressesRequest,
   ])
 
   // Clean up old processed requests periodically

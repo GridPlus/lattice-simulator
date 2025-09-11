@@ -38,10 +38,12 @@ export class WalletManager {
     }
 
     try {
-      // Create default accounts for each coin type
-      await this.createDefaultAccounts()
+      // Initialize crypto libraries but don't create accounts
+      // Accounts will be created on-demand when requested by client
       this.initialized = true
-      console.log('[WalletManager] Initialized with default accounts')
+      console.log(
+        '[WalletManager] Initialized crypto libraries (accounts will be created on-demand)',
+      )
     } catch (error) {
       console.error('[WalletManager] Failed to initialize:', error)
       throw error
@@ -49,7 +51,90 @@ export class WalletManager {
   }
 
   /**
+   * Derives wallet addresses on-demand for the specified coin type and range
+   *
+   * @param coinType - The cryptocurrency type ('ETH', 'BTC', 'SOL')
+   * @param accountIndex - Account index for derivation
+   * @param walletType - 'internal' or 'external'
+   * @param addressType - Address type (e.g., 'segwit' for Bitcoin)
+   * @param startIndex - Starting address index
+   * @param count - Number of addresses to derive
+   * @returns Array of wallet account objects
+   */
+  async deriveAddressesOnDemand(
+    coinType: 'ETH' | 'BTC' | 'SOL',
+    accountIndex: number = 0,
+    walletType: 'internal' | 'external' = 'internal',
+    addressType: 'segwit' | 'legacy' | 'wrapped-segwit' = 'segwit',
+    startIndex: number = 0,
+    count: number = 1,
+  ): Promise<Array<{ id: string; address: string; publicKey?: string; coinType: string }>> {
+    if (!this.initialized) {
+      throw new Error('WalletManager not initialized')
+    }
+
+    try {
+      console.log(`[WalletManager] Deriving ${count} ${coinType} addresses on-demand`)
+
+      switch (coinType) {
+        case 'ETH': {
+          const accounts = await createMultipleEthereumAccounts(
+            accountIndex,
+            walletType,
+            count,
+            startIndex,
+          )
+          return accounts.map(account => ({
+            id: account.id,
+            address: account.address,
+            publicKey: account.publicKey,
+            coinType: 'ETH',
+          }))
+        }
+
+        case 'BTC': {
+          const accounts = await createMultipleBitcoinAccounts(
+            accountIndex,
+            walletType,
+            addressType,
+            count,
+            startIndex,
+          )
+          return accounts.map(account => ({
+            id: account.id,
+            address: account.address,
+            publicKey: account.publicKey,
+            coinType: 'BTC',
+          }))
+        }
+
+        case 'SOL': {
+          const accounts = await createMultipleSolanaAccounts(
+            accountIndex,
+            walletType,
+            count,
+            startIndex,
+          )
+          return accounts.map(account => ({
+            id: account.id,
+            address: account.address,
+            publicKey: account.publicKey,
+            coinType: 'SOL',
+          }))
+        }
+
+        default:
+          throw new Error(`Unsupported coin type: ${coinType}`)
+      }
+    } catch (error) {
+      console.error(`[WalletManager] Failed to derive ${coinType} addresses:`, error)
+      throw error
+    }
+  }
+
+  /**
    * Creates default accounts for testing and simulation
+   * @deprecated Use deriveAddressesOnDemand instead
    */
   private async createDefaultAccounts(): Promise<void> {
     // Create Ethereum accounts

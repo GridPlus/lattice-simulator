@@ -12,6 +12,7 @@ import {
   emitKvRecordsAdded,
   emitKvRecordsRemoved,
   emitKvRecordsFetched,
+  emitWalletAddressesRequest,
 } from './serverDeviceEvents'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
@@ -33,16 +34,11 @@ import {
 import {
   generateDeviceId,
   generateKeyPair,
-  generateMockAddresses,
   detectCoinTypeFromPath,
   simulateDelay,
   createDeviceResponse,
   supportsFeature,
 } from '../shared/utils'
-import {
-  resolveWalletAddresses,
-  ensureWalletStoreInitialized,
-} from '../shared/utils/walletAddressResolver'
 
 /**
  * SERVER-SIDE ONLY Lattice1 Device Simulator
@@ -138,8 +134,7 @@ export class ServerLatticeSimulator {
     this.deviceId = options?.deviceId || generateDeviceId()
     this.autoApprove = options?.autoApprove || false
 
-    // Initialize wallet manager
-    this.initializeWalletManager()
+    // Wallet addresses will be derived on-demand when requested by client
 
     // Set firmware version [patch, minor, major, reserved]
     const [major, minor, patch] = options?.firmwareVersion || [0, 15, 0]
@@ -168,18 +163,6 @@ export class ServerLatticeSimulator {
         name: '',
         capabilities: 0,
       },
-    }
-  }
-
-  /**
-   * Initialize wallet manager for real cryptographic signing
-   */
-  private async initializeWalletManager(): Promise<void> {
-    try {
-      await walletManager.initialize()
-      console.log('[Simulator] Wallet manager initialized successfully')
-    } catch (error) {
-      console.warn('[Simulator] Failed to initialize wallet manager:', error)
     }
   }
 
@@ -401,27 +384,26 @@ export class ServerLatticeSimulator {
       )
     }
 
-    // Ensure wallet store is initialized before resolving addresses
-    console.log('[Simulator] Ensuring wallet store is initialized...')
-    const walletReady = await ensureWalletStoreInitialized()
+    // Client-driven address derivation: emit WebSocket event for client to handle
+    console.log('[Simulator] Emitting wallet addresses request to client via WebSocket')
 
-    // Get addresses from wallet store or fall back to mock generation
-    let addressInfos
-    if (walletReady) {
-      console.log('[Simulator] Using real wallet addresses from store')
-      addressInfos = resolveWalletAddresses(request.startPath, request.n)
+    // Emit request to client to derive addresses
+    emitWalletAddressesRequest(this.deviceId, {
+      startPath: request.startPath,
+      count: request.n,
+      coinType,
+      flag: request.flag,
+    })
 
-      // If no addresses found from wallet store, fall back to mock
-      if (addressInfos.length === 0) {
-        console.warn(
-          '[Simulator] No addresses found in wallet store, falling back to mock addresses',
-        )
-        addressInfos = generateMockAddresses(request.startPath, request.n, coinType)
-      }
-    } else {
-      console.warn('[Simulator] Wallet store not initialized, using mock addresses')
-      addressInfos = generateMockAddresses(request.startPath, request.n, coinType)
-    }
+    // For now, fall back to deterministic mock addresses until client-side derivation is implemented
+    console.log(
+      '[Simulator] Using deterministic mock addresses while client-side derivation is being implemented',
+    )
+    const addressInfos = this.generateDeterministicMockAddresses(
+      request.startPath,
+      request.n,
+      coinType,
+    )
 
     const response: GetAddressesResponse = {
       addresses: addressInfos.map(info => info.address),
@@ -884,6 +866,87 @@ export class ServerLatticeSimulator {
 
     // Simulate 90% approval rate for demo
     return Math.random() > 0.1
+  }
+
+  /**
+   * Generates deterministic mock addresses without crypto operations
+   *
+   * Creates simple deterministic addresses based on path and coin type
+   * that don't require crypto functions that fail on the server side.
+   *
+   * @param startPath - Starting BIP-44 derivation path
+   * @param count - Number of addresses to generate
+   * @param coinType - Cryptocurrency type
+   * @returns Array of mock address info
+   * @private
+   */
+  private generateDeterministicMockAddresses(
+    startPath: WalletPath,
+    count: number,
+    coinType: string,
+  ): Array<{ path: number[]; address: string; publicKey: Buffer; index: number }> {
+    const addresses = []
+
+    for (let i = 0; i < count; i++) {
+      const index = startPath[4] + i
+      const fullPath = [...startPath.slice(0, -1), index]
+
+      // Generate deterministic mock addresses based on path and coin type
+      let address: string
+      const pathStr = fullPath.join('/')
+      const seed = `${this.deviceId}-${pathStr}-${coinType}`
+
+      // Simple deterministic address generation
+      switch (coinType) {
+        case 'ETH':
+          // Generate a deterministic Ethereum address
+          const ethHash = this.simpleHash(seed) % 0xfffffffffffff // 20 bytes
+          address = '0x' + ethHash.toString(16).padStart(40, '0')
+          break
+        case 'BTC':
+          // Generate a deterministic Bitcoin address
+          const btcHash = this.simpleHash(seed + 'btc')
+          address = 'bc1q' + btcHash.toString(36).substring(0, 32).padEnd(32, '0')
+          break
+        case 'SOL':
+          // Generate a deterministic Solana address
+          const solHash = this.simpleHash(seed + 'sol')
+          address = solHash.toString(16).padStart(44, '0').substring(0, 44)
+          break
+        default:
+          address = `mock_${coinType.toLowerCase()}_${index}_${this.deviceId.substring(0, 8)}`
+      }
+
+      // Generate mock public key (32 bytes)
+      const pubKeyHash = this.simpleHash(seed + 'pubkey')
+      const publicKey = Buffer.alloc(65)
+      publicKey[0] = 0x04 // Uncompressed key prefix
+      publicKey.writeUInt32BE(pubKeyHash, 1)
+      publicKey.writeUInt32BE(pubKeyHash >> 32, 5)
+
+      addresses.push({
+        path: fullPath,
+        address,
+        publicKey,
+        index,
+      })
+    }
+
+    return addresses
+  }
+
+  /**
+   * Simple hash function for deterministic mock address generation
+   * @private
+   */
+  private simpleHash(str: string): number {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i)
+      hash = (hash << 5) - hash + char
+      hash = hash & hash // Convert to 32-bit integer
+    }
+    return Math.abs(hash)
   }
 
   /**

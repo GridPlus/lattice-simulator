@@ -90,3 +90,20 @@ export function sendUpdateConfigCommand(deviceId: string, config: any) {
 export function sendSyncClientStateCommand(deviceId: string, clientState: any) {
   sendDeviceCommand(deviceId, 'sync_client_state', { clientState })
 }
+
+/**
+ * Requests wallet addresses to be derived on-demand by server
+ */
+export function sendDeriveAddressesCommand(
+  deviceId: string,
+  params: {
+    coinType: 'ETH' | 'BTC' | 'SOL'
+    accountIndex?: number
+    walletType?: 'internal' | 'external'
+    addressType?: 'segwit' | 'legacy' | 'wrapped-segwit'
+    startIndex?: number
+    count?: number
+  },
+) {
+  sendDeviceCommand(deviceId, 'derive_addresses', params)
+}
