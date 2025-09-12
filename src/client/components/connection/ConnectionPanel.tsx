@@ -18,6 +18,7 @@ import React, { useState, useEffect } from 'react'
 import { WalletSetup } from '@/client/components/setup'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/client/store'
 import { useWalletStore } from '@/client/store/clientWalletStore'
+import { formatFirmwareVersion } from '@/shared/utils/protocol'
 
 /**
  * Connection status indicator component
@@ -28,11 +29,6 @@ function ConnectionStatus() {
   const { pairingCode, pairingStartTime, pairingTimeoutMs } = useDeviceStore()
   const [pairingTimeRemaining, setPairingTimeRemaining] = useState(0)
   const [isCopied, setIsCopied] = useState(false)
-
-  const formatFirmwareVersion = (version: Buffer) => {
-    if (!version || version.length < 3) return 'Unknown'
-    return `${version[2]}.${version[1]}.${version[0]}`
-  }
 
   const getPairingTimeRemaining = () => {
     if (!isPairingMode || !pairingStartTime) return 0

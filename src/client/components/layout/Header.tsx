@@ -9,7 +9,7 @@
 import { Lock, Unlock, Power, Settings } from 'lucide-react'
 import React from 'react'
 import { useDeviceStatus } from '@/client/store'
-import { formatFirmwareVersion } from '@/utils/protocol'
+import { formatFirmwareVersion } from '@/shared/utils/protocol'
 
 /**
  * Header component with device information and controls

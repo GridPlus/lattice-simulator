@@ -287,10 +287,29 @@ export function validateDerivationPath(path: WalletPath): boolean {
 /**
  * Format firmware version for display
  */
-export function formatFirmwareVersion(version: Buffer): string {
-  if (version.length < 3) return 'Unknown'
+export function formatFirmwareVersion(version: Buffer | number[] | null | undefined): string {
+  if (!version) return 'Unknown'
 
-  return `${version[2]}.${version[1]}.${version[0]}`
+  // Handle different types during SSR/hydration
+  let versionBytes: number[]
+  if (typeof Buffer !== 'undefined' && Buffer.isBuffer && Buffer.isBuffer(version)) {
+    versionBytes = Array.from(version)
+  } else if (Array.isArray(version)) {
+    versionBytes = version
+  } else if (typeof version === 'object' && version !== null) {
+    // Handle case where Buffer is serialized as object during SSR
+    try {
+      versionBytes = Object.values(version as any).filter(v => typeof v === 'number')
+    } catch {
+      return 'Unknown'
+    }
+  } else {
+    return 'Unknown'
+  }
+
+  if (!versionBytes || versionBytes.length < 3) return 'Unknown'
+
+  return `${versionBytes[2]}.${versionBytes[1]}.${versionBytes[0]}`
 }
 
 /**
