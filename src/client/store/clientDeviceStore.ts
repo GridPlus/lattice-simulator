@@ -28,7 +28,7 @@ const EMPTY_WALLET_UID = '0'.repeat(64) // 32 bytes as hex string
 const DEFAULT_DEVICE_INFO: DeviceInfo = {
   deviceId: 'SD0001',
   name: 'Lattice1 Simulator',
-  firmwareVersion: Buffer.from([0, 0, 15, 0]), // v0.15.0 as Buffer
+  firmwareVersion: Buffer.from([0, 15, 0]), // v0.15.0 as Buffer [patch, minor, major]
   isLocked: false,
 }
 
@@ -539,16 +539,26 @@ const createStore = () => {
       },
       {
         name: 'lattice-device-store',
-        partialize: state => ({
-          isConnected: state.isConnected,
-          isPaired: state.isPaired,
-          isPairingMode: state.isPairingMode,
-          deviceInfo: state.deviceInfo,
-          kvRecords: state.kvRecords,
-          config: state.config,
-        }),
+        partialize: state => {
+          const partialState = {
+            isConnected: state.isConnected,
+            isPaired: state.isPaired,
+            isPairingMode: state.isPairingMode,
+            deviceInfo: {
+              ...state.deviceInfo,
+              firmwareVersion: Array.from(state.deviceInfo.firmwareVersion),
+            },
+            kvRecords: state.kvRecords,
+            config: state.config,
+          }
+          console.log('[DeviceStore] State - Partializing state:', partialState)
+          return partialState
+        },
         onRehydrateStorage: () => state => {
           // Handle Buffer conversion for firmwareVersion
+          console.log(
+            `[DeviceStore] State - Rehydrating firmwareVersion: ${state?.deviceInfo?.firmwareVersion?.toString('hex')}`,
+          )
           if (state && state.deviceInfo && Array.isArray(state.deviceInfo.firmwareVersion)) {
             state.deviceInfo.firmwareVersion = Buffer.from(state.deviceInfo.firmwareVersion)
           }
