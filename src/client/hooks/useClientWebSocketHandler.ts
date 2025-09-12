@@ -7,9 +7,12 @@
  */
 
 import { useEffect, useRef, useCallback } from 'react'
-import { sendDeriveAddressesCommand } from '@/client/clientWebSocketCommands'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
-import { useWalletStore } from '@/client/store/clientWalletStore'
+import { createMultipleBitcoinAccounts } from '@/services/bitcoinWallet'
+import { createMultipleEthereumAccounts } from '@/services/ethereumWallet'
+import { createMultipleSolanaAccounts } from '@/services/solanaWallet'
+import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
+import type { SigningRequest } from '@/shared/types/device'
 
 interface ServerRequest {
   requestId: string
@@ -30,10 +33,7 @@ export function useServerRequestHandler(deviceId: string) {
   const removeKvRecord = useDeviceStore((state: any) => state.removeKvRecord)
   const setConnectionState = useDeviceStore((state: any) => state.setConnectionState)
   const exitPairingMode = useDeviceStore((state: any) => state.exitPairingMode)
-
-  // Wallet store methods
-  const initializeWallets = useWalletStore((state: any) => state.initializeWallets)
-  const isWalletInitialized = useWalletStore((state: any) => state.isInitialized)
+  const addSigningRequest = useDeviceStore((state: any) => state.addSigningRequest)
 
   // Keep track of processed requests to avoid duplicates
   const processedRequests = useRef(new Set<string>())
@@ -95,6 +95,37 @@ export function useServerRequestHandler(deviceId: string) {
     }
   }, [])
 
+  const handleSigningRequest = useCallback(
+    async (signingRequest: SigningRequest) => {
+      console.log('[ClientWebSocketHandler] Received signing request:', signingRequest)
+
+      try {
+        // Add the signing request to the device store
+        // This will make it available for the UI to display
+        addSigningRequest(signingRequest)
+
+        console.log(
+          `[ClientWebSocketHandler] Added signing request ${signingRequest.id} to store for user approval`,
+        )
+
+        // Return acknowledgment that we received the request
+        // The actual approval/rejection will happen through user interaction
+        return {
+          success: true,
+          message: 'Signing request received and queued for user approval',
+          requestId: signingRequest.id,
+        }
+      } catch (error) {
+        console.error('[ClientWebSocketHandler] Error handling signing request:', error)
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : 'Failed to process signing request',
+        }
+      }
+    },
+    [addSigningRequest],
+  )
+
   const handleServerRequest = useCallback(
     async (request: ServerRequest) => {
       // Avoid processing duplicate requests
@@ -124,6 +155,10 @@ export function useServerRequestHandler(deviceId: string) {
             responseData = await handleRemoveKvRecords(request.payload)
             break
 
+          case 'signing_request':
+            responseData = await handleSigningRequest(request.payload)
+            break
+
           default:
             error = `Unknown request type: ${request.requestType}`
             console.warn(`[ClientWebSocketHandler] Unknown request type: ${request.requestType}`)
@@ -138,7 +173,7 @@ export function useServerRequestHandler(deviceId: string) {
         sendResponse(request, undefined, error instanceof Error ? error.message : 'Unknown error')
       }
     },
-    [getAllKvRecords, getKvRecord, setKvRecord, removeKvRecord, sendResponse],
+    [getAllKvRecords, getKvRecord, setKvRecord, removeKvRecord, handleSigningRequest, sendResponse],
   )
 
   const handleGetKvRecords = useCallback(
@@ -305,26 +340,108 @@ export function useServerRequestHandler(deviceId: string) {
     async (data: any) => {
       console.log('[ClientWebSocketHandler] Wallet addresses request:', data)
 
-      // Ensure wallet store is initialized
-      if (!isWalletInitialized) {
-        console.log('[ClientWebSocketHandler] Initializing wallets before address derivation')
-        await initializeWallets()
+      try {
+        const { startPath, count = 10 } = data
+
+        // Detect coin type from path or use provided coinType
+        const coinType = data.coinType || detectCoinTypeFromPath(startPath) || 'ETH'
+
+        // Extract BIP44 parameters from derivation path
+        const accountIndex = startPath[2] || 0 // BIP44 account index
+        const walletType = startPath[3] === 0 ? 'external' : 'internal' // BIP44 change
+        const startIndex = startPath[4] || 0 // BIP44 address index
+
+        console.log(
+          `[ClientWebSocketHandler] Deriving ${count} addresses for ${coinType}, account: ${accountIndex}, type: ${walletType}, startIndex: ${startIndex}`,
+        )
+
+        let accounts: any[] = []
+
+        // Use proper wallet implementations based on coin type
+        switch (coinType) {
+          case 'ETH':
+            accounts = await createMultipleEthereumAccounts(
+              accountIndex,
+              walletType,
+              count,
+              startIndex,
+            )
+            break
+          case 'BTC':
+            accounts = await createMultipleBitcoinAccounts(
+              accountIndex,
+              walletType,
+              'segwit',
+              count,
+              startIndex,
+            )
+            break
+          case 'SOL':
+            accounts = await createMultipleSolanaAccounts(
+              accountIndex,
+              walletType,
+              count,
+              startIndex,
+            )
+            break
+          default:
+            throw new Error(`Unsupported coin type: ${coinType}`)
+        }
+
+        // Convert accounts to address format expected by server
+        const addresses = accounts.map((account, index) => ({
+          address: account.address,
+          publicKey: account.publicKey,
+          path: [...startPath.slice(0, -1), startIndex + index],
+          index: startIndex + index,
+        }))
+
+        console.log(
+          `[ClientWebSocketHandler] Generated ${addresses.length} addresses using ${coinType} wallet:`,
+          addresses.slice(0, 2), // Log first 2 for debugging
+        )
+
+        // Send addresses back to server via WebSocket event
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          const response = {
+            type: 'device_event',
+            eventType: 'wallet_addresses_derived',
+            data: {
+              deviceId,
+              coinType,
+              startPath,
+              addresses,
+              count,
+            },
+            timestamp: Date.now(),
+          }
+
+          wsRef.current.send(JSON.stringify(response))
+          console.log('[ClientWebSocketHandler] Sent wallet addresses back to server via WebSocket')
+        } else {
+          console.error('[ClientWebSocketHandler] WebSocket not available to send addresses')
+        }
+      } catch (error) {
+        console.error('[ClientWebSocketHandler] Error deriving wallet addresses:', error)
+
+        // Send error response to server
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          const errorResponse = {
+            type: 'device_event',
+            eventType: 'wallet_addresses_error',
+            data: {
+              deviceId,
+              error: error instanceof Error ? error.message : 'Failed to derive addresses',
+              originalRequest: data,
+            },
+            timestamp: Date.now(),
+          }
+
+          wsRef.current.send(JSON.stringify(errorResponse))
+        }
       }
-
-      // Use the sendDeriveAddressesCommand to request addresses from server
-      // This will derive the addresses and emit them back via WebSocket
-      sendDeriveAddressesCommand(deviceId, {
-        coinType: data.coinType,
-        startIndex: data.startPath[4] || 0, // BIP44 address index
-        count: data.count,
-        accountIndex: data.startPath[2] || 0, // BIP44 account index
-        walletType: data.startPath[3] === 0 ? 'external' : 'internal', // BIP44 change
-        addressType: 'segwit', // Default to segwit for BTC
-      })
-
-      console.log('[ClientWebSocketHandler] Sent address derivation request to server')
     },
-    [deviceId, initializeWallets, isWalletInitialized],
+    [deviceId, wsRef],
   )
 
   // Listen for custom device events from deviceEvents.ts
