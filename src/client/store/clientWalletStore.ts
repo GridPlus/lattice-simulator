@@ -16,7 +16,7 @@ import type {
 // Dynamic imports to avoid SSR issues with crypto libraries
 let walletServices: any = null
 
-async function getWalletServices() {
+export async function getWalletServices() {
   if (walletServices) {
     return walletServices
   }

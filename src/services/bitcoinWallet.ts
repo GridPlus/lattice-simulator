@@ -199,6 +199,10 @@ export async function createMultipleBitcoinAccounts(
     accounts.push(account)
   }
 
+  console.log(
+    'createMultipleBitcoinAccounts.createMultipleBitcoinAccounts.accounts:',
+    JSON.stringify(accounts),
+  )
   return accounts
 }
 

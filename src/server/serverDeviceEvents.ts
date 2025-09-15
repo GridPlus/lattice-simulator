@@ -18,7 +18,6 @@ export type DeviceEventType =
   | 'kv_records_updated'
   | 'kv_records_synced'
   | 'kv_records_reset'
-  | 'wallet_addresses_derived'
   | 'wallet_addresses_request'
   | 'server_request'
 
@@ -181,10 +180,6 @@ export const emitKvRecordsReset = (deviceId: string, data: any) => {
 }
 
 // Wallet Address Event Helpers
-export const emitWalletAddressesDerived = (deviceId: string, data: any) => {
-  deviceEvents.emit(deviceId, 'wallet_addresses_derived', data)
-}
-
 export const emitWalletAddressesRequest = (deviceId: string, data: any) => {
   deviceEvents.emit(deviceId, 'wallet_addresses_request', data)
 }

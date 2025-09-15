@@ -260,6 +260,19 @@ export const requestRemoveKvRecords = async (
   return requestManager.createRequest(deviceId, 'remove_kv_records', params)
 }
 
+export const requestWalletAddresses = async (
+  deviceId: string,
+  params: { startPath: number[]; count: number; coinType: string; flag?: number },
+): Promise<{
+  success: boolean
+  coinType: string
+  startPath: number[]
+  addresses: any[]
+  count: number
+}> => {
+  return requestManager.createRequest(deviceId, 'wallet_addresses_request', params)
+}
+
 // Periodic cleanup
 setInterval(() => {
   requestManager.cleanup()

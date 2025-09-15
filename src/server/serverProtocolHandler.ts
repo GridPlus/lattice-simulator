@@ -287,6 +287,15 @@ export class ProtocolHandler {
       ProtocolConstants.msgSizes.secure.data.response.encrypted[
         requestType as keyof typeof ProtocolConstants.msgSizes.secure.data.response.encrypted
       ]
+    console.log(
+      `[ProtocolHandler] Expected responseDataSize for requestType ${requestType}: ${responseDataSize}`,
+    )
+
+    if (responseDataSize === undefined || responseDataSize < 0) {
+      throw new Error(
+        `Invalid responseDataSize (${responseDataSize}) for requestType ${requestType}`,
+      )
+    }
     const paddedResponseData = Buffer.concat([
       responseData,
       Buffer.alloc(responseDataSize - responseData.length),
@@ -428,7 +437,9 @@ export class ProtocolHandler {
 
     return {
       code: response.code,
-      data: response.data ? this.serializeGetAddressesResponse(response.data) : undefined,
+      data: response.data
+        ? this.serializeGetAddressesResponse(response.data, request.flag || 0)
+        : undefined,
       error: response.error,
     }
   }
@@ -969,26 +980,82 @@ export class ProtocolHandler {
     return response
   }
 
-  private serializeGetAddressesResponse(data: any): Buffer {
+  private serializeGetAddressesResponse(data: any, flag: number): Buffer {
     const addresses = data.addresses as string[]
-    const response = Buffer.alloc(addresses.length * 129) // Max address length
+    const publicKeys = data.publicKeys as Buffer[]
+
+    // Check if we need to return public keys based on flag
+    const arePubkeys =
+      flag === 3 /* secp256k1Pubkey */ ||
+      flag === 4 /* ed25519Pubkey */ ||
+      flag === 5 /* bls12_381Pubkey */
+
+    // Get the response data length from protocol constants
+    const respDataLength =
+      ProtocolConstants.msgSizes.secure.data.response.encrypted[
+        LatticeSecureEncryptedRequestType.getAddresses
+      ]
+    const response = Buffer.alloc(respDataLength)
     let offset = 0
 
-    // Number of addresses
-    response.writeUInt8(addresses.length, offset)
-    offset += 1
+    // Calculate max addresses that can fit in the response
+    const maxAddresses = arePubkeys
+      ? Math.floor((respDataLength - 1) / 65)
+      : Math.floor(respDataLength / 129)
+    const addressesToProcess = Math.min(addresses.length, maxAddresses)
 
-    // Write addresses
-    for (const address of addresses) {
-      const addrBuf = Buffer.from(address, 'utf8')
-      response.writeUInt8(addrBuf.length, offset)
+    console.log(
+      `[ProtocolHandler] Serializing ${addressesToProcess} addresses (max: ${maxAddresses}, available: ${respDataLength} bytes)`,
+    )
+    console.log(`[ProtocolHandler] isPubkeys: ${arePubkeys}, flag: ${flag}`)
+
+    if (arePubkeys) {
+      // For public key responses, add count byte first
+      response.writeUInt8(addresses.length, offset)
       offset += 1
 
-      addrBuf.copy(response, offset)
-      offset += addrBuf.length
+      // Write public keys as raw bytes (65 bytes each for secp256k1, 32 for ed25519, 48 for bls12_381)
+      for (let i = 0; i < addressesToProcess; i++) {
+        if (publicKeys && publicKeys[i]) {
+          const pubKey = Buffer.isBuffer(publicKeys[i])
+            ? publicKeys[i]
+            : Buffer.from(String(publicKeys[i]), 'hex')
+
+          // Write appropriate length based on curve type
+          if (flag === 4 /* ed25519Pubkey */) {
+            // Ed25519: 32 bytes, but still allocate 65 bytes for compatibility
+            pubKey.slice(0, 32).copy(response, offset)
+            offset += 65 // Always advance by 65 bytes as expected by decoder
+          } else if (flag === 5 /* bls12_381Pubkey */) {
+            // BLS12-381: 48 bytes, but still allocate 65 bytes for compatibility
+            pubKey.slice(0, 48).copy(response, offset)
+            offset += 65 // Always advance by 65 bytes as expected by decoder
+          } else {
+            // secp256k1: 65 bytes
+            pubKey.slice(0, 65).copy(response, offset)
+            offset += 65
+          }
+        } else {
+          // Empty public key - just advance offset
+          offset += 65
+        }
+      }
+    } else {
+      // For address responses, write fixed-length null-terminated strings
+      const addrStrLen = 129 // ProtocolConstants.addrStrLen
+
+      for (let i = 0; i < addressesToProcess; i++) {
+        const address = addresses[i]
+        const addrBuf = Buffer.from(address, 'utf8')
+        // Copy address string and null-terminate
+        addrBuf.copy(response, offset, 0, Math.min(addrBuf.length, addrStrLen - 1))
+        // Ensure null termination
+        response[offset + Math.min(addrBuf.length, addrStrLen - 1)] = 0
+        offset += addrStrLen
+      }
     }
 
-    return response.slice(0, offset)
+    return response.slice(0, respDataLength)
   }
 
   private serializeSignResponse(data: any): Buffer {

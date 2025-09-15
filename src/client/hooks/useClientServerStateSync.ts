@@ -40,7 +40,9 @@ export function useClientStateSync() {
 
         // Get current client state from Zustand store
         const clientState = useDeviceStore.getState()
-        console.log(`hereis clientState: ${JSON.stringify(clientState)}`)
+        console.log(
+          `useClientStateSync.syncClientStateToServer.clientState: ${JSON.stringify(clientState)}`,
+        )
         console.log('localStorage content:', localStorage.getItem('lattice-device-store'))
 
         // Always sync state to ensure server has correct initial state

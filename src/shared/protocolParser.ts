@@ -78,7 +78,6 @@ export function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
 
   // Read checksum (4 bytes)
   const checksum = buffer.readUInt32BE(offset)
-  console.log(`hereis checksum-1: ${checksum}`)
   offset += 4
 
   // Validate message size

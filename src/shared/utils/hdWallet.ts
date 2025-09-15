@@ -75,10 +75,21 @@ export function generateDerivationPath(
     }
   }
 
+  // Validate input range first
+  if (accountIndex < 0 || accountIndex > 2 * HARDENED_OFFSET - 1) {
+    throw new Error(
+      `Invalid account index: ${accountIndex}. Account index should be between 0 and ${HARDENED_OFFSET - 1}, or between ${HARDENED_OFFSET} and ${2 * HARDENED_OFFSET - 1} for hardened indices.`,
+    )
+  }
+
+  // Normalize accountIndex: if it already has hardened offset, remove it to get logical index
+  const logicalAccountIndex =
+    accountIndex >= HARDENED_OFFSET ? accountIndex - HARDENED_OFFSET : accountIndex
+
   return [
     HARDENED_OFFSET + purpose, // Purpose (44', 49', 84')
     HARDENED_OFFSET + paths.coinType, // Coin type (0', 60', 501')
-    HARDENED_OFFSET + accountIndex, // Account (0', 1', 2', ...)
+    HARDENED_OFFSET + logicalAccountIndex, // Account (0', 1', 2', ...)
     isInternal ? 1 : 0, // Change (0 = external, 1 = internal)
     addressIndex, // Address index (0, 1, 2, ...)
   ]

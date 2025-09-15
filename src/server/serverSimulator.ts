@@ -12,7 +12,6 @@ import {
   emitKvRecordsAdded,
   emitKvRecordsRemoved,
   emitKvRecordsFetched,
-  emitWalletAddressesRequest,
 } from './serverDeviceEvents'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
@@ -384,37 +383,42 @@ export class ServerLatticeSimulator {
       )
     }
 
-    // Client-driven address derivation: emit WebSocket event for client to handle
-    console.log('[Simulator] Emitting wallet addresses request to client via WebSocket')
+    // Use proper request/response pattern to get real addresses from client-side wallet derivation
+    console.log('[Simulator] Requesting wallet addresses from client via WebSocket')
 
-    // Emit request to client to derive addresses
-    emitWalletAddressesRequest(this.deviceId, {
-      startPath: request.startPath,
-      count: request.n,
-      coinType,
-      flag: request.flag,
-    })
+    try {
+      // Import request manager here to avoid circular dependencies
+      const { requestWalletAddresses } = await import('./serverRequestManager')
 
-    // For now, fall back to deterministic mock addresses until client-side derivation is implemented
-    console.log(
-      '[Simulator] Using deterministic mock addresses while client-side derivation is being implemented',
-    )
-    const addressInfos = this.generateDeterministicMockAddresses(
-      request.startPath,
-      request.n,
-      coinType,
-    )
+      // Send request to client and wait for real wallet addresses
+      const addressResponse = await requestWalletAddresses(this.deviceId, {
+        startPath: request.startPath,
+        count: request.n,
+        coinType,
+        flag: request.flag,
+      })
 
-    const response: GetAddressesResponse = {
-      addresses: addressInfos.map(info => info.address),
+      console.log('[Simulator] Received wallet addresses from client:', addressResponse)
+
+      const response: GetAddressesResponse = {
+        addresses: addressResponse.addresses.map(addr => addr.address),
+      }
+
+      // Add public keys if requested
+      if (request.flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+        response.publicKeys = addressResponse.addresses.map(addr => addr.publicKey)
+      }
+
+      return createDeviceResponse(true, LatticeResponseCode.success, response)
+    } catch (error) {
+      console.error('[Simulator] Error getting wallet addresses from client:', error)
+      return createDeviceResponse<GetAddressesResponse>(
+        false,
+        LatticeResponseCode.internalError,
+        undefined,
+        'Failed to derive wallet addresses',
+      )
     }
-
-    // Add public keys if requested
-    if (request.flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
-      response.publicKeys = addressInfos.map(info => info.publicKey)
-    }
-
-    return createDeviceResponse(true, LatticeResponseCode.success, response)
   }
 
   /**

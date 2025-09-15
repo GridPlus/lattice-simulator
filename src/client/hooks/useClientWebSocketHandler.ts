@@ -8,9 +8,6 @@
 
 import { useEffect, useRef, useCallback } from 'react'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
-import { createMultipleBitcoinAccounts } from '@/services/bitcoinWallet'
-import { createMultipleEthereumAccounts } from '@/services/ethereumWallet'
-import { createMultipleSolanaAccounts } from '@/services/solanaWallet'
 import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
 import type { SigningRequest } from '@/shared/types/device'
 
@@ -126,6 +123,100 @@ export function useServerRequestHandler(deviceId: string) {
     [addSigningRequest],
   )
 
+  const handleWalletAddressesRequest = useCallback(async (data: any) => {
+    console.log('[ClientWebSocketHandler] Wallet addresses request:', data)
+
+    try {
+      const { startPath, count = 10 } = data
+
+      // Detect coin type from path or use provided coinType
+      const coinType = data.coinType || detectCoinTypeFromPath(startPath) || 'ETH'
+
+      // Extract BIP44 parameters from derivation path
+      const accountIndex = startPath[2] || 0 // BIP44 account index
+      const walletType = startPath[3] === 0 ? 'external' : 'internal' // BIP44 change
+      const startIndex = startPath[4] || 0 // BIP44 address index
+
+      console.log(
+        `[ClientWebSocketHandler] Deriving ${count} addresses for ${coinType}, account: ${accountIndex}, type: ${walletType}, startIndex: ${startIndex}`,
+      )
+
+      let accounts: any[] = []
+
+      // Use wallet services through the client store's import system to avoid chunking issues
+      try {
+        // Import the wallet services helper from the client store
+        const { getWalletServices } = await import('@/client/store/clientWalletStore')
+        const walletServices = await getWalletServices()
+
+        switch (coinType) {
+          case 'ETH':
+            accounts = await walletServices.createMultipleEthereumAccounts(
+              accountIndex,
+              walletType,
+              count,
+              startIndex,
+            )
+            break
+          case 'BTC':
+            accounts = await walletServices.createMultipleBitcoinAccounts(
+              accountIndex,
+              walletType,
+              'segwit',
+              count,
+              startIndex,
+            )
+            break
+          case 'SOL':
+            accounts = await walletServices.createMultipleSolanaAccounts(
+              accountIndex,
+              walletType,
+              count,
+              startIndex,
+            )
+            break
+          default:
+            throw new Error(`Unsupported coin type: ${coinType}`)
+        }
+      } catch (importError) {
+        console.error(
+          `[ClientWebSocketHandler] Failed to load ${coinType} wallet service:`,
+          importError,
+        )
+        throw new Error(
+          `Failed to load ${coinType} wallet service: ${importError instanceof Error ? importError.message : 'Unknown error'}`,
+        )
+      }
+
+      // Convert accounts to address format expected by server
+      const addresses = accounts.map((account, index) => ({
+        address: account.address,
+        publicKey: account.publicKey,
+        path: [...startPath.slice(0, -1), startIndex + index],
+        index: startIndex + index,
+      }))
+
+      console.log(
+        `[ClientWebSocketHandler] Generated ${addresses.length} addresses using ${coinType} wallet:`,
+        addresses.slice(0, 2), // Log first 2 for debugging
+      )
+
+      // Return the response data to be sent by the request handler
+      return {
+        success: true,
+        coinType,
+        startPath,
+        addresses,
+        count,
+      }
+    } catch (error) {
+      console.error('[ClientWebSocketHandler] Error deriving wallet addresses:', error)
+
+      // Let the error bubble up to be handled by the request handler
+      throw error
+    }
+  }, [])
+
   const handleServerRequest = useCallback(
     async (request: ServerRequest) => {
       // Avoid processing duplicate requests
@@ -159,6 +250,10 @@ export function useServerRequestHandler(deviceId: string) {
             responseData = await handleSigningRequest(request.payload)
             break
 
+          case 'wallet_addresses_request':
+            responseData = await handleWalletAddressesRequest(request.payload)
+            break
+
           default:
             error = `Unknown request type: ${request.requestType}`
             console.warn(`[ClientWebSocketHandler] Unknown request type: ${request.requestType}`)
@@ -173,7 +268,15 @@ export function useServerRequestHandler(deviceId: string) {
         sendResponse(request, undefined, error instanceof Error ? error.message : 'Unknown error')
       }
     },
-    [getAllKvRecords, getKvRecord, setKvRecord, removeKvRecord, handleSigningRequest, sendResponse],
+    [
+      getAllKvRecords,
+      getKvRecord,
+      setKvRecord,
+      removeKvRecord,
+      handleSigningRequest,
+      handleWalletAddressesRequest,
+      sendResponse,
+    ],
   )
 
   const handleGetKvRecords = useCallback(
@@ -334,114 +437,6 @@ export function useServerRequestHandler(deviceId: string) {
       setConnectionState(currentState.isConnected, data.isPaired)
     },
     [setConnectionState],
-  )
-
-  const handleWalletAddressesRequest = useCallback(
-    async (data: any) => {
-      console.log('[ClientWebSocketHandler] Wallet addresses request:', data)
-
-      try {
-        const { startPath, count = 10 } = data
-
-        // Detect coin type from path or use provided coinType
-        const coinType = data.coinType || detectCoinTypeFromPath(startPath) || 'ETH'
-
-        // Extract BIP44 parameters from derivation path
-        const accountIndex = startPath[2] || 0 // BIP44 account index
-        const walletType = startPath[3] === 0 ? 'external' : 'internal' // BIP44 change
-        const startIndex = startPath[4] || 0 // BIP44 address index
-
-        console.log(
-          `[ClientWebSocketHandler] Deriving ${count} addresses for ${coinType}, account: ${accountIndex}, type: ${walletType}, startIndex: ${startIndex}`,
-        )
-
-        let accounts: any[] = []
-
-        // Use proper wallet implementations based on coin type
-        switch (coinType) {
-          case 'ETH':
-            accounts = await createMultipleEthereumAccounts(
-              accountIndex,
-              walletType,
-              count,
-              startIndex,
-            )
-            break
-          case 'BTC':
-            accounts = await createMultipleBitcoinAccounts(
-              accountIndex,
-              walletType,
-              'segwit',
-              count,
-              startIndex,
-            )
-            break
-          case 'SOL':
-            accounts = await createMultipleSolanaAccounts(
-              accountIndex,
-              walletType,
-              count,
-              startIndex,
-            )
-            break
-          default:
-            throw new Error(`Unsupported coin type: ${coinType}`)
-        }
-
-        // Convert accounts to address format expected by server
-        const addresses = accounts.map((account, index) => ({
-          address: account.address,
-          publicKey: account.publicKey,
-          path: [...startPath.slice(0, -1), startIndex + index],
-          index: startIndex + index,
-        }))
-
-        console.log(
-          `[ClientWebSocketHandler] Generated ${addresses.length} addresses using ${coinType} wallet:`,
-          addresses.slice(0, 2), // Log first 2 for debugging
-        )
-
-        // Send addresses back to server via WebSocket event
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const response = {
-            type: 'device_event',
-            eventType: 'wallet_addresses_derived',
-            data: {
-              deviceId,
-              coinType,
-              startPath,
-              addresses,
-              count,
-            },
-            timestamp: Date.now(),
-          }
-
-          wsRef.current.send(JSON.stringify(response))
-          console.log('[ClientWebSocketHandler] Sent wallet addresses back to server via WebSocket')
-        } else {
-          console.error('[ClientWebSocketHandler] WebSocket not available to send addresses')
-        }
-      } catch (error) {
-        console.error('[ClientWebSocketHandler] Error deriving wallet addresses:', error)
-
-        // Send error response to server
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const errorResponse = {
-            type: 'device_event',
-            eventType: 'wallet_addresses_error',
-            data: {
-              deviceId,
-              error: error instanceof Error ? error.message : 'Failed to derive addresses',
-              originalRequest: data,
-            },
-            timestamp: Date.now(),
-          }
-
-          wsRef.current.send(JSON.stringify(errorResponse))
-        }
-      }
-    },
-    [deviceId, wsRef],
   )
 
   // Listen for custom device events from deviceEvents.ts
@@ -630,8 +625,6 @@ export function useServerRequestHandler(deviceId: string) {
             handleConnectionChanged(message.data)
           } else if (message.type === 'pairing_changed') {
             handlePairingChanged(message.data)
-          } else if (message.type === 'wallet_addresses_request') {
-            handleWalletAddressesRequest(message.data)
           } else if (message.type === 'heartbeat_response') {
             // Heartbeat acknowledgment - silent
           } else {
@@ -719,7 +712,6 @@ export function useServerRequestHandler(deviceId: string) {
     handlePairingModeEnded,
     handleConnectionChanged,
     handlePairingChanged,
-    handleWalletAddressesRequest,
   ])
 
   // Clean up old processed requests periodically
