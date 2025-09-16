@@ -175,6 +175,28 @@ export class WalletManager {
   }
 
   /**
+   * Syncs wallet accounts from client-side to server-side storage
+   * @param accounts - Array of wallet accounts from client
+   */
+  async syncWalletAccounts(accounts: WalletAccount[]): Promise<void> {
+    if (!this.initialized) {
+      await this.initialize()
+    }
+
+    console.log(`[WalletManager] Syncing ${accounts.length} wallet accounts from client`)
+
+    // Clear existing accounts
+    this.walletAccounts.clear()
+
+    // Add all synced accounts
+    for (const account of accounts) {
+      this.walletAccounts.set(account.id, account)
+    }
+
+    console.log(`[WalletManager] Successfully synced ${this.walletAccounts.size} wallet accounts`)
+  }
+
+  /**
    * Gets wallet accounts by coin type
    */
   getAccountsByCoin(coinType: WalletCoinType): WalletAccount[] {

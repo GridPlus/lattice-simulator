@@ -9,6 +9,7 @@ import {
   requestAddKvRecords,
   requestRemoveKvRecords,
 } from './serverRequestManager'
+import { parseSignRequestPayload } from './signRequestParsers'
 import {
   LatticeSecureEncryptedRequestType,
   LatticeResponseCode,
@@ -455,6 +456,7 @@ export class ProtocolHandler {
    */
   private async handleSignRequest(data: Buffer): Promise<SecureResponse> {
     const request = this.parseSignRequest(data)
+    console.log(`[ProtocolHandler] Sign request: ${JSON.stringify(request)}`)
     const response = await this.simulator.sign(request)
 
     return {
@@ -764,43 +766,29 @@ export class ProtocolHandler {
   private parseSignRequest(data: Buffer): SignRequest {
     let offset = 0
 
-    // Parse path
-    const pathLength = data.readUInt8(offset)
+    // Parse the SDK format: hasExtraPayloads (1) + schema (1) + wallet.uid (32) + reqPayload (variable)
+    console.log(`[ProtocolHandler] Parsing sign request, data length: ${data.length}`)
+
+    // Parse hasExtraPayloads flag (1 byte)
+    const hasExtraPayloads = data.readUInt8(offset)
     offset += 1
 
-    const path: number[] = []
-    for (let i = 0; i < pathLength; i++) {
-      path.push(data.readUInt32BE(offset))
-      offset += 4
-    }
-
-    // Parse signing parameters
+    // Parse schema (1 byte)
     const schema = data.readUInt8(offset)
     offset += 1
 
-    const curve = data.readUInt8(offset)
-    offset += 1
+    // Skip wallet.uid (32 bytes) - not needed for parsing in simulator
+    offset += 32
 
-    const encoding = data.readUInt8(offset)
-    offset += 1
+    // The remaining data is the reqPayload which contains the actual signing request
+    const reqPayload = data.slice(offset)
 
-    const hashType = data.readUInt8(offset)
-    offset += 1
+    console.log(
+      `[ProtocolHandler] SDK envelope: hasExtraPayloads=${hasExtraPayloads}, schema=${schema}, payloadLength=${reqPayload.length}`,
+    )
 
-    // Parse data length and data
-    const dataLength = data.readUInt16BE(offset)
-    offset += 2
-
-    const signData = data.slice(offset, offset + dataLength)
-
-    return {
-      path,
-      schema,
-      curve,
-      encoding,
-      hashType,
-      data: signData,
-    }
+    // Use the factory-based parser for structured parsing
+    return parseSignRequestPayload(reqPayload, hasExtraPayloads > 0, schema)
   }
 
   private parseGetKvRecordsRequest(data: Buffer): { type: number; n: number; start: number } {
@@ -1059,7 +1047,86 @@ export class ProtocolHandler {
   }
 
   private serializeSignResponse(data: any): Buffer {
-    return data.signature as Buffer
+    // The response format varies by currency/schema type
+    // For now, we'll implement a basic format that matches the most common case
+
+    if (data.signature) {
+      // Basic signature response - just return the signature buffer
+      return data.signature as Buffer
+    } else if (data.tx || data.sigs || data.sig) {
+      // Complex response with transaction data or multiple signatures
+      // This would need to be properly serialized based on the request type
+      // For now, return a minimal response
+
+      if (data.sig && data.sig.r && data.sig.s) {
+        // ETH-style signature with v/r/s components
+        const derSigLen = 74
+        const response = Buffer.alloc(derSigLen + 20) // DER signature + address
+
+        // Create a minimal DER-encoded signature (this is simplified)
+        // In a real implementation, this would need proper DER encoding
+        const r = Buffer.from(data.sig.r, 'hex')
+        const s = Buffer.from(data.sig.s, 'hex')
+
+        // Copy signature data (simplified)
+        if (r.length <= 32) r.copy(response, 0)
+        if (s.length <= 32) s.copy(response, 32)
+
+        // Add signer address if available
+        if (data.signer && Buffer.isBuffer(data.signer)) {
+          data.signer.copy(response, derSigLen)
+        }
+
+        return response
+      } else if (data.sigs && Array.isArray(data.sigs)) {
+        // Bitcoin-style multiple signatures
+        const derSigLen = 74
+        const compressedPubLength = 33
+        const pkhLen = 20
+        const sigsLen = 760
+
+        // Calculate total response size
+        const totalSigs = data.sigs.length
+        const responseSize = pkhLen + sigsLen + totalSigs * compressedPubLength
+        const response = Buffer.alloc(responseSize)
+
+        let offset = 0
+
+        // Add change recipient PKH (20 bytes) - placeholder for now
+        if (data.changeRecipient) {
+          // This would need proper address decoding to PKH
+          offset += pkhLen
+        } else {
+          offset += pkhLen // Skip PKH area
+        }
+
+        // Add signatures (each padded to derSigLen)
+        for (let i = 0; i < totalSigs && i < sigsLen / derSigLen; i++) {
+          const sig = data.sigs[i]
+          if (Buffer.isBuffer(sig)) {
+            sig.copy(response, offset, 0, Math.min(sig.length, derSigLen))
+          }
+          offset += derSigLen
+        }
+
+        // Add public keys
+        if (data.pubkeys && Array.isArray(data.pubkeys)) {
+          for (let i = 0; i < data.pubkeys.length && i < totalSigs; i++) {
+            const pubkey = data.pubkeys[i]
+            if (Buffer.isBuffer(pubkey)) {
+              pubkey.copy(response, offset, 0, Math.min(pubkey.length, compressedPubLength))
+            }
+            offset += compressedPubLength
+          }
+        }
+
+        return response
+      }
+    }
+
+    // Fallback: return empty buffer
+    console.warn('[ProtocolHandler] Unknown sign response format, returning empty buffer')
+    return Buffer.alloc(0)
   }
 
   /**
@@ -1082,6 +1149,23 @@ export class ProtocolHandler {
     const walletDescriptorLen = 71
     const response = Buffer.alloc(walletDescriptorLen * 2) // Internal + External
     let offset = 0
+
+    // Validate that the required wallet data exists
+    if (!data.internal || !data.external) {
+      console.error('[ProtocolHandler] Missing wallet data:', {
+        hasInternal: !!data.internal,
+        hasExternal: !!data.external,
+      })
+      throw new Error('Invalid activeWallets data: missing internal or external wallet')
+    }
+
+    if (!data.internal.uid || !data.external.uid) {
+      console.error('[ProtocolHandler] Missing wallet UIDs:', {
+        internalUid: data.internal.uid,
+        externalUid: data.external.uid,
+      })
+      throw new Error('Invalid activeWallets data: missing wallet UIDs')
+    }
 
     // Internal wallet first (71 bytes)
     // Convert hex string UID back to Buffer for protocol compatibility

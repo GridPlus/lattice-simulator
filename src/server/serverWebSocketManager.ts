@@ -495,6 +495,97 @@ class ServerWebSocketManager {
           }
           break
 
+        case 'approve_signing_request':
+          const { requestId: approveRequestId } = data || {}
+          if (!approveRequestId) {
+            this.sendError(ws, 'Request ID is required for approval')
+            return
+          }
+
+          console.log(`[ServerWsManager] Approving signing request: ${approveRequestId}`)
+
+          try {
+            const result = await simulator.approveSigningRequest(approveRequestId)
+
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: {
+                command,
+                success: result.success,
+                requestId: approveRequestId,
+                data: result.data,
+                error: result.error,
+              },
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error(`[ServerWsManager] Error approving signing request: ${error}`)
+            this.sendError(ws, `Error approving request: ${(error as Error).message}`)
+          }
+          break
+
+        case 'reject_signing_request':
+          const { requestId: rejectRequestId, reason } = data || {}
+          if (!rejectRequestId) {
+            this.sendError(ws, 'Request ID is required for rejection')
+            return
+          }
+
+          console.log(`[ServerWsManager] Rejecting signing request: ${rejectRequestId}`)
+
+          try {
+            const result = await simulator.rejectSigningRequest(rejectRequestId)
+
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: {
+                command,
+                success: result.success,
+                requestId: rejectRequestId,
+                data: result.data,
+                error: result.error,
+                reason,
+              },
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error(`[ServerWsManager] Error rejecting signing request: ${error}`)
+            this.sendError(ws, `Error rejecting request: ${(error as Error).message}`)
+          }
+          break
+
+        case 'sync_wallet_accounts':
+          const { walletAccounts } = data || {}
+          if (!walletAccounts || !Array.isArray(walletAccounts)) {
+            this.sendError(ws, 'Wallet accounts array is required for sync')
+            return
+          }
+
+          console.log(
+            `[ServerWsManager] Syncing ${walletAccounts.length} wallet accounts for device: ${deviceId}`,
+          )
+
+          try {
+            // Import and update the wallet manager
+            const { walletManager } = await import('../services/walletManager')
+            await walletManager.syncWalletAccounts(walletAccounts)
+
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: {
+                command,
+                success: true,
+                message: `Synced ${walletAccounts.length} wallet accounts successfully`,
+                syncedCount: walletAccounts.length,
+              },
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error(`[ServerWsManager] Error syncing wallet accounts: ${error}`)
+            this.sendError(ws, `Error syncing wallet accounts: ${(error as Error).message}`)
+          }
+          break
+
         default:
           console.warn(`[ServerWsManager] Unknown command: ${command}`)
           this.sendError(ws, `Unknown command: ${command}`)

@@ -107,3 +107,28 @@ export function sendDeriveAddressesCommand(
 ) {
   sendDeviceCommand(deviceId, 'derive_addresses', params)
 }
+
+/**
+ * Sends an approve signing request command to server
+ */
+export function sendApproveSigningRequestCommand(deviceId: string, requestId: string) {
+  sendDeviceCommand(deviceId, 'approve_signing_request', { requestId })
+}
+
+/**
+ * Sends a reject signing request command to server
+ */
+export function sendRejectSigningRequestCommand(
+  deviceId: string,
+  requestId: string,
+  reason?: string,
+) {
+  sendDeviceCommand(deviceId, 'reject_signing_request', { requestId, reason })
+}
+
+/**
+ * Sends wallet accounts sync command to server
+ */
+export function sendSyncWalletAccountsCommand(deviceId: string, walletAccounts: any[]) {
+  sendDeviceCommand(deviceId, 'sync_wallet_accounts', { walletAccounts })
+}

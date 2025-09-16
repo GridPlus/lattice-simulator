@@ -12,6 +12,8 @@ import {
   sendConnectionChangedCommand,
   sendPairingChangedCommand,
   sendResetDeviceCommand,
+  sendApproveSigningRequestCommand,
+  sendRejectSigningRequestCommand,
 } from '../clientWebSocketCommands'
 import type {
   DeviceState,
@@ -141,7 +143,7 @@ interface DeviceStore extends DeviceState {
 
   // Enhanced Signing Request Management
   addSigningRequest: (request: SigningRequest) => void
-  approveSigningRequest: (requestId: string, signature: Buffer, recovery?: number) => void
+  approveSigningRequest: (requestId: string) => void
   rejectSigningRequest: (requestId: string, reason?: string) => void
   getCurrentSigningRequest: () => SigningRequest | undefined
   getPendingSigningRequests: () => SigningRequest[]
@@ -309,7 +311,7 @@ const createStore = () => {
             storeImpl.addPendingRequest(request)
           },
 
-          approveSigningRequest: (requestId: string, signature: Buffer, recovery?: number) => {
+          approveSigningRequest: (requestId: string) => {
             const state = get()
             const request = state.pendingRequests.find(
               req => req.id === requestId,
@@ -322,16 +324,10 @@ const createStore = () => {
 
             console.log(`[DeviceStore] Approving signing request: ${requestId}`)
 
-            // Import transaction store dynamically to avoid circular imports
-            import('./clientTransactionStore')
-              .then(({ useTransactionStore }) => {
-                const transactionStore = useTransactionStore.getState()
-                transactionStore.createApprovedTransaction(request, signature, recovery)
-              })
-              .catch(error => {
-                console.error('[DeviceStore] Failed to create transaction record:', error)
-              })
+            // Send approval command to server via WebSocket
+            sendApproveSigningRequestCommand(state.deviceInfo.deviceId, requestId)
 
+            // Remove from pending requests locally
             storeImpl.removePendingRequest(requestId)
           },
 
@@ -351,18 +347,10 @@ const createStore = () => {
               reason ? `Reason: ${reason}` : '',
             )
 
-            // Import transaction store dynamically to avoid circular imports
-            import('./clientTransactionStore')
-              .then(({ useTransactionStore }) => {
-                const transactionStore = useTransactionStore.getState()
-                transactionStore.createRejectedTransaction(request, {
-                  description: reason || 'User rejected transaction',
-                })
-              })
-              .catch(error => {
-                console.error('[DeviceStore] Failed to create transaction record:', error)
-              })
+            // Send rejection command to server via WebSocket
+            sendRejectSigningRequestCommand(state.deviceInfo.deviceId, requestId, reason)
 
+            // Remove from pending requests locally
             storeImpl.removePendingRequest(requestId)
           },
 

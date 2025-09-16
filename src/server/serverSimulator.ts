@@ -195,11 +195,19 @@ export class ServerLatticeSimulator {
       this.enterPairingMode()
     }
 
+    // Always include activeWallets in connect response, even if not paired
+    // The SDK expects this structure to be present
+    console.log('[Simulator] Connect response - isPaired:', this.isPaired)
+    console.log(
+      '[Simulator] Connect response - activeWallets:',
+      JSON.stringify(this.activeWallets, null, 2),
+    )
+
     const response: ConnectResponse = {
       isPaired: this.isPaired,
       firmwareVersion: this.firmwareVersion,
       ephemeralPub: this.ephemeralKeyPair.publicKey,
-      activeWallets: this.isPaired ? this.activeWallets : undefined,
+      activeWallets: this.activeWallets, // Always include, even when not paired
     }
 
     return createDeviceResponse(true, LatticeResponseCode.success, response)
