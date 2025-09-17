@@ -53,11 +53,8 @@ export default function PendingRequestsPage() {
   }
 
   const handleApprove = (requestId: string) => {
-    // TODO: This will be enhanced with actual signing in the modal
     console.log(`Approving request: ${requestId}`)
-    // For now, create a mock signature
-    const mockSignature = Buffer.from('mock_signature_data')
-    approveSigningRequest(requestId, mockSignature, 0)
+    approveSigningRequest(requestId)
   }
 
   const handleReject = (requestId: string) => {
@@ -276,7 +273,11 @@ export default function PendingRequestsPage() {
                       Raw Data
                     </label>
                     <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-32 overflow-y-auto">
-                      {selectedRequest.data.data.toString('hex')}
+                      {Buffer.isBuffer(selectedRequest.data.data)
+                        ? selectedRequest.data.data.toString('hex')
+                        : typeof selectedRequest.data.data === 'object'
+                          ? JSON.stringify(selectedRequest.data.data, null, 2)
+                          : selectedRequest.data.data}
                     </div>
                   </div>
                 </div>

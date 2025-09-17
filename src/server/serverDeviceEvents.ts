@@ -20,6 +20,8 @@ export type DeviceEventType =
   | 'kv_records_reset'
   | 'wallet_addresses_request'
   | 'server_request'
+  | 'signing_request_created'
+  | 'signing_request_completed'
 
 interface DeviceEvent {
   deviceId: string
@@ -182,4 +184,13 @@ export const emitKvRecordsReset = (deviceId: string, data: any) => {
 // Wallet Address Event Helpers
 export const emitWalletAddressesRequest = (deviceId: string, data: any) => {
   deviceEvents.emit(deviceId, 'wallet_addresses_request', data)
+}
+
+// Signing Request Event Helpers
+export const emitSigningRequestCreated = (deviceId: string, signingRequest: any) => {
+  deviceEvents.emit(deviceId, 'signing_request_created', signingRequest)
+}
+
+export const emitSigningRequestCompleted = (deviceId: string, data: any) => {
+  deviceEvents.emit(deviceId, 'signing_request_completed', data)
 }

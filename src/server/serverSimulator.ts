@@ -12,6 +12,8 @@ import {
   emitKvRecordsAdded,
   emitKvRecordsRemoved,
   emitKvRecordsFetched,
+  emitSigningRequestCreated,
+  emitSigningRequestCompleted,
 } from './serverDeviceEvents'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
@@ -116,6 +118,15 @@ export class ServerLatticeSimulator {
 
   /** Pending signing requests awaiting user approval */
   private pendingSigningRequests: Map<string, SigningRequest> = new Map()
+
+  /** Promise resolvers for pending signing requests */
+  private pendingSigningPromises: Map<
+    string,
+    {
+      resolve: (value: DeviceResponse<SignResponse>) => void
+      reject: (reason?: any) => void
+    }
+  > = new Map()
 
   /**
    * Creates a new Lattice1 Device Simulator instance
@@ -473,14 +484,31 @@ export class ServerLatticeSimulator {
     if (!this.autoApprove) {
       const pendingRequest = await this.createSigningRequest(request)
 
-      // Return a pending response - we'll need to change the response type or handle this differently
-      // For now, return a user declined response to indicate approval is needed
-      return createDeviceResponse<SignResponse>(
-        false,
-        LatticeResponseCode.userDeclined,
-        undefined,
-        `Pending approval: ${pendingRequest.id}`,
-      )
+      // Create a Promise that will be resolved when user approves/rejects
+      return new Promise<DeviceResponse<SignResponse>>((resolve, reject) => {
+        // Store the promise resolvers
+        this.pendingSigningPromises.set(pendingRequest.id, { resolve, reject })
+
+        console.log(
+          `[Simulator] Created pending signing request ${pendingRequest.id}, waiting for user approval...`,
+        )
+
+        // Set a timeout to auto-reject if no response within timeout period
+        setTimeout(() => {
+          if (this.pendingSigningPromises.has(pendingRequest.id)) {
+            this.pendingSigningPromises.delete(pendingRequest.id)
+            this.pendingSigningRequests.delete(pendingRequest.id)
+            resolve(
+              createDeviceResponse<SignResponse>(
+                false,
+                LatticeResponseCode.userDeclined,
+                undefined,
+                'Request timed out',
+              ),
+            )
+          }
+        }, pendingRequest.timeoutMs || 300000) // 5 minutes default timeout
+      })
     }
 
     try {
@@ -1346,6 +1374,13 @@ export class ServerLatticeSimulator {
     console.log(`[Simulator] Created signing request: ${requestId}`)
     console.log(`[Simulator] Coin: ${coinType}, Type: ${transactionType}`)
 
+    // Emit event to notify clients about the new signing request
+    try {
+      emitSigningRequestCreated(this.deviceId, signingRequest)
+    } catch (error) {
+      console.error('[Simulator] Failed to emit signing_request_created event:', error)
+    }
+
     return signingRequest
   }
 
@@ -1468,7 +1503,27 @@ export class ServerLatticeSimulator {
         recovery: signatureResult.recovery,
       }
 
-      return createDeviceResponse(true, LatticeResponseCode.success, response)
+      const deviceResponse = createDeviceResponse(true, LatticeResponseCode.success, response)
+
+      // Resolve the waiting promise if it exists
+      const promiseResolver = this.pendingSigningPromises.get(requestId)
+      if (promiseResolver) {
+        this.pendingSigningPromises.delete(requestId)
+        promiseResolver.resolve(deviceResponse)
+      }
+
+      // Emit completion event
+      try {
+        emitSigningRequestCompleted(this.deviceId, {
+          requestId,
+          status: 'approved',
+          response: deviceResponse,
+        })
+      } catch (error) {
+        console.error('[Simulator] Failed to emit signing_request_completed event:', error)
+      }
+
+      return deviceResponse
     } catch (error) {
       console.error(`[Simulator] Enhanced signing failed for request ${requestId}:`, error)
 
@@ -1508,6 +1563,31 @@ export class ServerLatticeSimulator {
 
     // Remove from pending requests
     this.pendingSigningRequests.delete(requestId)
+
+    const deviceResponse = createDeviceResponse<SignResponse>(
+      false,
+      LatticeResponseCode.userDeclined,
+      undefined,
+      'User rejected transaction',
+    )
+
+    // Resolve the waiting promise if it exists
+    const promiseResolver = this.pendingSigningPromises.get(requestId)
+    if (promiseResolver) {
+      this.pendingSigningPromises.delete(requestId)
+      promiseResolver.resolve(deviceResponse)
+    }
+
+    // Emit completion event
+    try {
+      emitSigningRequestCompleted(this.deviceId, {
+        requestId,
+        status: 'rejected',
+        response: deviceResponse,
+      })
+    } catch (error) {
+      console.error('[Simulator] Failed to emit signing_request_completed event:', error)
+    }
 
     return createDeviceResponse(
       false,

@@ -271,12 +271,23 @@ const createStore = () => {
 
           // Request management
           addPendingRequest: (request: PendingRequest) => {
-            set(state => ({
-              ...state,
-              pendingRequests: [...state.pendingRequests, request],
-              currentRequest: state.currentRequest || request,
-              userApprovalRequired: true,
-            }))
+            set(state => {
+              // Check if request already exists to prevent duplicates
+              const existingRequest = state.pendingRequests.find(r => r.id === request.id)
+              if (existingRequest) {
+                console.log(
+                  `[DeviceStore] Request ${request.id} already exists, skipping duplicate`,
+                )
+                return state
+              }
+
+              return {
+                ...state,
+                pendingRequests: [...state.pendingRequests, request],
+                currentRequest: state.currentRequest || request,
+                userApprovalRequired: true,
+              }
+            })
           },
 
           removePendingRequest: (requestId: string) => {

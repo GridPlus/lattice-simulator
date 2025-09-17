@@ -439,6 +439,30 @@ export function useServerRequestHandler(deviceId: string) {
     [setConnectionState],
   )
 
+  const handleSigningRequestCreated = useCallback((signingRequest: SigningRequest) => {
+    console.log('[ClientWebSocketHandler] Signing request created:', signingRequest)
+
+    // Add the signing request to the device store for display in the UI
+    const addPendingRequest = useDeviceStore.getState().addPendingRequest
+    addPendingRequest(signingRequest)
+
+    console.log(
+      `[ClientWebSocketHandler] Added signing request ${signingRequest.id} to pending requests`,
+    )
+  }, [])
+
+  const handleSigningRequestCompleted = useCallback((data: any) => {
+    console.log('[ClientWebSocketHandler] Signing request completed:', data)
+
+    // Remove the signing request from pending requests
+    const removePendingRequest = useDeviceStore.getState().removePendingRequest
+    removePendingRequest(data.requestId)
+
+    console.log(
+      `[ClientWebSocketHandler] Removed signing request ${data.requestId} from pending requests`,
+    )
+  }, [])
+
   // Listen for custom device events from deviceEvents.ts
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -625,6 +649,10 @@ export function useServerRequestHandler(deviceId: string) {
             handleConnectionChanged(message.data)
           } else if (message.type === 'pairing_changed') {
             handlePairingChanged(message.data)
+          } else if (message.type === 'signing_request_created') {
+            handleSigningRequestCreated(message.data)
+          } else if (message.type === 'signing_request_completed') {
+            handleSigningRequestCompleted(message.data)
           } else if (message.type === 'heartbeat_response') {
             // Heartbeat acknowledgment - silent
           } else {
@@ -712,6 +740,8 @@ export function useServerRequestHandler(deviceId: string) {
     handlePairingModeEnded,
     handleConnectionChanged,
     handlePairingChanged,
+    handleSigningRequestCreated,
+    handleSigningRequestCompleted,
   ])
 
   // Clean up old processed requests periodically
