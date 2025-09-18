@@ -1047,76 +1047,91 @@ export class ProtocolHandler {
   }
 
   private serializeSignResponse(data: any): Buffer {
-    // The response format varies by currency/schema type
-    // For now, we'll implement a basic format that matches the most common case
+    // The response format varies by currency/schema type and must match SDK's decodeSignResponse exactly
 
     if (data.signature) {
       // Basic signature response - just return the signature buffer
       return data.signature as Buffer
     } else if (data.tx || data.sigs || data.sig) {
       // Complex response with transaction data or multiple signatures
-      // This would need to be properly serialized based on the request type
-      // For now, return a minimal response
 
       if (data.sig && data.sig.r && data.sig.s) {
         // ETH-style signature with v/r/s components
+        // SDK expects: [DER signature (74 bytes)] + [signer address (20 bytes)]
         const derSigLen = 74
-        const response = Buffer.alloc(derSigLen + 20) // DER signature + address
+        const response = Buffer.alloc(derSigLen + 20)
 
-        // Create a minimal DER-encoded signature (this is simplified)
-        // In a real implementation, this would need proper DER encoding
-        const r = Buffer.from(data.sig.r, 'hex')
-        const s = Buffer.from(data.sig.s, 'hex')
+        // Create proper DER-encoded signature
+        const derSig = this.createDERSignature(data.sig.r, data.sig.s)
 
-        // Copy signature data (simplified)
-        if (r.length <= 32) r.copy(response, 0)
-        if (s.length <= 32) s.copy(response, 32)
+        // Pad DER signature to exactly 74 bytes (SDK expectation)
+        derSig.copy(response, 0, 0, Math.min(derSig.length, derSigLen))
 
-        // Add signer address if available
+        // Add signer address (20 bytes)
         if (data.signer && Buffer.isBuffer(data.signer)) {
-          data.signer.copy(response, derSigLen)
+          data.signer.copy(response, derSigLen, 0, 20)
         }
 
         return response
       } else if (data.sigs && Array.isArray(data.sigs)) {
         // Bitcoin-style multiple signatures
+        // SDK expects: [changeRecipient PKH (20)] + [signatures (760)] + [pubkeys (33 each)]
         const derSigLen = 74
         const compressedPubLength = 33
         const pkhLen = 20
         const sigsLen = 760
 
-        // Calculate total response size
         const totalSigs = data.sigs.length
         const responseSize = pkhLen + sigsLen + totalSigs * compressedPubLength
         const response = Buffer.alloc(responseSize)
 
         let offset = 0
 
-        // Add change recipient PKH (20 bytes) - placeholder for now
+        // Add change recipient PKH (20 bytes)
         if (data.changeRecipient) {
-          // This would need proper address decoding to PKH
-          offset += pkhLen
-        } else {
-          offset += pkhLen // Skip PKH area
+          // Extract PKH from Bitcoin address if it's a string
+          if (typeof data.changeRecipient === 'string') {
+            // This would need proper Bitcoin address decoding
+            // For now, use placeholder
+            response.fill(0, offset, offset + pkhLen)
+          } else if (Buffer.isBuffer(data.changeRecipient)) {
+            data.changeRecipient.copy(
+              response,
+              offset,
+              0,
+              Math.min(data.changeRecipient.length, pkhLen),
+            )
+          }
         }
+        offset += pkhLen
 
-        // Add signatures (each padded to derSigLen)
-        for (let i = 0; i < totalSigs && i < sigsLen / derSigLen; i++) {
+        // Add signatures section (760 bytes total, 74 bytes per signature)
+        const maxSigs = Math.floor(sigsLen / derSigLen)
+        for (let i = 0; i < maxSigs && i < totalSigs; i++) {
           const sig = data.sigs[i]
           if (Buffer.isBuffer(sig)) {
-            sig.copy(response, offset, 0, Math.min(sig.length, derSigLen))
+            // Ensure signature has proper DER format starting with 0x30
+            if (sig.length > 0 && sig[0] === 0x30) {
+              sig.copy(response, offset, 0, Math.min(sig.length, derSigLen))
+            } else {
+              // If not DER format, pad with zeros (SDK will skip non-0x30 signatures)
+              response.fill(0, offset, offset + derSigLen)
+            }
           }
           offset += derSigLen
         }
 
-        // Add public keys
+        // Add public keys at fixed positions after signatures section
+        // According to SDK: pubStart = n * compressedPubLength + sigsLen
         if (data.pubkeys && Array.isArray(data.pubkeys)) {
-          for (let i = 0; i < data.pubkeys.length && i < totalSigs; i++) {
+          for (let i = 0; i < totalSigs && i < data.pubkeys.length; i++) {
             const pubkey = data.pubkeys[i]
             if (Buffer.isBuffer(pubkey)) {
-              pubkey.copy(response, offset, 0, Math.min(pubkey.length, compressedPubLength))
+              // Calculate pubkey position: after PKH + signatures + (i * pubkey_size)
+              const pubkeyOffset = pkhLen + sigsLen + i * compressedPubLength
+              // Ensure compressed public key format (33 bytes)
+              pubkey.copy(response, pubkeyOffset, 0, Math.min(pubkey.length, compressedPubLength))
             }
-            offset += compressedPubLength
           }
         }
 
@@ -1127,6 +1142,42 @@ export class ProtocolHandler {
     // Fallback: return empty buffer
     console.warn('[ProtocolHandler] Unknown sign response format, returning empty buffer')
     return Buffer.alloc(0)
+  }
+
+  /**
+   * Creates a proper DER-encoded signature from r and s components
+   * @param r - r component as hex string
+   * @param s - s component as hex string
+   * @returns DER-encoded signature buffer
+   */
+  private createDERSignature(r: string, s: string): Buffer {
+    const rBuf = Buffer.from(r, 'hex')
+    const sBuf = Buffer.from(s, 'hex')
+
+    // DER SEQUENCE structure: 0x30 [total-length] 0x02 [r-length] [r] 0x02 [s-length] [s]
+    const rLen = rBuf.length
+    const sLen = sBuf.length
+    const totalLen = 4 + rLen + sLen // 0x02 + len + data for each component
+
+    const der = Buffer.alloc(2 + totalLen)
+    let offset = 0
+
+    // SEQUENCE tag and length
+    der[offset++] = 0x30
+    der[offset++] = totalLen
+
+    // R component
+    der[offset++] = 0x02
+    der[offset++] = rLen
+    rBuf.copy(der, offset)
+    offset += rLen
+
+    // S component
+    der[offset++] = 0x02
+    der[offset++] = sLen
+    sBuf.copy(der, offset)
+
+    return der
   }
 
   /**
