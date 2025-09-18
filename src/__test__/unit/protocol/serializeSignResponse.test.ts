@@ -55,7 +55,7 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
 
       // Change recipient PKH (20 bytes) - should be zeros for string address (placeholder)
       const pkhSection = result.slice(offset, offset + 20)
-      expect(pkhSection.every(byte => byte === 0)).toBe(true) // Placeholder implementation
+      expect(pkhSection.every((byte: number) => byte === 0)).toBe(true) // Placeholder implementation
       offset += 20
 
       // Signatures section (760 bytes = 74 * ~10 max signatures)
@@ -104,7 +104,7 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       // Invalid signature should be zeroed out
       const sigsSection = result.slice(20, 20 + 760)
       const firstSigSection = sigsSection.slice(0, 74)
-      expect(firstSigSection.every(byte => byte === 0)).toBe(true)
+      expect(firstSigSection.every((byte: number) => byte === 0)).toBe(true)
 
       // Valid signature should be preserved
       const secondSigSection = sigsSection.slice(74, 148)

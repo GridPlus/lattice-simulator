@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import type { LatticeSimulator } from '@/lib/simulator'
-import { ProtocolHandler } from '@/lib/protocolHandler'
-import { LatticeSecureEncryptedRequestType } from '@/types'
+import type { ServerLatticeSimulator } from '@/server/serverSimulator'
+import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { LatticeSecureEncryptedRequestType } from '@/shared/types'
 
 describe('Checksum Mismatch Reproduction', () => {
   let protocolHandler: ProtocolHandler
@@ -13,7 +13,7 @@ describe('Checksum Mismatch Reproduction', () => {
       updateEphemeralKeyPair: vi.fn(),
       getSharedSecret: vi.fn(),
       // Add other required simulator methods
-    } as unknown as LatticeSimulator
+    } as unknown as ServerLatticeSimulator
 
     protocolHandler = new ProtocolHandler(mockSimulator)
   })

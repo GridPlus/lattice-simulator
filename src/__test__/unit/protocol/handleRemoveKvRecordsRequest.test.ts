@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ProtocolHandler } from '../../../lib/protocolHandler'
-import { LatticeResponseCode } from '../../../types'
-import type { LatticeSimulator } from '../../../lib/simulator'
+import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { LatticeResponseCode } from '@/shared/types'
+import type { ServerLatticeSimulator as LatticeSimulator } from '@/server/serverSimulator'
 
 describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
   let protocolHandler: ProtocolHandler

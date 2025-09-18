@@ -17,11 +17,21 @@ export default defineConfig({
         'src/test/setup.ts',
       ],
     },
+    // Use Node.js environment for Bitcoin wallet tests
+    environmentMatchGlobs: [
+      ['**/bitcoinWallet.test.ts', 'node'],
+    ],
   },
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
+      '@/lib': resolve(__dirname, './src/lib'),
+      '@/server': resolve(__dirname, './src/server'),
+      '@/client': resolve(__dirname, './src/client'),
+      '@/shared': resolve(__dirname, './src/shared'),
+      '@/utils': resolve(__dirname, './src/shared/utils'),
+      '@/types': resolve(__dirname, './src/shared/types'),
+      '@/store': resolve(__dirname, './src/client/store'),
     },
   },
 })
-

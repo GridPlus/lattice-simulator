@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { ProtocolHandler } from '@/lib/protocolHandler'
-import { LatticeResponseCode } from '@/types'
+import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { LatticeResponseCode } from '@/shared/types'
 
 // Mock the simulator with simple vi.fn() calls
 const mockSimulator = {

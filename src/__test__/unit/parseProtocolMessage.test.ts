@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseProtocolMessage } from '@/lib/protocolParser'
+import { parseProtocolMessage } from '@/shared/protocolParser'
 
 /**
  * Test suite for parseProtocolMessage function

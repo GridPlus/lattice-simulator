@@ -1,9 +1,9 @@
 import crc32 from 'crc-32'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { aes256_encrypt } from '@/utils/crypto'
-import type { LatticeSimulator } from '@/lib/simulator'
-import { ProtocolHandler } from '@/lib/protocolHandler'
-import { LatticeResponseCode, LatticeSecureEncryptedRequestType } from '@/types'
+import { aes256_encrypt } from '@/shared/utils/crypto'
+import type { ServerLatticeSimulator } from '@/server/serverSimulator'
+import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { LatticeResponseCode, LatticeSecureEncryptedRequestType } from '@/shared/types'
 
 describe('Full Protocol Flow - Checksum Mismatch', () => {
   let protocolHandler: ProtocolHandler
@@ -17,7 +17,7 @@ describe('Full Protocol Flow - Checksum Mismatch', () => {
       updateEphemeralKeyPair: vi.fn(),
       isConnected: true,
       isPaired: true,
-    } as unknown as LatticeSimulator
+    } as unknown as ServerLatticeSimulator
 
     protocolHandler = new ProtocolHandler(mockSimulator)
   })
