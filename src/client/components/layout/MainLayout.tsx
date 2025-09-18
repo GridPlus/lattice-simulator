@@ -11,6 +11,7 @@ import React from 'react'
 import { Header } from '@/client/components/layout/Header'
 import { Sidebar } from '@/client/components/layout/Sidebar'
 import { useClientStateSync } from '@/client/hooks/useClientServerStateSync'
+import { useWalletSync } from '@/client/hooks/useWalletSync'
 import { useDeviceConnection, useDeviceStatus } from '@/client/store'
 
 interface MainLayoutProps {
@@ -29,6 +30,9 @@ export function MainLayout({ children }: MainLayoutProps) {
 
   // Sync client state to server on page load
   useClientStateSync()
+
+  // Sync wallet accounts to server when they change
+  useWalletSync()
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">

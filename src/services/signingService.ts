@@ -307,6 +307,9 @@ export class SigningService {
   ): WalletAccount | null {
     // Look for wallet account that matches the derivation path
     let foundAccount: WalletAccount | null = null
+    console.log(
+      `[SigningService] Finding wallet account for path: ${path.join('/')}, walletAccounts.size: ${walletAccounts.size}`,
+    )
     walletAccounts.forEach(account => {
       if (account.coinType === coinType) {
         // Check if derivation paths match
