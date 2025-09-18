@@ -166,11 +166,21 @@ export async function createMultipleBitcoinAccounts(
   startIndex: number = 0,
   network: keyof typeof BITCOIN_NETWORKS = 'mainnet',
 ): Promise<BitcoinWalletAccount[]> {
+  // Validate account index - handle hardened indices by normalizing them
+  if (accountIndex < 0 || accountIndex >= 4294967295) {
+    throw new Error(`Invalid account index: ${accountIndex}. Must be between 0 and 4294967294`)
+  }
+
+  // Normalize hardened account indices (remove hardened bit if present)
+  // 2147483648 (0x80000000) is the hardened bit, so 2147483648 becomes 0
+  const normalizedAccountIndex =
+    accountIndex >= 2147483648 ? accountIndex - 2147483648 : accountIndex
+
   // Derive multiple HD keys - convert addressType to match hdWallet expected format
   const hdWalletAddressType = addressType === 'wrapped-segwit' ? 'wrappedSegwit' : addressType
   const hdKeys = await deriveMultipleKeys(
     'BTC',
-    accountIndex,
+    normalizedAccountIndex,
     type === 'internal',
     count,
     startIndex,
@@ -185,7 +195,7 @@ export async function createMultipleBitcoinAccounts(
     const addressIndex = startIndex + i
     const account = createBitcoinAccountFromHDKey(
       hdKey,
-      accountIndex,
+      normalizedAccountIndex,
       type,
       addressIndex,
       addressType,
@@ -194,7 +204,7 @@ export async function createMultipleBitcoinAccounts(
     )
 
     // Update the account ID to include address index
-    account.id = `btc-${type}-${accountIndex}-${addressIndex}`
+    account.id = `btc-${type}-${normalizedAccountIndex}-${addressIndex}`
 
     accounts.push(account)
   }

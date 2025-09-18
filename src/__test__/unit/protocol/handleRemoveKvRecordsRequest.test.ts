@@ -3,6 +3,13 @@ import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { LatticeResponseCode } from '@/shared/types'
 import type { ServerLatticeSimulator as LatticeSimulator } from '@/server/serverSimulator'
 
+// Mock the server request manager to avoid network calls
+vi.mock('@/server/serverRequestManager', () => ({
+  requestKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
+  requestAddKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
+  requestRemoveKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
+}))
+
 describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
   let protocolHandler: ProtocolHandler
   let mockSimulator: LatticeSimulator
@@ -13,6 +20,7 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       removeKvRecords: vi.fn(),
       getSharedSecret: vi.fn(),
       updateEphemeralKeyPair: vi.fn(),
+      getDeviceId: vi.fn().mockReturnValue('test-device-id'),
     } as unknown as LatticeSimulator
 
     protocolHandler = new ProtocolHandler(mockSimulator)

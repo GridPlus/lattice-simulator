@@ -10,6 +10,7 @@ const mockSimulator = {
   getAddresses: vi.fn(),
   getSharedSecret: vi.fn(),
   updateEphemeralKeyPair: vi.fn(),
+  getDeviceId: vi.fn().mockReturnValue('test-device-id'),
 } as unknown as ServerLatticeSimulator
 
 describe('ProtocolHandler - handleGetAddressesRequest', () => {
@@ -22,7 +23,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
 
   it('should return successful response with serialized address data when simulator returns addresses', async () => {
     // Arrange
-    const mockRequestData = Buffer.alloc(20) // Mock request buffer
+    const mockRequestData = Buffer.alloc(54) // Match expected format: wallet.uid (32) + pathDepth_IterIdx (1) + startPath (20) + countVal|flagVal (1) = 54 bytes
     const mockAddressData = {
       addresses: [
         '0x1234567890abcdef1234567890abcdef12345678',
@@ -56,7 +57,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
 
   it('should return error response when simulator returns error', async () => {
     // Arrange
-    const mockRequestData = Buffer.alloc(20)
+    const mockRequestData = Buffer.alloc(54)
     const mockSimulatorResponse = {
       success: false,
       code: LatticeResponseCode.invalidMsg,
@@ -78,7 +79,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
 
   it('should return response without data when simulator returns success but no data', async () => {
     // Arrange
-    const mockRequestData = Buffer.alloc(20)
+    const mockRequestData = Buffer.alloc(54)
     const mockSimulatorResponse = {
       success: true,
       code: LatticeResponseCode.success,
@@ -100,7 +101,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
 
   it('should handle simulator throwing an error', async () => {
     // Arrange
-    const mockRequestData = Buffer.alloc(20)
+    const mockRequestData = Buffer.alloc(54)
     const errorMessage = 'Simulator error'
     vi.mocked(mockSimulator.getAddresses).mockRejectedValue(new Error(errorMessage))
 
@@ -113,7 +114,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
 
   it('should handle empty address array from simulator', async () => {
     // Arrange
-    const mockRequestData = Buffer.alloc(20)
+    const mockRequestData = Buffer.alloc(54)
     const mockAddressData = {
       addresses: ['0x1234567890abcdef1234567890abcdef12345678'], // At least one address to avoid buffer size issue
     }
@@ -138,7 +139,7 @@ describe('ProtocolHandler - handleGetAddressesRequest', () => {
 
   it('should handle different error codes from simulator', async () => {
     // Arrange
-    const mockRequestData = Buffer.alloc(20)
+    const mockRequestData = Buffer.alloc(54)
     const mockSimulatorResponse = {
       success: false,
       code: LatticeResponseCode.deviceBusy,

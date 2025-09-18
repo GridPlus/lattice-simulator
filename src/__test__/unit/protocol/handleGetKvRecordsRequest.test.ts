@@ -2,12 +2,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { LatticeResponseCode } from '@/shared/types'
 
+// Mock the server request manager to avoid network calls
+vi.mock('@/server/serverRequestManager', () => ({
+  requestKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
+  requestAddKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
+  requestRemoveKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
+}))
+
 // Mock the simulator with simple vi.fn() calls
 const mockSimulator = {
   getWallets: vi.fn(),
   getKvRecords: vi.fn(),
   getSharedSecret: vi.fn(),
   updateEphemeralKeyPair: vi.fn(),
+  getDeviceId: vi.fn().mockReturnValue('test-device-id'),
 } as any
 
 describe('ProtocolHandler - handleGetKvRecordsRequest', () => {

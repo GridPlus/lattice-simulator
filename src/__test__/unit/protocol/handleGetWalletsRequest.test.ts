@@ -8,6 +8,7 @@ const mockSimulator = {
   getKvRecords: vi.fn(),
   getSharedSecret: vi.fn(),
   updateEphemeralKeyPair: vi.fn(),
+  getDeviceId: vi.fn().mockReturnValue('test-device-id'),
 } as any
 
 describe('ProtocolHandler - handleGetWalletsRequest', () => {
