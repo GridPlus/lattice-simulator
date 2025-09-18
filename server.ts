@@ -2,12 +2,28 @@ import { createServer } from 'http'
 import { parse } from 'url'
 import next from 'next'
 import { WebSocketServer } from 'ws'
+import { DeviceManager } from '@/server/serverDeviceManager'
 import { wsManager } from '@/server/serverWebSocketManager'
 
 const dev = process.env.NODE_ENV !== 'production'
 const hostname = 'localhost'
 const port = parseInt(process.env.PORT || '3000', 10)
 const wsPort = port + 443 // Use a separate port for WebSocket server
+
+// Global DeviceManager instances - shared between processes
+const globalDeviceManagers = new Map<string, DeviceManager>()
+
+// Helper function to get or create DeviceManager
+function getGlobalDeviceManager(deviceId: string): DeviceManager {
+  if (!globalDeviceManagers.has(deviceId)) {
+    globalDeviceManagers.set(deviceId, new DeviceManager(deviceId))
+    console.log(`[Server] Created global DeviceManager for device: ${deviceId}`)
+  }
+  return globalDeviceManagers.get(deviceId)!
+}
+
+// Make the DeviceManager getter globally available
+;(global as any).getGlobalDeviceManager = getGlobalDeviceManager
 
 // Initialize Next.js app in custom server mode
 const app = next({ dev })
@@ -75,8 +91,8 @@ app
         return
       }
 
-      // Register the WebSocket connection with wsManager
-      wsManager.addConnection(deviceId, ws)
+      // Register the WebSocket connection with wsManager, passing the global DeviceManager
+      wsManager.addConnection(deviceId, ws, getGlobalDeviceManager(deviceId))
 
       // Handle WebSocket close
       ws.on('close', (code, reason) => {

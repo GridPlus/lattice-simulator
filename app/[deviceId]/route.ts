@@ -1,7 +1,6 @@
 import { randomBytes } from 'crypto'
 import crc32 from 'crc-32'
 import { NextResponse, type NextRequest } from 'next/server'
-import { getDeviceManager } from '@/server/serverDeviceManager'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { parseProtocolMessage } from '@/shared/protocolParser'
 
@@ -102,8 +101,14 @@ export async function POST(request: NextRequest, { params }: { params: { deviceI
     console.log(`Buffer data length: ${buffer.length} bytes`)
     console.log(`Buffer data: ${buffer.toString('hex')}`)
 
-    // Get or create device manager for this deviceId
-    const deviceManager = getDeviceManager(deviceId)
+    // Get the global DeviceManager from global scope
+    const getGlobalDeviceManager = (global as any).getGlobalDeviceManager
+
+    if (!getGlobalDeviceManager) {
+      throw new Error('Global DeviceManager not available. Make sure server.ts is running.')
+    }
+
+    const deviceManager = getGlobalDeviceManager(deviceId)
 
     try {
       // Parse the protocol message

@@ -47,6 +47,7 @@ export interface DeviceStateEvent extends WebSocketMessage {
 
 class ServerWebSocketManager {
   private connections = new Map<string, Set<WebSocket>>()
+  private deviceManagers = new Map<string, any>() // Store DeviceManager instances per device
   private messageHandlers = new Map<
     string,
     (message: WebSocketMessage, deviceId: string, ws: WebSocket) => void
@@ -63,9 +64,15 @@ class ServerWebSocketManager {
   /**
    * Add a WebSocket connection for a device
    */
-  addConnection(deviceId: string, ws: WebSocket): void {
+  addConnection(deviceId: string, ws: WebSocket, deviceManager?: any): void {
     if (!this.connections.has(deviceId)) {
       this.connections.set(deviceId, new Set())
+    }
+
+    // Store the DeviceManager instance if provided
+    if (deviceManager) {
+      this.deviceManagers.set(deviceId, deviceManager)
+      console.log(`[ServerWsManager] Stored DeviceManager for device: ${deviceId}`)
     }
 
     // Add the new connection to the set (allows multiple connections per device)
@@ -84,6 +91,18 @@ class ServerWebSocketManager {
         this.sendError(ws, 'Invalid message format')
       }
     })
+  }
+
+  /**
+   * Get the DeviceManager for a device (from stored instance)
+   */
+  private getDeviceManager(deviceId: string): any {
+    if (!this.deviceManagers.has(deviceId)) {
+      throw new Error(
+        `DeviceManager not found for device: ${deviceId}. Make sure to pass DeviceManager to addConnection().`,
+      )
+    }
+    return this.deviceManagers.get(deviceId)
   }
 
   /**
@@ -358,8 +377,7 @@ class ServerWebSocketManager {
       )
 
       // Get the device manager and simulator instance
-      const { getDeviceManager } = await import('./serverDeviceManager')
-      const deviceManager = getDeviceManager(deviceId)
+      const deviceManager = this.getDeviceManager(deviceId)
       const simulator = deviceManager.getSimulator()
 
       if (!simulator) {
@@ -413,14 +431,10 @@ class ServerWebSocketManager {
             // Full reset (default behavior)
             console.log(`[ServerWsManager] Performing full device reset for: ${deviceId}`)
 
-            const { getDeviceManager, resetDeviceManager } = await import('./serverDeviceManager')
-            const deviceManager = getDeviceManager(deviceId)
+            const deviceManager = await this.getDeviceManager(deviceId)
 
             // Reset the device manager state
             deviceManager.reset()
-
-            // Clear the device manager instance to force a fresh start
-            resetDeviceManager(deviceId)
 
             console.log(`[ServerWsManager] Full device reset completed for: ${deviceId}`)
 
@@ -449,7 +463,7 @@ class ServerWebSocketManager {
 
           try {
             // Get the device manager for this device
-            const deviceManager = getDeviceManager(deviceId)
+            const deviceManager = await this.getDeviceManager(deviceId)
 
             // Use the restoreFromClientState method to properly sync from client (source of truth)
             deviceManager.restoreFromClientState(clientState)
