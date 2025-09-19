@@ -6,7 +6,9 @@
  * between server protocol handlers and client-side state management.
  */
 
+import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useCallback } from 'react'
+import { useToast } from '@/client/components/ui/ToastProvider'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
 import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
 import type { SigningRequest } from '@/shared/types/device'
@@ -25,6 +27,8 @@ interface WebSocketMessage {
 
 export function useServerRequestHandler(deviceId: string) {
   const getAllKvRecords = useDeviceStore((state: any) => state.getAllKvRecords)
+  const { showToast } = useToast()
+  const router = useRouter()
   const getKvRecord = useDeviceStore((state: any) => state.getKvRecord)
   const setKvRecord = useDeviceStore((state: any) => state.setKvRecord)
   const removeKvRecord = useDeviceStore((state: any) => state.removeKvRecord)
@@ -439,17 +443,45 @@ export function useServerRequestHandler(deviceId: string) {
     [setConnectionState],
   )
 
-  const handleSigningRequestCreated = useCallback((signingRequest: SigningRequest) => {
-    console.log('[ClientWebSocketHandler] Signing request created:', signingRequest)
+  const handleSigningRequestCreated = useCallback(
+    (signingRequest: SigningRequest) => {
+      console.log('[ClientWebSocketHandler] Signing request created:', signingRequest)
 
-    // Add the signing request to the device store for display in the UI
-    const addPendingRequest = useDeviceStore.getState().addPendingRequest
-    addPendingRequest(signingRequest)
+      // Check if we've already processed this request to prevent duplicates
+      if (processedRequests.current.has(signingRequest.id)) {
+        console.log(
+          `[ClientWebSocketHandler] Request ${signingRequest.id} already processed, skipping`,
+        )
+        return
+      }
 
-    console.log(
-      `[ClientWebSocketHandler] Added signing request ${signingRequest.id} to pending requests`,
-    )
-  }, [])
+      // Mark this request as processed
+      processedRequests.current.add(signingRequest.id)
+
+      // Add the signing request to the device store for display in the UI
+      addSigningRequest(signingRequest)
+
+      // Show toast notification
+      showToast({
+        title: 'New Sign Request',
+        description: 'A new signing request has been received. Click to view pending requests.',
+        type: 'info',
+        action: {
+          label: 'View Requests',
+          onClick: () => {
+            // Navigate to pending requests page
+            router.push('/requests')
+          },
+        },
+        duration: 10000, // 10 seconds
+      })
+
+      console.log(
+        `[ClientWebSocketHandler] Added signing request ${signingRequest.id} to pending requests`,
+      )
+    },
+    [showToast, router, addSigningRequest],
+  )
 
   const handleSigningRequestCompleted = useCallback((data: any) => {
     console.log('[ClientWebSocketHandler] Signing request completed:', data)
@@ -457,6 +489,9 @@ export function useServerRequestHandler(deviceId: string) {
     // Remove the signing request from pending requests
     const removePendingRequest = useDeviceStore.getState().removePendingRequest
     removePendingRequest(data.requestId)
+
+    // Clean up processed requests tracking
+    processedRequests.current.delete(data.requestId)
 
     console.log(
       `[ClientWebSocketHandler] Removed signing request ${data.requestId} from pending requests`,
