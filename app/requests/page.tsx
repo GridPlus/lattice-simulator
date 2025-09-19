@@ -272,12 +272,28 @@ export default function PendingRequestsPage() {
                     <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
                       Raw Data
                     </label>
-                    <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-32 overflow-y-auto">
-                      {Buffer.isBuffer(selectedRequest.data.data)
-                        ? selectedRequest.data.data.toString('hex')
-                        : typeof selectedRequest.data.data === 'object'
-                          ? JSON.stringify(selectedRequest.data.data, null, 2)
-                          : selectedRequest.data.data}
+                    <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-32 overflow-y-auto break-all">
+                      {(() => {
+                        // Handle different data formats
+                        if (Buffer.isBuffer(selectedRequest.data.data)) {
+                          return selectedRequest.data.data.toString('hex')
+                        } else if (
+                          selectedRequest.data.data &&
+                          typeof selectedRequest.data.data === 'object' &&
+                          (selectedRequest.data.data as any).type === 'Buffer'
+                        ) {
+                          // Handle serialized Buffer format from JSON
+                          return Buffer.from((selectedRequest.data.data as any).data).toString(
+                            'hex',
+                          )
+                        } else if (Array.isArray(selectedRequest.data.data)) {
+                          // Handle array format
+                          return Buffer.from(selectedRequest.data.data).toString('hex')
+                        } else {
+                          // Fallback: try to convert to Buffer
+                          return Buffer.from(selectedRequest.data.data).toString('hex')
+                        }
+                      })()}
                     </div>
                   </div>
                 </div>

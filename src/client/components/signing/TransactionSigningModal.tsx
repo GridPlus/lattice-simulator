@@ -334,7 +334,25 @@ export function TransactionSigningModal({
                       DATA TO SIGN
                     </p>
                     <div className="text-xs font-mono bg-gray-100 dark:bg-gray-800 p-2 rounded max-h-32 overflow-y-auto break-all">
-                      {request.data.data.toString('hex')}
+                      {(() => {
+                        // Handle different data formats
+                        if (Buffer.isBuffer(request.data.data)) {
+                          return request.data.data.toString('hex')
+                        } else if (
+                          request.data.data &&
+                          typeof request.data.data === 'object' &&
+                          (request.data.data as any).type === 'Buffer'
+                        ) {
+                          // Handle serialized Buffer format from JSON
+                          return Buffer.from((request.data.data as any).data).toString('hex')
+                        } else if (Array.isArray(request.data.data)) {
+                          // Handle array format
+                          return Buffer.from(request.data.data).toString('hex')
+                        } else {
+                          // Fallback: try to convert to Buffer
+                          return Buffer.from(request.data.data).toString('hex')
+                        }
+                      })()}
                     </div>
                   </div>
                   {request.data.curve && (
