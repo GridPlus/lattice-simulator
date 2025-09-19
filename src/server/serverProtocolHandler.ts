@@ -461,7 +461,7 @@ export class ProtocolHandler {
 
     return {
       code: response.code,
-      data: response.data ? this.serializeSignResponse(response.data) : undefined,
+      data: response.data ? this.serializeSignResponse(response.data, request) : undefined,
       error: response.error,
     }
   }
@@ -1046,100 +1046,110 @@ export class ProtocolHandler {
     return response.slice(0, respDataLength)
   }
 
-  private serializeSignResponse(data: any): Buffer {
+  private serializeSignResponse(data: any, request?: any): Buffer {
     // The response format varies by currency/schema type and must match SDK's decodeSignResponse exactly
 
-    if (data.signature) {
-      // Basic signature response - just return the signature buffer
-      return data.signature as Buffer
-    } else if (data.tx || data.sigs || data.sig) {
-      // Complex response with transaction data or multiple signatures
+    console.log('[ProtocolHandler] serializeSignResponse input:', {
+      hasSignature: !!data.signature,
+      hasFormat: !!data.format,
+      hasMetadata: !!data.metadata,
+      format: data.format,
+      schema: request?.schema,
+      signatureType: typeof data.signature,
+      signatureLength: data.signature?.length,
+      metadataKeys: data.metadata ? Object.keys(data.metadata) : 'none',
+      data: JSON.stringify(data),
+    })
 
-      if (data.sig && data.sig.r && data.sig.s) {
-        // ETH-style signature with v/r/s components
-        // SDK expects: [DER signature (74 bytes)] + [signer address (20 bytes)]
-        const derSigLen = 74
-        const response = Buffer.alloc(derSigLen + 20)
+    // Handle Bitcoin transaction format (schema 0)
+    if (request && request.schema === 0) {
+      console.log('[ProtocolHandler] Processing Bitcoin transaction')
+      // Bitcoin transaction response format: [PKH (20)] + [signatures (760)] + [pubkeys (n * 33)]
+      console.log('[ProtocolHandler] Constructing full Bitcoin transaction response format')
 
-        // Create proper DER-encoded signature
-        const derSig = this.createDERSignature(data.sig.r, data.sig.s)
+      const derSigLen = 74
+      const compressedPubLength = 33
+      const pkhLen = 20
+      const sigsLen = 760
 
-        // Pad DER signature to exactly 74 bytes (SDK expectation)
-        derSig.copy(response, 0, 0, Math.min(derSig.length, derSigLen))
+      // For Bitcoin, we only have a single signature from SignResponse
+      // We need to create the full format expected by SDK
+      const responseSize = pkhLen + sigsLen + compressedPubLength // 1 pubkey
+      const response = Buffer.alloc(responseSize)
 
-        // Add signer address (20 bytes)
-        if (data.signer && Buffer.isBuffer(data.signer)) {
-          data.signer.copy(response, derSigLen, 0, 20)
-        }
+      let offset = 0
 
-        return response
-      } else if (data.sigs && Array.isArray(data.sigs)) {
-        // Bitcoin-style multiple signatures
-        // SDK expects: [changeRecipient PKH (20)] + [signatures (760)] + [pubkeys (33 each)]
-        const derSigLen = 74
-        const compressedPubLength = 33
-        const pkhLen = 20
-        const sigsLen = 760
+      // Add change recipient PKH (20 bytes) - fill with zeros as placeholder
+      response.fill(0, offset, offset + pkhLen)
+      offset += pkhLen
 
-        const totalSigs = data.sigs.length
-        const responseSize = pkhLen + sigsLen + totalSigs * compressedPubLength
-        const response = Buffer.alloc(responseSize)
-
-        let offset = 0
-
-        // Add change recipient PKH (20 bytes)
-        if (data.changeRecipient) {
-          // Extract PKH from Bitcoin address if it's a string
-          if (typeof data.changeRecipient === 'string') {
-            // This would need proper Bitcoin address decoding
-            // For now, use placeholder
-            response.fill(0, offset, offset + pkhLen)
-          } else if (Buffer.isBuffer(data.changeRecipient)) {
-            data.changeRecipient.copy(
-              response,
-              offset,
-              0,
-              Math.min(data.changeRecipient.length, pkhLen),
-            )
-          }
-        }
-        offset += pkhLen
-
-        // Add signatures section (760 bytes total, 74 bytes per signature)
-        const maxSigs = Math.floor(sigsLen / derSigLen)
-        for (let i = 0; i < maxSigs && i < totalSigs; i++) {
-          const sig = data.sigs[i]
-          if (Buffer.isBuffer(sig)) {
-            // Ensure signature has proper DER format starting with 0x30
-            if (sig.length > 0 && sig[0] === 0x30) {
-              sig.copy(response, offset, 0, Math.min(sig.length, derSigLen))
-            } else {
-              // If not DER format, pad with zeros (SDK will skip non-0x30 signatures)
-              response.fill(0, offset, offset + derSigLen)
-            }
-          }
-          offset += derSigLen
-        }
-
-        // Add public keys at fixed positions after signatures section
-        // According to SDK: pubStart = n * compressedPubLength + sigsLen
-        if (data.pubkeys && Array.isArray(data.pubkeys)) {
-          for (let i = 0; i < totalSigs && i < data.pubkeys.length; i++) {
-            const pubkey = data.pubkeys[i]
-            if (Buffer.isBuffer(pubkey)) {
-              // Calculate pubkey position: after PKH + signatures + (i * pubkey_size)
-              const pubkeyOffset = pkhLen + sigsLen + i * compressedPubLength
-              // Ensure compressed public key format (33 bytes)
-              pubkey.copy(response, pubkeyOffset, 0, Math.min(pubkey.length, compressedPubLength))
-            }
-          }
-        }
-
-        return response
+      // Add signature to signatures section (760 bytes)
+      // Place the single signature at the first slot
+      if (
+        Buffer.isBuffer(data.signature) &&
+        data.signature.length > 0 &&
+        data.signature[0] === 0x30
+      ) {
+        // Copy DER signature to first signature slot
+        data.signature.copy(response, offset, 0, Math.min(data.signature.length, derSigLen))
       }
+      offset += sigsLen // Skip entire signature section
+
+      // Add pubkey at SDK expected position
+      // SDK calculates: pubStart = 0 * compressedPubLength + sigsLen = 760
+      const pubkeyOffset = 0 * compressedPubLength + sigsLen // = 760
+      if (data.metadata?.publicKey) {
+        const pubkeyBuf = Buffer.from(data.metadata.publicKey, 'hex')
+        pubkeyBuf.copy(response, pubkeyOffset, 0, Math.min(pubkeyBuf.length, compressedPubLength))
+      } else {
+        // Fill with zeros if no public key available
+        response.fill(0, pubkeyOffset, pubkeyOffset + compressedPubLength)
+      }
+
+      console.log(
+        `[ProtocolHandler] Created Bitcoin transaction response: ${response.length} bytes with 1 signature and 1 pubkey placeholder`,
+      )
+      return response
     }
 
-    // Fallback: return empty buffer
+    // Handle Ethereum and other currencies
+    if (request && (request.schema === 1 || request.schema === 2)) {
+      console.log(`[ProtocolHandler] Processing Ethereum transaction (schema ${request.schema})`)
+      // SDK expects: [DER signature (74 bytes)] + [signer address (20 bytes)]
+      const derSigLen = 74
+      const response = Buffer.alloc(derSigLen + 20)
+
+      // Use the signature from SignResponse
+      if (Buffer.isBuffer(data.signature) && data.signature.length > 0) {
+        // Copy signature to DER section
+        data.signature.copy(response, 0, 0, Math.min(data.signature.length, derSigLen))
+      }
+
+      // Add signer address (20 bytes)
+      if (data.metadata?.signer) {
+        const signerBuf =
+          typeof data.metadata.signer === 'string'
+            ? Buffer.from(data.metadata.signer.replace('0x', ''), 'hex')
+            : Buffer.from(data.metadata.signer)
+        signerBuf.copy(response, derSigLen, 0, 20)
+      } else {
+        // Fill with zeros if no signer address available
+        response.fill(0, derSigLen, derSigLen + 20)
+      }
+
+      console.log(
+        `[ProtocolHandler] Created Ethereum transaction response: ${response.length} bytes`,
+      )
+      return response
+    }
+
+    // Handle basic signature format (for generic/raw signatures)
+    if (data.signature) {
+      console.log('[ProtocolHandler] Processing basic signature format')
+      return data.signature as Buffer
+    }
+
+    // Fallback: return empty buffer for unsupported formats
     console.warn('[ProtocolHandler] Unknown sign response format, returning empty buffer')
     return Buffer.alloc(0)
   }

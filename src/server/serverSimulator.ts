@@ -1491,6 +1491,7 @@ export class ServerLatticeSimulator {
       console.log(`[Simulator] Enhanced signing completed for request ${requestId}:`, {
         signatureFormat: signatureResult.format,
         signatureLength: signatureResult.signature.length,
+        signature: signatureResult.signature.toString('hex'),
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
       })
@@ -1501,6 +1502,7 @@ export class ServerLatticeSimulator {
       const response: SignResponse = {
         signature: signatureResult.signature,
         recovery: signatureResult.recovery,
+        metadata: signatureResult.metadata,
       }
 
       const deviceResponse = createDeviceResponse(true, LatticeResponseCode.success, response)

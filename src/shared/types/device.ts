@@ -246,4 +246,12 @@ export interface SignRequest {
 export interface SignResponse {
   signature: Buffer
   recovery?: number
+  metadata?: {
+    /** Ethereum address that signed (for ETH) */
+    signer?: string
+    /** Transaction hash (for transactions) */
+    txHash?: string
+    /** Public key used for signing */
+    publicKey?: string
+  }
 }

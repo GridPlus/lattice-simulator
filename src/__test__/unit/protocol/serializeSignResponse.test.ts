@@ -18,42 +18,38 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
 
   describe('Bitcoin (BTC) Signature Response Format', () => {
     it('should serialize Bitcoin signatures in correct SDK format', () => {
-      // Test data matching what SDK expects for Bitcoin
+      // Test data matching real SignResponse structure for Bitcoin
       const btcSignatureData = {
-        sigs: [
-          // DER-encoded signature starting with 0x30
-          Buffer.from(
-            '304402201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef02201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-            'hex',
-          ),
-          // Another DER signature
-          Buffer.from(
-            '3044022087654321fedcba0987654321fedcba0987654321fedcba0987654321fedcba090220abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd',
-            'hex',
-          ),
-        ],
-        pubkeys: [
-          // Compressed public key (33 bytes)
-          Buffer.from('02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5', 'hex'),
-          Buffer.from('03f028892bad7ed57d2fb57bf33081d5cfcf6f9ed3d3d7f159c2e2fff579dc341a', 'hex'),
-        ],
-        changeRecipient: 'bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4', // Bitcoin address string
+        signature: Buffer.from(
+          '304402201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef02201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+          'hex',
+        ),
+        recovery: 0,
+        metadata: {
+          publicKey: '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+        },
       }
 
       // Access the private method via type assertion for testing
-      const result = (protocolHandler as any).serializeSignResponse(btcSignatureData)
+      // Mock Bitcoin transaction request (schema 0)
+      const mockBitcoinRequest = { schema: 0 }
+      const result = (protocolHandler as any).serializeSignResponse(
+        btcSignatureData,
+        mockBitcoinRequest,
+      )
 
       expect(Buffer.isBuffer(result)).toBe(true)
 
       // Verify SDK expected format:
-      // [changeRecipient PKH (20)] + [signatures (760)] + [pubkeys (33 each)]
-      const expectedSize = 20 + 760 + btcSignatureData.sigs.length * 33
+      // [changeRecipient PKH (20)] + [signatures (760)] + [pubkeys (n * 33)]
+      // For single signature: 20 + 760 + 1 * 33 = 813 bytes
+      const expectedSize = 20 + 760 + 1 * 33
       expect(result.length).toBe(expectedSize)
 
       // Verify structure offsets
       let offset = 0
 
-      // Change recipient PKH (20 bytes) - should be zeros for string address (placeholder)
+      // Change recipient PKH (20 bytes) - should be zeros (placeholder)
       const pkhSection = result.slice(offset, offset + 20)
       expect(pkhSection.every((byte: number) => byte === 0)).toBe(true) // Placeholder implementation
       offset += 20
@@ -65,65 +61,56 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       // First signature should start with 0x30 (DER format)
       expect(sigsSection[0]).toBe(0x30)
 
-      // Second signature starts at offset 74
-      expect(sigsSection[74]).toBe(0x30)
-      offset += 760
-
-      // Public keys section (33 bytes each)
-      const pubkeysSection = result.slice(offset)
-      expect(pubkeysSection.length).toBe(btcSignatureData.pubkeys.length * 33)
-
-      // First pubkey should match (compressed format)
-      const firstPubkey = pubkeysSection.slice(0, 33)
-      expect(firstPubkey).toEqual(btcSignatureData.pubkeys[0])
+      // Public key at SDK expected position: pubStart = 0 * 33 + 760 = 760
+      const pubkeyOffset = 0 * 33 + 760 // = 760
+      const pubkey = result.slice(pubkeyOffset, pubkeyOffset + 33)
+      expect(pubkey).toEqual(Buffer.from(btcSignatureData.metadata.publicKey, 'hex'))
     })
 
     it('should handle invalid Bitcoin signatures gracefully', () => {
       const invalidBtcData = {
-        sigs: [
-          // Invalid signature (doesn't start with 0x30)
-          Buffer.from('1234567890abcdef', 'hex'),
-          // Valid DER signature
-          Buffer.from(
-            '304402201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef02201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-            'hex',
-          ),
-        ],
-        pubkeys: [
-          Buffer.from('02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5', 'hex'),
-          Buffer.from('03f028892bad7ed57d2fb57bf33081d5cfcf6f9ed3d3d7f159c2e2fff579dc341a', 'hex'),
-        ],
+        signature: Buffer.from('1234567890abcdef', 'hex'), // Invalid signature (doesn't start with 0x30)
+        recovery: 0,
+        metadata: {
+          publicKey: '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+        },
       }
 
-      const result = (protocolHandler as any).serializeSignResponse(invalidBtcData)
+      const mockBitcoinRequest = { schema: 0 }
+      const result = (protocolHandler as any).serializeSignResponse(
+        invalidBtcData,
+        mockBitcoinRequest,
+      )
 
       // Should still create properly sized response
-      const expectedSize = 20 + 760 + invalidBtcData.sigs.length * 33
+      const expectedSize = 20 + 760 + 1 * 33
       expect(result.length).toBe(expectedSize)
 
       // Invalid signature should be zeroed out
       const sigsSection = result.slice(20, 20 + 760)
       const firstSigSection = sigsSection.slice(0, 74)
       expect(firstSigSection.every((byte: number) => byte === 0)).toBe(true)
-
-      // Valid signature should be preserved
-      const secondSigSection = sigsSection.slice(74, 148)
-      expect(secondSigSection[0]).toBe(0x30) // Valid DER start
     })
   })
 
   describe('Ethereum (ETH) Signature Response Format', () => {
     it('should serialize Ethereum signatures in correct SDK format', () => {
       const ethSignatureData = {
-        sig: {
-          r: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-          s: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
-          v: 27,
+        signature: Buffer.from(
+          '304402201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef0220fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
+          'hex',
+        ),
+        recovery: 27,
+        metadata: {
+          signer: '742d35cc6af4c8e2e51b7f4c7e8b1c9f2a6e8d3b',
         },
-        signer: Buffer.from('742d35cc6af4c8e2e51b7f4c7e8b1c9f2a6e8d3b', 'hex'), // 20-byte address
       }
 
-      const result = (protocolHandler as any).serializeSignResponse(ethSignatureData)
+      const mockEthereumRequest = { schema: 1 }
+      const result = (protocolHandler as any).serializeSignResponse(
+        ethSignatureData,
+        mockEthereumRequest,
+      )
 
       expect(Buffer.isBuffer(result)).toBe(true)
 
@@ -136,19 +123,23 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
 
       // Verify signer address
       const signerAddress = result.slice(74, 94)
-      expect(signerAddress).toEqual(ethSignatureData.signer)
+      expect(signerAddress).toEqual(Buffer.from(ethSignatureData.metadata.signer, 'hex'))
     })
 
     it('should create valid DER encoding for Ethereum signatures', () => {
       const ethData = {
-        sig: {
-          r: '1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-          s: 'fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
+        signature: Buffer.from(
+          '304402201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef0220fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321',
+          'hex',
+        ),
+        recovery: 27,
+        metadata: {
+          signer: '742d35cc6af4c8e2e51b7f4c7e8b1c9f2a6e8d3b',
         },
-        signer: Buffer.from('742d35cc6af4c8e2e51b7f4c7e8b1c9f2a6e8d3b', 'hex'),
       }
 
-      const result = (protocolHandler as any).serializeSignResponse(ethData)
+      const mockEthereumRequest = { schema: 1 }
+      const result = (protocolHandler as any).serializeSignResponse(ethData, mockEthereumRequest)
       const derSignature = result.slice(0, 74)
 
       // Verify DER structure: 0x30 [total-length] 0x02 [r-length] [r] 0x02 [s-length] [s]
@@ -240,46 +231,49 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
     it('should match exact format expected by SDK decodeSignResponse for Bitcoin', () => {
       // This test ensures our format exactly matches what the SDK's decodeSignResponse expects
       const btcData = {
-        sigs: [
-          Buffer.from(
-            '304402201111111111111111111111111111111111111111111111111111111111111111022022222222222222222222222222222222222222222222222222222222222222',
-            'hex',
-          ),
-        ],
-        pubkeys: [
-          Buffer.from('033333333333333333333333333333333333333333333333333333333333333333', 'hex'),
-        ],
-        changeRecipient: Buffer.from('4444444444444444444444444444444444444444', 'hex'), // 20-byte PKH
+        signature: Buffer.from(
+          '304402201111111111111111111111111111111111111111111111111111111111111111022022222222222222222222222222222222222222222222222222222222222222',
+          'hex',
+        ),
+        recovery: 0,
+        metadata: {
+          publicKey: '033333333333333333333333333333333333333333333333333333333333333333',
+        },
       }
 
-      const result = (protocolHandler as any).serializeSignResponse(btcData)
+      const mockBitcoinRequest = { schema: 0 }
+      const result = (protocolHandler as any).serializeSignResponse(btcData, mockBitcoinRequest)
 
       // Verify the exact layout SDK expects
       expect(result.length).toBe(20 + 760 + 33) // PKH + sigs + one pubkey
 
-      // PKH section
+      // PKH section (should be zeros as placeholder)
       const pkh = result.slice(0, 20)
-      expect(pkh).toEqual(btcData.changeRecipient)
+      expect(pkh.every((byte: number) => byte === 0)).toBe(true)
 
       // Signature section
       const sigSection = result.slice(20, 780)
       expect(sigSection[0]).toBe(0x30) // First sig starts with DER tag
 
-      // Pubkey section
-      const pubkeySection = result.slice(780)
-      expect(pubkeySection).toEqual(btcData.pubkeys[0])
+      // Pubkey section at SDK expected position: pubStart = 0 * 33 + 760 = 760
+      const pubkeySection = result.slice(760, 793) // First pubkey: 33 bytes at position 760
+      expect(pubkeySection).toEqual(Buffer.from(btcData.metadata.publicKey, 'hex'))
     })
 
     it('should match exact format expected by SDK decodeSignResponse for Ethereum', () => {
       const ethData = {
-        sig: {
-          r: '5555555555555555555555555555555555555555555555555555555555555555',
-          s: '6666666666666666666666666666666666666666666666666666666666666666',
+        signature: Buffer.from(
+          '30440220555555555555555555555555555555555555555555555555555555555555555502206666666666666666666666666666666666666666666666666666666666666666',
+          'hex',
+        ),
+        recovery: 27,
+        metadata: {
+          signer: '7777777777777777777777777777777777777777',
         },
-        signer: Buffer.from('7777777777777777777777777777777777777777', 'hex'),
       }
 
-      const result = (protocolHandler as any).serializeSignResponse(ethData)
+      const mockEthereumRequest = { schema: 1 }
+      const result = (protocolHandler as any).serializeSignResponse(ethData, mockEthereumRequest)
 
       // Verify exact layout: 74 bytes DER + 20 bytes signer
       expect(result.length).toBe(94)
@@ -290,7 +284,7 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
 
       // Signer address validation
       const signer = result.slice(74)
-      expect(signer).toEqual(ethData.signer)
+      expect(signer).toEqual(Buffer.from(ethData.metadata.signer, 'hex'))
     })
   })
 })
