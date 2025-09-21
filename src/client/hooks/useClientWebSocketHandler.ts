@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useCallback } from 'react'
 import { useToast } from '@/client/components/ui/ToastProvider'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
+import { useTransactionStore } from '@/client/store/clientTransactionStore'
 import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
 import type { SigningRequest } from '@/shared/types/device'
 
@@ -485,6 +486,54 @@ export function useServerRequestHandler(deviceId: string) {
 
   const handleSigningRequestCompleted = useCallback((data: any) => {
     console.log('[ClientWebSocketHandler] Signing request completed:', data)
+
+    // Get the original signing request from the store
+    const getPendingSigningRequestById = useDeviceStore.getState().getPendingSigningRequestById
+    console.log(
+      `[ClientWebSocketHandler] handleSigningRequestCompleted.useDeviceStore.getState(): ${JSON.stringify(useDeviceStore.getState())}`,
+    )
+    const originalRequest = getPendingSigningRequestById(data.requestId)
+
+    if (originalRequest?.type === 'SIGN') {
+      console.log(
+        `[ClientWebSocketHandler] Creating transaction record for ${data.status} request: ${data.requestId}`,
+      )
+
+      const transactionStore = useTransactionStore.getState()
+
+      if (data.status === 'approved' && data.response?.data) {
+        // Create approved transaction record
+        const signature = data.response.data.signature
+        const recovery = data.response.data.recovery
+
+        if (signature) {
+          transactionStore.createApprovedTransaction(
+            originalRequest as SigningRequest,
+            signature,
+            recovery,
+          )
+          console.log(
+            `[ClientWebSocketHandler] Created approved transaction record for: ${data.requestId}`,
+          )
+        } else {
+          console.warn(
+            `[ClientWebSocketHandler] No signature found in approved response for: ${data.requestId}`,
+          )
+        }
+      } else if (data.status === 'rejected') {
+        // Create rejected transaction record
+        transactionStore.createRejectedTransaction(originalRequest as SigningRequest, {
+          description: 'User rejected transaction',
+        })
+        console.log(
+          `[ClientWebSocketHandler] Created rejected transaction record for: ${data.requestId}`,
+        )
+      }
+    } else {
+      console.warn(
+        `[ClientWebSocketHandler] Original signing request not found for: ${data.requestId}`,
+      )
+    }
 
     // Remove the signing request from pending requests
     const removePendingRequest = useDeviceStore.getState().removePendingRequest

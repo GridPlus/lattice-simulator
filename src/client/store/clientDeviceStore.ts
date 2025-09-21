@@ -337,9 +337,6 @@ const createStore = () => {
 
             // Send approval command to server via WebSocket
             sendApproveSigningRequestCommand(state.deviceInfo.deviceId, requestId)
-
-            // Remove from pending requests locally
-            storeImpl.removePendingRequest(requestId)
           },
 
           rejectSigningRequest: (requestId: string, reason?: string) => {
@@ -360,9 +357,6 @@ const createStore = () => {
 
             // Send rejection command to server via WebSocket
             sendRejectSigningRequestCommand(state.deviceInfo.deviceId, requestId, reason)
-
-            // Remove from pending requests locally
-            storeImpl.removePendingRequest(requestId)
           },
 
           getCurrentSigningRequest: () => {
@@ -375,6 +369,14 @@ const createStore = () => {
           getPendingSigningRequests: () => {
             const state = get()
             return state.pendingRequests.filter(req => req.type === 'SIGN') as SigningRequest[]
+          },
+
+          getPendingSigningRequestById: (requestId: string) => {
+            const state = get()
+
+            return state.getPendingSigningRequests().find(req => req.id === requestId) as
+              | SigningRequest
+              | undefined
           },
 
           // Wallet management
@@ -589,6 +591,7 @@ export const useDeviceStore =
       setDeviceInfo: () => {},
       // Signing request methods for SSR compatibility
       getPendingSigningRequests: () => [],
+      getPendingSigningRequestById: () => undefined,
       approveSigningRequest: () => {},
       rejectSigningRequest: () => {},
       getCurrentSigningRequest: () => undefined,
