@@ -439,12 +439,72 @@ export default function TransactionsPage() {
                           Signature
                         </label>
                         <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-32 overflow-y-auto break-all">
-                          {selectedTransaction.signature.toString('hex')}
+                          {Buffer.isBuffer(selectedTransaction.signature)
+                            ? selectedTransaction.signature.toString('hex')
+                            : selectedTransaction.signature}
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
+
+                {/* Original Request Data - Show for all transactions */}
+                {selectedTransaction.originalRequest && (
+                  <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-6">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+                      Original Request Data
+                    </h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                          Request Type
+                        </label>
+                        <div className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+                          {selectedTransaction.originalRequest.type}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                          Data (Hex)
+                        </label>
+                        <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-32 overflow-y-auto break-all">
+                          {Buffer.isBuffer(selectedTransaction.originalRequest.data.data)
+                            ? selectedTransaction.originalRequest.data.data.toString('hex')
+                            : String(selectedTransaction.originalRequest.data.data)}
+                        </div>
+                      </div>
+
+                      {selectedTransaction.originalRequest.data.path && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                            Derivation Path
+                          </label>
+                          <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1">
+                            {selectedTransaction.originalRequest.data.path.join('/')}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedTransaction.originalRequest.metadata && (
+                        <div>
+                          <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                            Request Metadata
+                          </label>
+                          <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-32 overflow-y-auto">
+                            <pre>
+                              {JSON.stringify(
+                                selectedTransaction.originalRequest.metadata,
+                                null,
+                                2,
+                              )}
+                            </pre>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
