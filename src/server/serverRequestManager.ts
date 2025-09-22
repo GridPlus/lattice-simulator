@@ -6,6 +6,7 @@
  */
 
 import { v4 as uuidv4 } from 'uuid'
+import { wsManager } from './serverWebSocketManager'
 
 export interface PendingRequest {
   requestId: string
@@ -212,7 +213,6 @@ class RequestManager {
   private async notifyNewRequest(request: PendingRequest) {
     try {
       // Import here to avoid circular dependencies
-      const { wsManager } = await import('./serverWebSocketManager')
 
       // Send server request via WebSocket
       wsManager.sendServerRequest(

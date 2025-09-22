@@ -7,6 +7,8 @@
  * Client-side components should listen for WebSocket events, not use this directly.
  */
 
+import { wsManager } from './serverWebSocketManager'
+
 export type DeviceEventType =
   | 'pairing_mode_started'
   | 'pairing_mode_ended'
@@ -96,7 +98,6 @@ class DeviceEventEmitter {
     if (!options?.skipWebSocketBroadcast) {
       try {
         // This is SERVER-SIDE ONLY - broadcast events to connected WebSocket clients
-        const { wsManager } = await import('./serverWebSocketManager')
         wsManager.broadcastDeviceEvent(deviceId, type, data)
       } catch (error) {
         console.error('[DeviceEvents] Error broadcasting to WebSocket:', error)

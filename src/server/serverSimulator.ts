@@ -15,6 +15,7 @@ import {
   emitSigningRequestCreated,
   emitSigningRequestCompleted,
 } from './serverDeviceEvents'
+import { requestWalletAddresses } from './serverRequestManager'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
 import { EXTERNAL } from '../shared/constants'
@@ -550,7 +551,6 @@ export class ServerLatticeSimulator {
 
     try {
       // Import request manager here to avoid circular dependencies
-      const { requestWalletAddresses } = await import('./serverRequestManager')
 
       // Send request to client and wait for real wallet addresses
       const addressResponse = await requestWalletAddresses(this.deviceId, {

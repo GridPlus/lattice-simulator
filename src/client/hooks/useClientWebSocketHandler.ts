@@ -11,6 +11,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useToast } from '@/client/components/ui/ToastProvider'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
 import { useTransactionStore } from '@/client/store/clientTransactionStore'
+import { getWalletServices } from '@/client/store/clientWalletStore'
 import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
 import type { SigningRequest } from '@/shared/types/device'
 
@@ -151,7 +152,6 @@ export function useServerRequestHandler(deviceId: string) {
       // Use wallet services through the client store's import system to avoid chunking issues
       try {
         // Import the wallet services helper from the client store
-        const { getWalletServices } = await import('@/client/store/clientWalletStore')
         const walletServices = await getWalletServices()
 
         switch (coinType) {
