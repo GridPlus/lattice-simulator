@@ -8,26 +8,37 @@
  */
 
 import { FileText, Filter, CheckCircle, XCircle, Eye, Download, Search } from 'lucide-react'
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect } from 'react'
 import { MainLayout } from '@/client/components/layout'
 import { useTransactionStore } from '@/client/store/clientTransactionStore'
 import type { TransactionRecord } from '@/shared/types/device'
 
 export default function TransactionsPage() {
-  const transactions = useTransactionStore(state => state.transactions)
-  const filters = useTransactionStore(state => state.filters)
-  const setFilters = useTransactionStore(state => state.setFilters)
-  const resetFilters = useTransactionStore(state => state.resetFilters)
-  const getStats = useTransactionStore(state => state.getStats)
-
+  const [mounted, setMounted] = useState(false)
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionRecord | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
 
-  const stats = getStats()
+  // Only access store after component is mounted (client-side)
+  const transactions = useTransactionStore(state => (mounted ? state.transactions : []))
+  const filters = useTransactionStore(state =>
+    mounted ? state.filters : { coinType: 'ALL', status: 'ALL', type: 'ALL', dateRange: undefined },
+  )
+  const setFilters = useTransactionStore(state => state.setFilters)
+  const resetFilters = useTransactionStore(state => state.resetFilters)
+  const getStats = useTransactionStore(state => state.getStats)
+
+  // Set mounted state on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  const stats = mounted ? getStats() : { total: 0, approved: 0, rejected: 0 }
 
   // Filter and search transactions
   const filteredTransactions = useMemo(() => {
+    if (!mounted) return []
+
     let filtered = transactions
 
     // Apply store filters
@@ -54,7 +65,7 @@ export default function TransactionsPage() {
 
     // Sort by timestamp (newest first)
     return filtered.sort((a, b) => b.timestamp - a.timestamp)
-  }, [transactions, filters, searchTerm])
+  }, [transactions, filters, searchTerm, mounted])
 
   const formatDate = (timestamp: number) => {
     return new Date(timestamp).toLocaleString()

@@ -8,7 +8,7 @@
  */
 
 import { Plus, Database, Tag } from 'lucide-react'
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { ServerClientDebug } from '@/client/components/debug/ServerClientDebug'
 import { MainLayout } from '@/client/components/layout'
 import { AddKvRecordModal } from '@/client/components/storage/AddKvRecordModal'
@@ -16,31 +16,41 @@ import { KvRecordsTable } from '@/client/components/storage/KvRecordsTable'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
 
 export default function StoragePage() {
+  const [mounted, setMounted] = useState(false)
   const [isAddModalVisible, setIsAddModalVisible] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
 
   const { getAllKvRecords, setKvRecord, removeKvRecord, updateKvRecord } = useDeviceStore()
 
-  // Get all KV records
-  const allRecords = getAllKvRecords()
-  const recordCount = Object.keys(allRecords).length
+  // Set mounted state on client side
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Get all KV records - only after mounted
+  const allRecords = mounted ? getAllKvRecords() : {}
+  const recordCount = mounted ? Object.keys(allRecords).length : 0
 
   // Separate address tags (type 0) from other KV records
-  const addressTags = Object.entries(allRecords)
-    .filter(() => {
-      // For now, assume all records are address tags
-      // In the future, we can add type filtering
-      return true
-    })
-    .map(([address, tag]) => ({ address, tag }))
+  const addressTags = mounted
+    ? Object.entries(allRecords)
+        .filter(() => {
+          // For now, assume all records are address tags
+          // In the future, we can add type filtering
+          return true
+        })
+        .map(([address, tag]) => ({ address, tag }))
+    : []
 
-  const otherRecords = Object.entries(allRecords)
-    .filter(() => {
-      // Filter out what we consider address tags
-      // This is a simple heuristic - could be improved with proper type tracking
-      return false // For now, all records are treated as address tags
-    })
-    .map(([key, value]) => ({ key, value }))
+  const otherRecords = mounted
+    ? Object.entries(allRecords)
+        .filter(() => {
+          // Filter out what we consider address tags
+          // This is a simple heuristic - could be improved with proper type tracking
+          return false // For now, all records are treated as address tags
+        })
+        .map(([key, value]) => ({ key, value }))
+    : []
 
   const handleAddRecord = async (key: string, value: string, type: number = 0) => {
     try {
