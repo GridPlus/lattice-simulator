@@ -1,6 +1,7 @@
 # 🏗️ Lattice Simulator Architecture
 
-This document describes the segregated client-server architecture of the Lattice Simulator.
+This document describes the segregated client-server architecture of the Lattice
+Simulator.
 
 ## 📁 Directory Structure
 
@@ -8,11 +9,10 @@ This document describes the segregated client-server architecture of the Lattice
 src/
 ├── server/              # 🖥️ SERVER-SIDE ONLY (Node.js)
 │   ├── serverSimulator.ts          # Core device simulation (ServerLatticeSimulator)
-│   ├── serverDeviceEvents.ts       # Server-side event system 
+│   ├── serverDeviceEvents.ts       # Server-side event system
 │   ├── serverWebSocketManager.ts   # WebSocket connection manager
 │   ├── serverDeviceManager.ts      # Device instance manager
 │   ├── serverProtocolHandler.ts    # Protocol message handler
-│   ├── serverRequestProcessor.ts   # Request processing
 │   └── serverRequestManager.ts     # Request lifecycle management
 │
 ├── client/              # 🌐 CLIENT-SIDE ONLY (React/Browser)
@@ -36,6 +36,7 @@ src/
 ## 🔄 Communication Architecture
 
 ### **Clear Separation**
+
 - ❌ **No direct imports** between client and server code
 - ✅ **WebSocket-only communication** between client and server
 - ✅ **Shared types and utilities** for consistency
@@ -43,11 +44,12 @@ src/
 ### **Message Flow**
 
 #### Client → Server (Commands)
+
 ```typescript
 // Client sends commands via WebSocket
 {
   type: 'device_command',
-  data: { 
+  data: {
     command: 'exit_pairing_mode',
     data: {}
   }
@@ -55,6 +57,7 @@ src/
 ```
 
 #### Server → Client (Events)
+
 ```typescript
 // Server broadcasts state changes via WebSocket
 {
@@ -66,6 +69,7 @@ src/
 ## 🖥️ Server-Side Components
 
 ### **ServerLatticeSimulator**
+
 - **Purpose**: Core device simulation engine
 - **Location**: `src/server/serverSimulator.ts`
 - **Key Features**:
@@ -73,7 +77,8 @@ src/
   - Handles protocol operations (connect, pair, getAddresses, sign)
   - Emits events via `serverDeviceEvents`
 
-### **ServerWebSocketManager** 
+### **ServerWebSocketManager**
+
 - **Purpose**: WebSocket connection and message handling
 - **Location**: `src/server/serverWebSocketManager.ts`
 - **Key Features**:
@@ -82,6 +87,7 @@ src/
   - Broadcasts events to connected clients
 
 ### **ServerDeviceEvents**
+
 - **Purpose**: Server-side event emission system
 - **Location**: `src/server/serverDeviceEvents.ts`
 - **Key Features**:
@@ -91,6 +97,7 @@ src/
 ## 🌐 Client-Side Components
 
 ### **ClientDeviceStore**
+
 - **Purpose**: Client-side UI state management
 - **Location**: `src/client/store/clientDeviceStore.ts`
 - **Key Features**:
@@ -99,6 +106,7 @@ src/
   - Updates state based on server events
 
 ### **useClientWebSocketHandler**
+
 - **Purpose**: WebSocket client communication
 - **Location**: `src/client/hooks/useClientWebSocketHandler.ts`
 - **Key Features**:
@@ -109,21 +117,25 @@ src/
 ## 🎯 Key Architectural Principles
 
 ### **1. Server Manages Truth**
+
 - Server-side simulator maintains the authoritative device state
 - Client UI state is derived from server events
 
-### **2. Commands vs Events** 
+### **2. Commands vs Events**
+
 - **Commands**: Client → Server (intentions/requests)
   - `enter_pairing_mode`, `exit_pairing_mode`
 - **Events**: Server → Client (state changes/facts)
   - `pairing_mode_started`, `pairing_mode_ended`
 
 ### **3. Clean Separation**
+
 - Server code cannot import client code
-- Client code cannot import server code  
+- Client code cannot import server code
 - Communication only via WebSocket messages
 
 ### **4. Naming Convention**
+
 - **Server files**: `server*.ts` (e.g., `serverSimulator.ts`)
 - **Server classes**: `Server*` prefix (e.g., `ServerLatticeSimulator`)
 - **Client files**: `client*.ts` (e.g., `clientDeviceStore.ts`)
@@ -140,18 +152,20 @@ src/
 ## 🚀 Usage Examples
 
 ### Server-Side (Node.js)
+
 ```typescript
 // server.ts
-import { serverWebSocketManager } from './src/server/serverWebSocketManager'
-import { ServerLatticeSimulator } from './src/server/serverSimulator'
+import { serverWebSocketManager } from "./src/server/serverWebSocketManager"
+import { ServerLatticeSimulator } from "./src/server/serverSimulator"
 
 const simulator = new ServerLatticeSimulator({
-  deviceId: 'SD0001',
-  autoApprove: true
+  deviceId: "SD0001",
+  autoApprove: true,
 })
 ```
 
 ### Client-Side (React)
+
 ```typescript
 // Component.tsx
 import { useClientWebSocketHandler } from '../src/client/hooks/useClientWebSocketHandler'
@@ -160,7 +174,7 @@ import { useClientDeviceStore } from '../src/client/store/clientDeviceStore'
 const Component = () => {
   useClientWebSocketHandler('SD0001')
   const { exitPairingMode } = useClientDeviceStore()
-  
+
   return <button onClick={exitPairingMode}>Exit Pairing</button>
 }
 ```

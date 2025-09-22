@@ -6,7 +6,6 @@
  * Central orchestrator for device instances and user interactions
  */
 
-import { createRequestProcessor, type RequestProcessor } from './serverRequestProcessor'
 import { ServerLatticeSimulator } from './serverSimulator'
 
 /**
@@ -30,9 +29,6 @@ export class DeviceManager {
   /** The core device simulator instance */
   private simulator: ServerLatticeSimulator
 
-  /** Request processor for handling user interactions */
-  private requestProcessor: RequestProcessor
-
   /**
    * Creates a new DeviceManager instance
    *
@@ -55,13 +51,6 @@ export class DeviceManager {
       autoApprove: defaultConfig.autoApproveRequests,
     })
 
-    // Initialize request processor
-    this.requestProcessor = createRequestProcessor(this.simulator, {
-      autoApproveRequests: defaultConfig.autoApproveRequests,
-      userApprovalTimeoutMs: defaultConfig.userApprovalTimeoutMs,
-      enableUserInteraction: !defaultConfig.autoApproveRequests,
-    })
-
     // Note: Server-side state restoration is handled via /api/sync-client-state
     // The client-side localStorage is the source of truth, not the server-side store
     console.log(
@@ -74,7 +63,6 @@ export class DeviceManager {
    */
   reset(): void {
     this.simulator.reset()
-    this.requestProcessor.clearPendingRequests()
   }
 
   /**

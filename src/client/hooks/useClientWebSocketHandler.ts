@@ -465,7 +465,7 @@ export function useServerRequestHandler(deviceId: string) {
       // Show toast notification
       showToast({
         title: 'New Sign Request',
-        description: 'A new signing request has been received. Click to view pending requests.',
+        description: 'Click to view pending requests.',
         type: 'info',
         action: {
           label: 'View Requests',
