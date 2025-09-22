@@ -5,7 +5,7 @@
 
 import { toHex, type Hash, type Hex } from 'viem'
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
-import { deriveMultipleKeys, getDerivationInfo } from '@/utils/hdWallet'
+import { deriveMultipleKeys, getDerivationInfo } from '@/shared/utils/hdWallet'
 import type {
   EthereumWalletAccount,
   CreateAccountParams,

@@ -684,7 +684,7 @@ export class ProtocolHandler {
     // - DER signature (74 bytes, padded)
     // Total expected length: 99 bytes
 
-    if (data.length < 99) {
+    if (data.length !== 99) {
       throw new Error(`Invalid finalizePairing payload size: ${data.length}, expected 99 bytes`)
     }
 
