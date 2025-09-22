@@ -138,11 +138,9 @@ export class DeviceManager {
    * @param pairingSecret - Optional secret for secure pairing
    * @returns Promise resolving to pairing success status
    */
-  async pair(pairingSecret?: string): Promise<DeviceResponse<boolean>> {
+  async pair(): Promise<DeviceResponse<boolean>> {
     const request: PairRequest = {
-      pairingSecret,
       appName: 'Lattice Simulator',
-      publicKey: Buffer.alloc(65), // Mock public key
     }
 
     const response = await this.requestProcessor.processRequest<boolean>(

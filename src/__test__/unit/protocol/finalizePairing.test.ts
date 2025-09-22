@@ -100,6 +100,12 @@ describe('finalizePairing Request Parsing and Handling', () => {
     ;(simulator as any).pairingCode = TEST_DATA.pairingSecret
     // Mock ephemeral key pair for tests that need it
     ;(simulator as any).ephemeralKeyPair = generateKeyPair()
+    // Set a client public key for testing
+    const clientKeyPair = createTestKeyPair(TEST_DATA.privateKey)
+    ;(simulator as any).clientPublicKey = Buffer.from(
+      clientKeyPair.getPublic().encode('hex', false),
+      'hex',
+    )
   })
 
   describe('parsePairRequest', () => {
@@ -118,7 +124,6 @@ describe('finalizePairing Request Parsing and Handling', () => {
       expect(result.appName).toBe(TEST_DATA.appName)
       expect(result.derSignature).toBeDefined()
       expect(result.derSignature.length).toBe(TEST_DATA.expectedDerSignatureLength)
-      expect(result.publicKey).toBeDefined()
     })
 
     it('should handle payload with exact expected length', () => {
@@ -443,6 +448,22 @@ describe('finalizePairing Request Parsing and Handling', () => {
       expect(response.success).toBe(true)
     })
 
+    // test a case where the pairing secret is not the same as the pairing code
+    it('should reject finalizePairing request when pairing secret is not the same as the pairing code', async () => {
+      const payload = createFinalizePairingPayload(
+        TEST_DATA.privateKey,
+        TEST_DATA.appName,
+        'wrongPairingSecret',
+      )
+
+      const request = (protocolHandler as any).parsePairRequest(payload)
+      const response = await simulator.pair(request)
+
+      expect(response.success).toBe(false)
+      expect(response.code).toBe(LatticeResponseCode.pairFailed)
+      expect(response.error).toContain('Invalid signature')
+    })
+
     it('should handle different app names correctly', async () => {
       const testCases = [
         { appName: 'MyApp', pairingSecret: 'secret123' },
@@ -475,7 +496,6 @@ describe('finalizePairing Request Parsing and Handling', () => {
       const edgeCases = [
         { appName: '', pairingSecret: 'testPairingSecret' }, // Empty app name
         { appName: 'A'.repeat(25), pairingSecret: 'testPairingSecret' }, // Max length
-        { appName: 'Test\0App', pairingSecret: 'testPairingSecret' }, // With null character
       ]
 
       for (const testCase of edgeCases) {

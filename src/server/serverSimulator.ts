@@ -284,34 +284,32 @@ export class ServerLatticeSimulator {
 
       // Implement real signature validation
       try {
-        // 1. Parse DER signature to get r, s values
-        const { r, s } = this.parseDERSignature(request.derSignature)
-
-        // 2. Validate signature format and components
-        if (!this.validateSignatureFormat(r, s)) {
-          console.log('[Simulator] Invalid signature format')
-          return createDeviceResponse(
-            false,
-            LatticeResponseCode.pairFailed,
-            false,
-            'Invalid signature format',
-          )
+        // 1. Use the client public key that was stored during connect
+        if (!this.clientPublicKey) {
+          throw new Error('No client public key available')
         }
 
-        // 3. For simulator purposes, we'll validate that the signature is well-formed
-        // and that the pairing code matches what we expect
-        console.log('[Simulator] Signature format validation passed')
-        console.log(`[Simulator] App name: ${request.appName}`)
-        console.log(`[Simulator] Pairing code: ${this.pairingCode}`)
+        // 2. Create app name buffer (25 bytes) like SDK does
+        const nameBuf = Buffer.alloc(25)
+        nameBuf.write(request.appName)
 
-        // 4. Additional validation: check that the signature components are within valid ranges
-        if (!this.validateSignatureComponents(r, s)) {
-          console.log('[Simulator] Signature components out of valid range')
+        // 3. Generate the same hash that was signed by the SDK
+        const hash = this.generateAppSecret(
+          this.clientPublicKey,
+          nameBuf,
+          Buffer.from(this.pairingCode),
+        )
+
+        // 4. Verify the signature against the hash
+        const isValid = this.verifySignature(request.derSignature, hash, this.clientPublicKey)
+
+        if (!isValid) {
+          console.log('[Simulator] Signature verification failed')
           return createDeviceResponse(
             false,
             LatticeResponseCode.pairFailed,
             false,
-            'Invalid signature components',
+            'Invalid signature',
           )
         }
 
@@ -1757,5 +1755,52 @@ export class ServerLatticeSimulator {
    */
   getPendingSigningRequests(): SigningRequest[] {
     return Array.from(this.pendingSigningRequests.values())
+  }
+
+  /**
+   * Generates app secret hash (same as SDK's generateAppSecret)
+   *
+   * @param publicKey - Public key buffer
+   * @param appName - App name buffer (25 bytes)
+   * @param pairingSecret - Pairing secret buffer
+   * @returns Hash buffer
+   */
+  private generateAppSecret(publicKey: Buffer, appName: Buffer, pairingSecret: Buffer): Buffer {
+    // Create the pre-image by concatenating: publicKey + appName + pairingSecret
+    const preImage = Buffer.concat([publicKey, appName, pairingSecret])
+
+    // Hash the pre-image using SHA-256
+    const hash = createHash('sha256').update(preImage).digest()
+
+    return hash
+  }
+
+  /**
+   * Verifies DER signature against hash and public key
+   *
+   * @param derSignature - DER-encoded signature
+   * @param hash - Hash that was signed
+   * @param publicKey - Public key for verification
+   * @returns True if signature is valid
+   */
+  private verifySignature(derSignature: Buffer, hash: Buffer, publicKey: Buffer): boolean {
+    try {
+      // 1. Parse DER signature to get r, s values
+      const { r, s } = this.parseDERSignature(derSignature)
+
+      // 2. Create elliptic curve instance
+      const ec = new elliptic.ec('p256')
+
+      // 3. Create key pair from public key
+      const keyPair = ec.keyFromPublic(publicKey)
+
+      // 4. Verify the signature
+      const isValid = keyPair.verify(hash, { r, s })
+
+      return isValid
+    } catch (error) {
+      console.error('[Simulator] Signature verification error:', error)
+      return false
+    }
   }
 }

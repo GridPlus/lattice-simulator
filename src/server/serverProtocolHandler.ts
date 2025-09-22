@@ -714,8 +714,6 @@ export class ProtocolHandler {
 
     return {
       appName,
-      pairingSecret: undefined, // Will be validated during signature verification
-      publicKey: Buffer.alloc(65), // Will be extracted from signature verification
       derSignature, // Add this for signature verification
     }
   }

@@ -216,9 +216,7 @@ export interface ConnectResponse {
 }
 
 export interface PairRequest {
-  pairingSecret?: string
   appName: string
-  publicKey: Buffer
   derSignature?: Buffer // DER-encoded signature for finalizePairing validation
 }
 
