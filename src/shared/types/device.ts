@@ -147,7 +147,6 @@ export interface DeviceState {
   // Connection & Pairing
   isConnected: boolean
   isPaired: boolean
-  pairingSecret?: string
   ephemeralPub?: Buffer
   sharedSecret?: Buffer
 

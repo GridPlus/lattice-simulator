@@ -132,10 +132,9 @@ export class DeviceManager {
   /**
    * Pairs with the device
    *
-   * Establishes a trusted pairing with the device using an optional
-   * pairing secret. Requires user approval unless auto-approve is enabled.
+   * Establishes a trusted pairing with the device.
+   * Requires user approval unless auto-approve is enabled.
    *
-   * @param pairingSecret - Optional secret for secure pairing
    * @returns Promise resolving to pairing success status
    */
   async pair(): Promise<DeviceResponse<boolean>> {

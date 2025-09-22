@@ -73,9 +73,6 @@ export class ServerLatticeSimulator {
   /** Whether the device is currently locked */
   private isLocked: boolean = false
 
-  /** Secret used during pairing process */
-  private pairingSecret?: string
-
   /** Ephemeral key pair for session encryption */
   private ephemeralKeyPair?: { publicKey: Buffer; privateKey: Buffer }
 
@@ -326,7 +323,6 @@ export class ServerLatticeSimulator {
 
       // Successful pairing
       this.isPaired = true
-      this.pairingSecret = this.pairingCode
 
       // Exit pairing mode and emit events
       this.exitPairingMode()
@@ -1149,7 +1145,7 @@ export class ServerLatticeSimulator {
   private derivePrivateKey(path: WalletPath): Buffer {
     // Simplified mock derivation - in real implementation use proper BIP32
     const pathString = path.join('/')
-    Buffer.from(pathString + (this.pairingSecret || 'default')) // Use path for derivation
+    Buffer.from(pathString + (this.pairingCode || 'default')) // Use path for derivation
     return randomBytes(32) // Mock private key
   }
 
@@ -1355,7 +1351,6 @@ export class ServerLatticeSimulator {
    */
   unpair(): void {
     this.isPaired = false
-    this.pairingSecret = undefined
     this.ephemeralKeyPair = undefined
   }
 
@@ -1368,7 +1363,6 @@ export class ServerLatticeSimulator {
   reset(): void {
     this.isPaired = false
     this.isLocked = false
-    this.pairingSecret = undefined
     this.ephemeralKeyPair = undefined
     this.isPairingMode = false
     this.pairingCode = '12345678'
@@ -1762,12 +1756,12 @@ export class ServerLatticeSimulator {
    *
    * @param publicKey - Public key buffer
    * @param appName - App name buffer (25 bytes)
-   * @param pairingSecret - Pairing secret buffer
+   * @param pairingCode - Pairing code buffer
    * @returns Hash buffer
    */
-  private generateAppSecret(publicKey: Buffer, appName: Buffer, pairingSecret: Buffer): Buffer {
-    // Create the pre-image by concatenating: publicKey + appName + pairingSecret
-    const preImage = Buffer.concat([publicKey, appName, pairingSecret])
+  private generateAppSecret(publicKey: Buffer, appName: Buffer, pairingCode: Buffer): Buffer {
+    // Create the pre-image by concatenating: publicKey + appName + pairingCode
+    const preImage = Buffer.concat([publicKey, appName, pairingCode])
 
     // Hash the pre-image using SHA-256
     const hash = createHash('sha256').update(preImage).digest()
