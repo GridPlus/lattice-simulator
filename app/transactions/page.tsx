@@ -11,6 +11,7 @@ import { FileText, Filter, CheckCircle, XCircle, Eye, Download, Search } from 'l
 import React, { useState, useMemo, useEffect } from 'react'
 import { MainLayout } from '@/client/components/layout'
 import { useTransactionStore } from '@/client/store/clientTransactionStore'
+import { renderBufferAsHex } from '@/shared/utils'
 import type { TransactionRecord } from '@/shared/types/device'
 
 export default function TransactionsPage() {
@@ -480,9 +481,7 @@ export default function TransactionsPage() {
                           Data (Hex)
                         </label>
                         <div className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-32 overflow-y-auto break-all">
-                          {Buffer.isBuffer(selectedTransaction.originalRequest.data.data)
-                            ? selectedTransaction.originalRequest.data.data.toString('hex')
-                            : String(selectedTransaction.originalRequest.data.data)}
+                          {renderBufferAsHex(selectedTransaction.originalRequest.data.data)}
                         </div>
                       </div>
 

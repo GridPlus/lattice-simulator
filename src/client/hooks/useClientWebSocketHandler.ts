@@ -12,6 +12,7 @@ import { useToast } from '@/client/components/ui/ToastProvider'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
 import { useTransactionStore } from '@/client/store/clientTransactionStore'
 import { getWalletServices } from '@/client/store/clientWalletStore'
+import { normalizeBuffer } from '@/shared/utils'
 import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
 import type { SigningRequest } from '@/shared/types/device'
 
@@ -507,9 +508,27 @@ export function useServerRequestHandler(deviceId: string) {
         const recovery = data.response.data.recovery
 
         if (signature) {
+          console.log(`[ClientWebSocketHandler] Signature: ${JSON.stringify(signature)}`)
+
+          // Normalize Buffer objects using utility function
+
+          const actualSignature = normalizeBuffer(signature)
+          console.log(
+            `[ClientWebSocketHandler] Converted signature to Buffer: ${actualSignature.toString('hex')}`,
+          )
+
+          // Also normalize the originalRequest data fields
+          const normalizedRequest = {
+            ...originalRequest,
+            data: {
+              ...originalRequest.data,
+              data: normalizeBuffer(originalRequest.data.data),
+            },
+          }
+
           transactionStore.createApprovedTransaction(
-            originalRequest as SigningRequest,
-            signature,
+            normalizedRequest as SigningRequest,
+            actualSignature,
             recovery,
           )
           console.log(
@@ -522,7 +541,17 @@ export function useServerRequestHandler(deviceId: string) {
         }
       } else if (data.status === 'rejected') {
         // Create rejected transaction record
-        transactionStore.createRejectedTransaction(originalRequest as SigningRequest, {
+        // Normalize Buffer objects in originalRequest data fields using utility function
+
+        const normalizedRequest = {
+          ...originalRequest,
+          data: {
+            ...originalRequest.data,
+            data: normalizeBuffer(originalRequest.data.data),
+          },
+        }
+
+        transactionStore.createRejectedTransaction(normalizedRequest as SigningRequest, {
           description: 'User rejected transaction',
         })
         console.log(
