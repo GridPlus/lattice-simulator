@@ -509,6 +509,68 @@ class ServerWebSocketManager {
           }
           break
 
+        case 'sync_wallet_accounts':
+          const { walletAccounts: walletData } = data || {}
+          console.log(`[ServerWsManager] Syncing wallet accounts for device: ${deviceId}`)
+          console.log('[ServerWsManager] Received wallet data:', {
+            hasWallets: !!walletData?.wallets,
+            hasActiveWallets: !!walletData?.activeWallets,
+            isInitialized: walletData?.isInitialized,
+            lastUpdated: walletData?.lastUpdated,
+          })
+
+          try {
+            // Get the device manager for this device
+            const deviceManager = await this.getDeviceManager(deviceId)
+            const simulator = deviceManager.getSimulator()
+
+            // Store wallet data in the simulator
+            if (walletData) {
+              simulator.setWalletData(walletData)
+              console.log(
+                `[ServerWsManager] Wallet accounts synced successfully for device: ${deviceId}`,
+              )
+            }
+
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: {
+                command,
+                success: true,
+                message: 'Wallet accounts synced to server successfully',
+                syncedData: {
+                  deviceId,
+                  walletCount: walletData?.wallets
+                    ? Object.values(walletData.wallets).reduce(
+                        (total: number, coinWallets: any) =>
+                          total +
+                          (coinWallets.external?.length || 0) +
+                          (coinWallets.internal?.length || 0),
+                        0,
+                      )
+                    : 0,
+                  isInitialized: walletData?.isInitialized,
+                },
+              },
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error(
+              `[ServerWsManager] Error syncing wallet accounts for device ${deviceId}:`,
+              error,
+            )
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: {
+                command,
+                success: false,
+                error: error instanceof Error ? error.message : 'Unknown error',
+              },
+              timestamp: Date.now(),
+            })
+          }
+          break
+
         case 'approve_signing_request':
           const { requestId: approveRequestId } = data || {}
           if (!approveRequestId) {
@@ -568,38 +630,6 @@ class ServerWebSocketManager {
           }
           break
 
-        case 'sync_wallet_accounts':
-          const { walletAccounts } = data || {}
-          if (!walletAccounts || !Array.isArray(walletAccounts)) {
-            this.sendError(ws, 'Wallet accounts array is required for sync')
-            return
-          }
-
-          console.log(
-            `[ServerWsManager] Syncing ${walletAccounts.length} wallet accounts for device: ${deviceId}`,
-          )
-
-          try {
-            // Import and update the wallet manager
-            const { walletManager } = await import('../services/walletManager')
-            await walletManager.syncWalletAccounts(walletAccounts)
-
-            this.sendMessage(ws, {
-              type: 'command_response',
-              data: {
-                command,
-                success: true,
-                message: `Synced ${walletAccounts.length} wallet accounts successfully`,
-                syncedCount: walletAccounts.length,
-              },
-              timestamp: Date.now(),
-            })
-          } catch (error) {
-            console.error(`[ServerWsManager] Error syncing wallet accounts: ${error}`)
-            this.sendError(ws, `Error syncing wallet accounts: ${(error as Error).message}`)
-          }
-          break
-
         default:
           console.warn(`[ServerWsManager] Unknown command: ${command}`)
           this.sendError(ws, `Unknown command: ${command}`)
@@ -607,7 +637,16 @@ class ServerWebSocketManager {
       }
     } catch (error) {
       console.error('[ServerWsManager] Error handling device command:', error)
-      this.sendError(ws, 'Error processing command')
+      const { command } = message.data || {}
+      this.sendMessage(ws, {
+        type: 'command_response',
+        data: {
+          command,
+          success: false,
+          error: error instanceof Error ? error.message : 'Error processing command',
+        },
+        timestamp: Date.now(),
+      })
     }
   }
 

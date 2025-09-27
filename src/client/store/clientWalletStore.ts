@@ -6,6 +6,8 @@
 import { create } from 'zustand'
 import { subscribeWithSelector, persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import { sendSyncWalletAccountsCommand } from '../clientWebSocketCommands'
+import { useDeviceStore } from './clientDeviceStore'
 import type {
   WalletAccount,
   WalletCollection,
@@ -15,6 +17,36 @@ import type {
 } from '@/shared/types/wallet'
 // Dynamic imports to avoid SSR issues with crypto libraries
 let walletServices: any = null
+
+// Debounced wallet sync function
+let syncTimeout: NodeJS.Timeout | null = null
+const syncWalletsToServer = (deviceId: string, walletData: any) => {
+  if (syncTimeout) {
+    clearTimeout(syncTimeout)
+  }
+
+  syncTimeout = setTimeout(() => {
+    try {
+      console.log('[WalletStore] Syncing wallet data to server...')
+      sendSyncWalletAccountsCommand(deviceId, walletData)
+    } catch (error) {
+      console.error('[WalletStore] Failed to sync wallet data:', error)
+    }
+  }, 500) // 500ms debounce
+}
+
+// Helper function to get current device ID from device store
+const getCurrentDeviceId = (): string => {
+  if (typeof window === 'undefined') return ''
+
+  try {
+    const deviceState = useDeviceStore.getState()
+    return deviceState.deviceInfo.deviceId || 'default-device'
+  } catch (error) {
+    console.warn('[WalletStore] Could not get device ID from device store:', error)
+    return 'default-device'
+  }
+}
 
 export async function getWalletServices() {
   if (walletServices) {
@@ -224,6 +256,19 @@ export const useWalletStore = create<WalletStore>()(
             console.log(
               `- SOL: ${solAccounts.length + solInternalAccounts.length} accounts (${solAccounts.length} external, ${solInternalAccounts.length} internal)`,
             )
+
+            // Sync wallet data to server after initialization
+            const deviceId = getCurrentDeviceId()
+            if (deviceId) {
+              const currentState = get()
+              const walletData = {
+                wallets: currentState.wallets,
+                activeWallets: currentState.activeWallets,
+                isInitialized: currentState.isInitialized,
+                lastUpdated: Date.now(),
+              }
+              syncWalletsToServer(deviceId, walletData)
+            }
           } catch (error) {
             console.error('[WalletStore] Failed to initialize wallets:', error)
             set(state => {
@@ -241,6 +286,19 @@ export const useWalletStore = create<WalletStore>()(
             state.error = null
           })
           console.log('[WalletStore] Wallets cleared')
+
+          // Sync wallet data to server after clearing wallets
+          const deviceId = getCurrentDeviceId()
+          if (deviceId) {
+            const currentState = get()
+            const walletData = {
+              wallets: currentState.wallets,
+              activeWallets: currentState.activeWallets,
+              isInitialized: currentState.isInitialized,
+              lastUpdated: Date.now(),
+            }
+            syncWalletsToServer(deviceId, walletData)
+          }
         },
 
         // Account Management
@@ -295,6 +353,19 @@ export const useWalletStore = create<WalletStore>()(
             })
 
             console.log(`[WalletStore] Created ${count} new ${type} ${coinType} accounts`)
+
+            // Sync wallet data to server after creating accounts
+            const deviceId = getCurrentDeviceId()
+            if (deviceId) {
+              const currentState = get()
+              const walletData = {
+                wallets: currentState.wallets,
+                activeWallets: currentState.activeWallets,
+                isInitialized: currentState.isInitialized,
+                lastUpdated: Date.now(),
+              }
+              syncWalletsToServer(deviceId, walletData)
+            }
           } catch (error) {
             console.error(`[WalletStore] Failed to create ${coinType} accounts:`, error)
             set(state => {
@@ -359,6 +430,19 @@ export const useWalletStore = create<WalletStore>()(
           console.log(
             `[WalletStore] Set active ${coinType} wallet: ${account.name} (${account.address})`,
           )
+
+          // Sync wallet data to server after changing active wallet
+          const deviceId = getCurrentDeviceId()
+          if (deviceId) {
+            const currentState = get()
+            const walletData = {
+              wallets: currentState.wallets,
+              activeWallets: currentState.activeWallets,
+              isInitialized: currentState.isInitialized,
+              lastUpdated: Date.now(),
+            }
+            syncWalletsToServer(deviceId, walletData)
+          }
         },
 
         getActiveWallet: (coinType: WalletCoinType) => {

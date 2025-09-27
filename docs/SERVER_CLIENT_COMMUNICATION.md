@@ -46,6 +46,28 @@ SDK Client ← Server (Protocol Handler) ← Request Manager ← WebSocket ← C
    - Broadcasts events to both local listeners and WebSocket clients
    - Maintains backward compatibility for existing components
 
+## WebSocket Commands
+
+### Device Commands (Client → Server)
+
+| Command | Description | Data Format |
+|---------|-------------|-------------|
+| `enter_pairing_mode` | Enter device pairing mode | `{}` |
+| `exit_pairing_mode` | Exit device pairing mode | `{}` |
+| `reset_device` | Reset device state | `{ resetType?: 'full' \| 'soft' }` |
+| `sync_client_state` | Sync client state to server | `{ clientState: any }` |
+| `sync_wallet_accounts` | Sync wallet data to server | `{ walletAccounts: WalletData }` |
+| `approve_signing_request` | Approve a signing request | `{ requestId: string }` |
+| `reject_signing_request` | Reject a signing request | `{ requestId: string, reason?: string }` |
+
+### Server Responses
+
+| Response Type | Description | Data Format |
+|---------------|-------------|-------------|
+| `command_response` | Command execution result | `{ command: string, success: boolean, message?: string, data?: any }` |
+| `device_state` | Device state update | `{ isConnected: boolean, isPaired: boolean, ... }` |
+| `error` | Error response | `{ message: string, code?: string }` |
+
 ## How It Works
 
 ### 1. Server Request Flow
@@ -127,7 +149,17 @@ When the SDK makes a `getKvRecords` request:
 6. **RequestManager resolves** pending promise
 7. **Server responds** to SDK with encrypted data
 
-### 3. Data Format
+### 3. Wallet Sync Flow
+
+When wallet data changes on the client:
+
+1. **Client triggers** wallet sync after operations (initialize, create accounts, set active wallet, clear wallets)
+2. **Debounced sync** (500ms) batches multiple operations
+3. **WebSocket sends** complete wallet data to server
+4. **Server stores** wallet data in simulator
+5. **Server responds** with sync confirmation
+
+### 4. Data Format
 
 The client should respond with data in the expected format:
 
@@ -145,6 +177,21 @@ The client should respond with data in the expected format:
 {
   success: true,
   error?: string
+}
+
+// For wallet sync (client → server)
+{
+  wallets: {
+    [coinType]: {
+      external: [account1, account2, ...],
+      internal: [account1, account2, ...]
+    }
+  },
+  activeWallets: {
+    [coinType]: { external: number, internal: number }
+  },
+  isInitialized: boolean,
+  lastUpdated: number
 }
 ```
 

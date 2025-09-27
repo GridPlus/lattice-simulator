@@ -128,7 +128,18 @@ export function sendRejectSigningRequestCommand(
 
 /**
  * Sends wallet accounts sync command to server
+ *
+ * @param deviceId - Device ID to sync wallet data for
+ * @param walletData - Complete wallet data object from client store
  */
-export function sendSyncWalletAccountsCommand(deviceId: string, walletAccounts: any[]) {
-  sendDeviceCommand(deviceId, 'sync_wallet_accounts', { walletAccounts })
+export function sendSyncWalletAccountsCommand(
+  deviceId: string,
+  walletData: {
+    wallets: any
+    activeWallets: any
+    isInitialized: boolean
+    lastUpdated: number
+  },
+) {
+  sendDeviceCommand(deviceId, 'sync_wallet_accounts', { walletAccounts: walletData })
 }

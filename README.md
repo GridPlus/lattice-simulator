@@ -35,6 +35,12 @@ A comprehensive software simulator for the GridPlus Lattice1 hardware wallet, de
 - **State Inspection**: View and modify device state during development
 - **Testing Framework**: Comprehensive test suite for validation
 
+## 📚 Documentation
+
+- **[Architecture Guide](docs/ARCHITECTURE.md)**: System design and component architecture
+- **[Development Guide](docs/DEVELOPMENT.md)**: Setup, guidelines, and best practices
+- **[Server-Client Communication](docs/SERVER_CLIENT_COMMUNICATION.md)**: WebSocket protocol and API documentation
+
 ## 📋 Prerequisites
 
 - **Node.js**: Version 18.0.0 or higher
@@ -328,6 +334,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 🆘 Support
 
 ### Documentation
+- **[Architecture Guide](docs/ARCHITECTURE.md)**: System architecture and component overview
+- **[Development Guide](docs/DEVELOPMENT.md)**: Development setup and guidelines
+- **[Server-Client Communication](docs/SERVER_CLIENT_COMMUNICATION.md)**: WebSocket protocol documentation
 - **API Reference**: Complete API documentation
 - **Protocol Specs**: Lattice1 protocol documentation
 - **Examples**: Sample code and use cases

@@ -150,7 +150,6 @@ export function useServerRequestHandler(deviceId: string) {
 
       let accounts: any[] = []
 
-      // Use wallet services through the client store's import system to avoid chunking issues
       try {
         // Import the wallet services helper from the client store
         const walletServices = await getWalletServices()
@@ -192,6 +191,25 @@ export function useServerRequestHandler(deviceId: string) {
         throw new Error(
           `Failed to load ${coinType} wallet service: ${importError instanceof Error ? importError.message : 'Unknown error'}`,
         )
+      }
+
+      // Store accounts in client wallet store for future signing operations
+      try {
+        const { useWalletStore } = await import('../store/clientWalletStore')
+        const walletType = startPath[3] === 0 ? 'external' : 'internal'
+
+        // Store accounts in the wallet store
+        await useWalletStore.getState().createAccounts(coinType, walletType, count)
+
+        console.log(
+          `[ClientWebSocketHandler] Stored ${count} ${coinType} ${walletType} accounts in client wallet store`,
+        )
+      } catch (storeError) {
+        console.warn(
+          '[ClientWebSocketHandler] Failed to store accounts in wallet store:',
+          storeError,
+        )
+        // Continue with address generation even if storage fails
       }
 
       // Convert accounts to address format expected by server

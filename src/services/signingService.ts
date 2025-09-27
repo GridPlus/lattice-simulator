@@ -88,9 +88,54 @@ export class SigningService {
     const coinType = detectCoinTypeFromPath(request.path)
 
     // Find the appropriate wallet account
-    const walletAccount = this.findWalletAccount(request.path, coinType, walletAccounts)
+    let walletAccount = this.findWalletAccount(request.path, coinType, walletAccounts)
     if (!walletAccount) {
-      throw new Error(`No wallet account found for path: ${request.path.join('/')}`)
+      // Try to create account on-demand if none exists
+      console.log(
+        `[SigningService] No wallet account found for path: ${request.path.join('/')}, attempting to create on-demand`,
+      )
+
+      // Extract account index from derivation path (assuming BIP-44 format: m/44'/coin'/account'/change/address)
+      const accountIndex = request.path.length >= 3 ? request.path[2] - 0x80000000 : 0 // Remove hardened flag
+      const changeType =
+        request.path.length >= 4 ? (request.path[3] === 0 ? 'external' : 'internal') : 'external'
+
+      try {
+        // Check if coin type is supported for account creation
+        if (coinType === 'UNKNOWN') {
+          throw new Error(`Unknown coin type for path: ${request.path.join('/')}`)
+        }
+
+        // Use global wallet manager instance to create accounts
+        const { walletManager } = await import('./walletManager')
+        const newAccounts = await walletManager.createAccountsForCoin(
+          coinType,
+          1, // Create 1 account
+          accountIndex,
+          changeType,
+        )
+
+        // Add new accounts to the walletAccounts map
+        newAccounts.forEach(account => {
+          walletAccounts.set(account.id, account)
+        })
+
+        // Try to find the account again
+        walletAccount = this.findWalletAccount(request.path, coinType, walletAccounts)
+
+        if (!walletAccount) {
+          throw new Error(`Failed to create wallet account for path: ${request.path.join('/')}`)
+        }
+
+        console.log(
+          `[SigningService] Successfully created wallet account for path: ${request.path.join('/')}`,
+        )
+      } catch (error) {
+        console.error('[SigningService] Failed to create wallet account:', error)
+        throw new Error(
+          `No wallet account found for path: ${request.path.join('/')} and failed to create one: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        )
+      }
     }
 
     // Sign based on coin type

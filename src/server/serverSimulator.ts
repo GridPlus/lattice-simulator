@@ -86,6 +86,14 @@ export class ServerLatticeSimulator {
   /** Currently active internal and external wallets */
   private activeWallets: ActiveWallets
 
+  /** Wallet data synced from client (client is source of truth) */
+  private walletData: {
+    wallets: any
+    activeWallets: any
+    isInitialized: boolean
+    lastUpdated: number
+  } | null = null
+
   /** Stored key-value records */
   private kvRecords: Record<string, string> = {}
   /** Next available ID for KV records */
@@ -1315,6 +1323,43 @@ export class ServerLatticeSimulator {
    */
   setAutoApprove(autoApprove: boolean): void {
     this.autoApprove = autoApprove
+  }
+
+  /**
+   * Sets wallet data from client (client is source of truth)
+   *
+   * @param walletData - Wallet data from client store
+   */
+  setWalletData(walletData: any): void {
+    if (!walletData) {
+      console.warn('[Simulator] No wallet data provided to setWalletData')
+      this.walletData = null
+      return
+    }
+
+    // Store wallet data in the simulator
+    this.walletData = {
+      wallets: walletData.wallets || {},
+      activeWallets: walletData.activeWallets || {},
+      isInitialized: walletData.isInitialized || false,
+      lastUpdated: walletData.lastUpdated || Date.now(),
+    }
+
+    console.log('[Simulator] Wallet data synced from client:', {
+      hasWallets: !!this.walletData.wallets,
+      hasActiveWallets: !!this.walletData.activeWallets,
+      isInitialized: this.walletData.isInitialized,
+      lastUpdated: this.walletData.lastUpdated,
+    })
+  }
+
+  /**
+   * Gets the current wallet data synced from client
+   *
+   * @returns Wallet data or null if not synced
+   */
+  getWalletData(): any {
+    return this.walletData
   }
 
   /**
