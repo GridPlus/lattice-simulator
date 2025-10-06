@@ -180,7 +180,10 @@ function ConnectionInfo() {
   const router = useRouter()
   const { isConnected, deviceId } = useDeviceConnection()
   const { resetConnectionState, resetDeviceState, setDeviceInfo } = useDeviceStore()
-  const { isInitialized: walletsInitialized, clearWallets } = useWalletStore()
+  const walletsInitialized = useWalletStore(state => state.isInitialized)
+  const clearWallets = useWalletStore(state => state.clearWallets)
+  const hasDismissedSetupPrompt = useWalletStore(state => state.hasDismissedSetupPrompt)
+  const dismissSetupPrompt = useWalletStore(state => state.dismissSetupPrompt)
   const resetTransactionStore = useTransactionStore(state => state.resetStore)
   const [isResetting, setIsResetting] = useState(false)
   const [showWalletSetup, setShowWalletSetup] = useState(false)
@@ -189,6 +192,10 @@ function ConnectionInfo() {
   const [isEditingDeviceId, setIsEditingDeviceId] = useState(false)
   const [deviceIdInput, setDeviceIdInput] = useState(deviceId || 'SD0001')
   const [isSaving, setIsSaving] = useState(false)
+  const [walletStoreHydrated, setWalletStoreHydrated] = useState(
+    useWalletStore.persist?.hasHydrated?.() ?? false,
+  )
+  const [initialPromptDismissed, setInitialPromptDismissed] = useState<boolean | null>(null)
 
   const handleResetConnectionState = async () => {
     setIsResetting(true)
@@ -210,6 +217,7 @@ function ConnectionInfo() {
 
       // Clear all wallet and transaction data
       clearWallets()
+      setInitialPromptDismissed(false)
       resetTransactionStore()
       console.log('[ConnectionInfo] Device wallets reset successfully')
 
@@ -247,6 +255,62 @@ function ConnectionInfo() {
   useEffect(() => {
     setDeviceIdInput(deviceId || 'SD0001')
   }, [deviceId])
+
+  useEffect(() => {
+    const finishHydrationHandler = () => {
+      setWalletStoreHydrated(true)
+    }
+
+    const unsub = useWalletStore.persist?.onFinishHydration?.(finishHydrationHandler)
+
+    if (useWalletStore.persist?.hasHydrated?.()) {
+      setWalletStoreHydrated(true)
+    }
+
+    return () => {
+      unsub?.()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      setInitialPromptDismissed(false)
+      return
+    }
+
+    try {
+      const stored = window.localStorage.getItem('lattice-wallet-store')
+      if (!stored) {
+        setInitialPromptDismissed(false)
+        return
+      }
+
+      const parsed = JSON.parse(stored)
+      const dismissed = !!(
+        parsed?.state?.hasDismissedSetupPrompt ?? parsed?.hasDismissedSetupPrompt
+      )
+      setInitialPromptDismissed(dismissed)
+    } catch (error) {
+      console.warn('[ConnectionInfo] Failed to read wallet prompt state:', error)
+      setInitialPromptDismissed(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!walletStoreHydrated || initialPromptDismissed === null) {
+      return
+    }
+
+    if (!walletsInitialized && !hasDismissedSetupPrompt && !initialPromptDismissed) {
+      setShowWalletSetup(true)
+    }
+  }, [walletStoreHydrated, initialPromptDismissed, walletsInitialized, hasDismissedSetupPrompt])
+
+  const handleCloseWalletSetup = () => {
+    setShowWalletSetup(false)
+    setInitialPromptDismissed(true)
+    dismissSetupPrompt()
+  }
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
@@ -367,7 +431,7 @@ function ConnectionInfo() {
                   Device Wallet Setup
                 </h2>
                 <button
-                  onClick={() => setShowWalletSetup(false)}
+                  onClick={handleCloseWalletSetup}
                   className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -380,10 +444,12 @@ function ConnectionInfo() {
                   </svg>
                 </button>
               </div>
+
               <WalletSetup
                 onSetupComplete={() => {
                   setShowWalletSetup(false)
-                  // Force a re-render to show updated wallet status
+                  setInitialPromptDismissed(true)
+                  dismissSetupPrompt()
                 }}
               />
             </div>

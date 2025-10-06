@@ -100,6 +100,9 @@ interface WalletState {
 
   /** Active mnemonic used for wallet derivation */
   activeMnemonic: string | null
+
+  /** Whether the wallet setup success prompt has been dismissed */
+  hasDismissedSetupPrompt: boolean
 }
 
 /**
@@ -140,6 +143,9 @@ interface WalletActions {
   /** Get active wallet for a coin type */
   getActiveWallet: (coinType: WalletCoinType) => WalletAccount | undefined
 
+  /** Mark the wallet setup prompt as dismissed */
+  dismissSetupPrompt: () => void
+
   // Error Management
   /** Set error message */
   setError: (error: string | null) => void
@@ -163,6 +169,7 @@ const INITIAL_WALLET_STATE: WalletState = {
   isLoading: false,
   error: null,
   activeMnemonic: null,
+  hasDismissedSetupPrompt: false,
 }
 
 /**
@@ -281,6 +288,7 @@ export const useWalletStore = create<WalletStore>()(
             state.isInitialized = false
             state.error = null
             state.activeMnemonic = null
+            state.hasDismissedSetupPrompt = false
           })
           setWalletMnemonicOverride(null)
           console.log('[WalletStore] Wallets cleared')
@@ -430,6 +438,12 @@ export const useWalletStore = create<WalletStore>()(
           return get().activeWallets[coinType]
         },
 
+        dismissSetupPrompt: () => {
+          set(state => {
+            state.hasDismissedSetupPrompt = true
+          })
+        },
+
         // Error Management
         setError: (error: string | null) => {
           set(state => {
@@ -453,10 +467,15 @@ export const useWalletStore = create<WalletStore>()(
         activeWallets: state.activeWallets,
         isInitialized: state.isInitialized,
         activeMnemonic: state.activeMnemonic,
+        hasDismissedSetupPrompt: state.hasDismissedSetupPrompt,
       }),
       onRehydrateStorage: () => state => {
         const mnemonic = state?.activeMnemonic?.trim()
         setWalletMnemonicOverride(mnemonic && mnemonic.length > 0 ? mnemonic : null)
+
+        if (state && typeof state.hasDismissedSetupPrompt === 'undefined') {
+          state.hasDismissedSetupPrompt = !!state.isInitialized
+        }
       },
     },
   ),

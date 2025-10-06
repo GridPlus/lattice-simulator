@@ -42,15 +42,24 @@ export default function Home() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-left">
               <div>
                 <h4 className="font-medium text-gray-900 dark:text-white mb-2">
-                  1. Connect Device
+                  1. Set Up Device Wallet
                 </h4>
                 <p className="text-gray-600 dark:text-gray-400">
-                  Use the Connection panel to establish a connection with the simulated device.
+                  Initialize the simulator with a mnemonic so wallet accounts and keys are ready to
+                  use.
                 </p>
               </div>
               <div>
                 <h4 className="font-medium text-gray-900 dark:text-white mb-2">
-                  2. Pair Application
+                  2. Connect Device
+                </h4>
+                <p className="text-gray-600 dark:text-gray-400">
+                  Use the Connection panel to establish a session with the simulated device.
+                </p>
+              </div>
+              <div>
+                <h4 className="font-medium text-gray-900 dark:text-white mb-2">
+                  3. Pair Application
                 </h4>
                 <p className="text-gray-600 dark:text-gray-400">
                   Complete the pairing process to enable secure communication.
@@ -58,7 +67,7 @@ export default function Home() {
               </div>
               <div>
                 <h4 className="font-medium text-gray-900 dark:text-white mb-2">
-                  3. Manage Wallets
+                  4. Manage Wallets
                 </h4>
                 <p className="text-gray-600 dark:text-gray-400">
                   View and manage your cryptocurrency wallets and addresses.
@@ -66,7 +75,7 @@ export default function Home() {
               </div>
               <div>
                 <h4 className="font-medium text-gray-900 dark:text-white mb-2">
-                  4. Handle Requests
+                  5. Handle Requests
                 </h4>
                 <p className="text-gray-600 dark:text-gray-400">
                   Approve or decline signing requests and transactions.
