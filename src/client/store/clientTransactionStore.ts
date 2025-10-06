@@ -94,6 +94,9 @@ interface TransactionHistoryActions {
 
   /** Set hydration status */
   setHasHydrated: (hasHydrated: boolean) => void
+
+  /** Reset the entire transaction store to its initial state */
+  resetStore: () => void
 }
 
 type TransactionStore = TransactionHistoryState & TransactionHistoryActions
@@ -331,6 +334,14 @@ export const useTransactionStore = create<TransactionStore>()(
 
       setHasHydrated: (hasHydrated: boolean) => {
         set({ _hasHydrated: hasHydrated })
+      },
+
+      resetStore: () => {
+        set(state => ({
+          ...INITIAL_STATE,
+          _hasHydrated: state._hasHydrated,
+        }))
+        console.log('[TransactionStore] Reset to initial state')
       },
     }),
     {

@@ -17,6 +17,7 @@ import { useRouter } from 'next/navigation'
 import React, { useState, useEffect } from 'react'
 import { WalletSetup } from '@/client/components/setup'
 import { useDeviceConnection, useDeviceStatus, useDeviceStore } from '@/client/store'
+import { useTransactionStore } from '@/client/store/clientTransactionStore'
 import { useWalletStore } from '@/client/store/clientWalletStore'
 import { formatFirmwareVersion } from '@/shared/utils/protocol'
 
@@ -178,8 +179,9 @@ function ConnectionStatus() {
 function ConnectionInfo() {
   const router = useRouter()
   const { isConnected, deviceId } = useDeviceConnection()
-  const { resetConnectionState, setDeviceInfo } = useDeviceStore()
+  const { resetConnectionState, resetDeviceState, setDeviceInfo } = useDeviceStore()
   const { isInitialized: walletsInitialized, clearWallets } = useWalletStore()
+  const resetTransactionStore = useTransactionStore(state => state.resetStore)
   const [isResetting, setIsResetting] = useState(false)
   const [showWalletSetup, setShowWalletSetup] = useState(false)
   const [showResetConfirm, setShowResetConfirm] = useState(false)
@@ -203,8 +205,12 @@ function ConnectionInfo() {
   const handleResetDevice = async () => {
     setIsResettingDevice(true)
     try {
-      // Clear all wallet data
+      // Reset server-side and device state
+      await resetDeviceState()
+
+      // Clear all wallet and transaction data
       clearWallets()
+      resetTransactionStore()
       console.log('[ConnectionInfo] Device wallets reset successfully')
 
       // Close the confirmation dialog
