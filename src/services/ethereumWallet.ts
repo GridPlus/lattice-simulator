@@ -5,13 +5,13 @@
 
 import { toHex, type Hash, type Hex } from 'viem'
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
-import { deriveMultipleKeys, getDerivationInfo } from '@/shared/utils/hdWallet'
+import { deriveMultipleKeys, getDerivationInfo } from '../shared/utils/hdWallet'
 import type {
   EthereumWalletAccount,
   CreateAccountParams,
   WalletDerivationResult,
   WalletAccountType,
-} from '@/shared/types/wallet'
+} from '../shared/types/wallet'
 import type { HDKey } from '@scure/bip32'
 
 /**
@@ -54,7 +54,7 @@ export function createEthereumAccountFromHDKey(
     createdAt: Date.now(),
     address: viemAccount.address,
     publicKey: hdKey.publicKey ? toHex(hdKey.publicKey) : '',
-    privateKey: type === 'internal' ? privateKeyHex : undefined, // Only store for internal accounts
+    privateKey: privateKeyHex,
   }
 
   return account

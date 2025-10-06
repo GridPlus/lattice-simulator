@@ -569,7 +569,8 @@ class ServerWebSocketManager {
           break
 
         case 'sync_wallet_accounts':
-          const { walletAccounts } = data || {}
+          const payload = data || {}
+          const { walletAccounts, mnemonic } = payload
           if (!walletAccounts || !Array.isArray(walletAccounts)) {
             this.sendError(ws, 'Wallet accounts array is required for sync')
             return
@@ -582,6 +583,18 @@ class ServerWebSocketManager {
           try {
             // Import and update the wallet manager
             const { walletManager } = await import('../services/walletManager')
+
+            const hasMnemonicField = Object.prototype.hasOwnProperty.call(payload, 'mnemonic')
+            if (hasMnemonicField) {
+              const overrideChanged = await walletManager.applyMnemonicOverride(
+                typeof mnemonic === 'string' ? mnemonic : null,
+              )
+
+              if (overrideChanged) {
+                console.log('[ServerWsManager] Mnemonic override updated from client sync')
+              }
+            }
+
             await walletManager.syncWalletAccounts(walletAccounts)
 
             this.sendMessage(ws, {

@@ -129,6 +129,18 @@ export function sendRejectSigningRequestCommand(
 /**
  * Sends wallet accounts sync command to server
  */
-export function sendSyncWalletAccountsCommand(deviceId: string, walletAccounts: any[]) {
-  sendDeviceCommand(deviceId, 'sync_wallet_accounts', { walletAccounts })
+export function sendSyncWalletAccountsCommand(
+  deviceId: string,
+  walletAccounts: any[],
+  mnemonic?: string | null,
+) {
+  const payload: Record<string, any> = { walletAccounts }
+  const sanitizedMnemonic =
+    typeof mnemonic === 'string' && mnemonic.trim().length > 0 ? mnemonic.trim() : null
+
+  if (sanitizedMnemonic) {
+    payload.mnemonic = sanitizedMnemonic
+  }
+
+  sendDeviceCommand(deviceId, 'sync_wallet_accounts', payload)
 }

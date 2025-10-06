@@ -41,7 +41,7 @@ export class DeviceManager {
     // Initialize simulator with default config (no client store dependency)
     const defaultConfig = {
       simulatedFirmwareVersion: [0, 15, 0],
-      autoApproveRequests: false,
+      autoApproveRequests: true,
       userApprovalTimeoutMs: 60000,
     }
 

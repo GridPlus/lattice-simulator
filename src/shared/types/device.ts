@@ -212,6 +212,7 @@ export interface ConnectResponse {
   firmwareVersion: Buffer
   ephemeralPub: Buffer
   activeWallets?: ActiveWallets
+  encryptedWalletData?: Buffer
 }
 
 export interface PairRequest {
@@ -238,10 +239,14 @@ export interface SignRequest {
   curve: number
   encoding: number
   hashType: number
+  omitPubkey?: boolean
+  hasExtraPayloads?: boolean
+  nextCode?: Buffer
+  rawPayload?: Buffer
 }
 
 export interface SignResponse {
-  signature: Buffer
+  signature?: Buffer
   recovery?: number
   metadata?: {
     /** Ethereum address that signed (for ETH) */
@@ -250,5 +255,13 @@ export interface SignResponse {
     txHash?: string
     /** Public key used for signing */
     publicKey?: string
+    publicKeyCompressed?: string
   }
+  nextCode?: Buffer
+  schema?: number
+  omitPubkey?: boolean
+  curve?: number
+  encoding?: number
+  hashType?: number
+  path?: WalletPath
 }

@@ -2,11 +2,11 @@ import { createServer } from 'http'
 import { parse } from 'url'
 import next from 'next'
 import { WebSocketServer } from 'ws'
-import { DeviceManager } from '@/server/serverDeviceManager'
-import { wsManager } from '@/server/serverWebSocketManager'
+import { DeviceManager } from './src/server/serverDeviceManager'
+import { wsManager } from './src/server/serverWebSocketManager'
 
 const dev = process.env.NODE_ENV !== 'production'
-const hostname = 'localhost'
+const hostname = '127.0.0.1'
 const port = parseInt(process.env.PORT || '3000', 10)
 const wsPort = port + 443 // Use a separate port for WebSocket server
 
@@ -117,11 +117,11 @@ app
     })
 
     // Start both servers
-    server.listen(port, () => {
+    server.listen(port, hostname, () => {
       console.log(`> Next.js server ready on http://${hostname}:${port}`)
     })
 
-    wsServer.listen(wsPort, () => {
+    wsServer.listen(wsPort, hostname, () => {
       console.log(`> WebSocket server ready at ws://${hostname}:${wsPort}/ws/device/[deviceId]`)
     })
   })

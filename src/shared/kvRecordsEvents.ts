@@ -6,7 +6,7 @@
  * use case of KV records.
  */
 
-import type { KvRecord, KvRecordData } from '@/shared/types/kvRecords'
+import type { KvRecord, KvRecordData } from './types/kvRecords'
 
 /**
  * Event types for KV records operations

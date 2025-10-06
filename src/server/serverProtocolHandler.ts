@@ -4,12 +4,13 @@
  */
 
 import crc32 from 'crc-32'
+import elliptic from 'elliptic'
 import {
   requestKvRecords,
   requestAddKvRecords,
   requestRemoveKvRecords,
 } from './serverRequestManager'
-import { parseSignRequestPayload } from './signRequestParsers'
+import { parseSignRequestPayload, SignRequestSchema } from './signRequestParsers'
 import {
   LatticeSecureEncryptedRequestType,
   LatticeResponseCode,
@@ -21,6 +22,16 @@ import {
 } from '../shared/types'
 import { aes256_decrypt, aes256_encrypt, generateKeyPair } from '../shared/utils/crypto'
 import type { ServerLatticeSimulator } from './serverSimulator'
+
+const secp256k1 = new elliptic.ec('secp256k1')
+const GP_ERRORS = {
+  SUCCESS: 0,
+  EINVAL: 0xffffffff + 1 - 22,
+}
+
+const WalletJobType = {
+  EXPORT_SEED: 4,
+}
 
 /**
  * Secure request structure for encrypted protocol messages
@@ -656,10 +667,73 @@ export class ProtocolHandler {
    * @private
    */
   private async handleTestRequest(data: Buffer): Promise<SecureResponse> {
-    // Echo back the test data
-    return {
-      code: LatticeResponseCode.success,
-      data: data,
+    try {
+      if (data.length < 6) {
+        throw new Error('Invalid test request payload length')
+      }
+
+      const payloadLength = data.readUInt16BE(4)
+      const payload = data.slice(6, 6 + payloadLength)
+
+      if (payload.length < 40) {
+        throw new Error('Invalid wallet job payload length')
+      }
+
+      const jobType = payload.readUInt32LE(36)
+
+      switch (jobType) {
+        case WalletJobType.EXPORT_SEED: {
+          const exportResponse = await this.simulator.exportSeed()
+
+          if (!exportResponse.success || !exportResponse.data) {
+            return {
+              code: exportResponse.code,
+              error: exportResponse.error || 'Failed to export seed',
+            }
+          }
+
+          const { seed, wordIndices, numWords } = exportResponse.data
+          const wordBuf = Buffer.alloc(24 * 4)
+          wordIndices.forEach((idx, i) => {
+            wordBuf.writeUInt32LE(idx >>> 0, i * 4)
+          })
+          const numWordsBuf = Buffer.alloc(4)
+          numWordsBuf.writeUInt32LE(numWords, 0)
+
+          const resultData = Buffer.concat([seed, wordBuf, numWordsBuf])
+          const responsePayload = Buffer.alloc(6 + resultData.length)
+          responsePayload.writeUInt32LE(GP_ERRORS.SUCCESS >>> 0, 0)
+          responsePayload.writeUInt16LE(resultData.length, 4)
+          resultData.copy(responsePayload, 6)
+
+          return {
+            code: LatticeResponseCode.success,
+            data: responsePayload,
+          }
+        }
+
+        default: {
+          console.warn(`[ProtocolHandler] Unsupported wallet job type: ${jobType}`)
+          const errorPayload = Buffer.alloc(6)
+          errorPayload.writeUInt32LE(GP_ERRORS.EINVAL >>> 0, 0)
+          errorPayload.writeUInt16LE(0, 4)
+          return {
+            code: LatticeResponseCode.invalidMsg,
+            data: errorPayload,
+            error: `Unsupported wallet job type: ${jobType}`,
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[ProtocolHandler] Test request processing error:', error)
+      const errorPayload = Buffer.alloc(6)
+      errorPayload.writeUInt32LE(GP_ERRORS.EINVAL >>> 0, 0)
+      errorPayload.writeUInt16LE(0, 4)
+      return {
+        code: LatticeResponseCode.internalError,
+        data: errorPayload,
+        error: error instanceof Error ? error.message : 'Failed to process test request',
+      }
     }
   }
 
@@ -786,7 +860,19 @@ export class ProtocolHandler {
     )
 
     // Use the factory-based parser for structured parsing
-    return parseSignRequestPayload(reqPayload, hasExtraPayloads > 0, schema)
+    const parsedRequest = parseSignRequestPayload(reqPayload, hasExtraPayloads > 0, schema)
+
+    const signRequest: SignRequest = {
+      ...parsedRequest,
+      hasExtraPayloads: hasExtraPayloads > 0,
+      rawPayload: reqPayload,
+    }
+
+    if (schema === SignRequestSchema.EXTRA_DATA) {
+      signRequest.nextCode = reqPayload.slice(0, 8)
+    }
+
+    return signRequest
   }
 
   private parseGetKvRecordsRequest(data: Buffer): { type: number; n: number; start: number } {
@@ -949,13 +1035,17 @@ export class ProtocolHandler {
     data.firmwareVersion.copy(response, offset)
     offset += 4
 
-    // Encrypted wallet data (144 bytes) - always present
-    // For paired devices: would contain actual encrypted wallet data
-    // For unpaired devices: filled with zeros
-    if (data.isPaired && data.activeWallets) {
-      // TODO: Implement proper wallet data encryption
-      // For now, fill with zeros even for paired devices
-      response.fill(0, offset, offset + 144)
+    // Encrypted wallet data (144 bytes) - only meaningful once paired
+    if (data.isPaired) {
+      if (!Buffer.isBuffer(data.encryptedWalletData)) {
+        throw new Error('Encrypted wallet data missing for paired device')
+      }
+      if (data.encryptedWalletData.length !== 144) {
+        throw new Error(
+          `Encrypted wallet data must be 144 bytes, received ${data.encryptedWalletData.length}`,
+        )
+      }
+      data.encryptedWalletData.copy(response, offset)
     } else {
       // Unpaired or no wallet data - fill with zeros
       response.fill(0, offset, offset + 144)
@@ -1048,19 +1138,35 @@ export class ProtocolHandler {
     // The response format varies by currency/schema type and must match SDK's decodeSignResponse exactly
 
     console.log('[ProtocolHandler] serializeSignResponse input:', {
-      hasSignature: !!data.signature,
-      hasFormat: !!data.format,
-      hasMetadata: !!data.metadata,
-      format: data.format,
-      schema: request?.schema,
-      signatureType: typeof data.signature,
-      signatureLength: data.signature?.length,
-      metadataKeys: data.metadata ? Object.keys(data.metadata) : 'none',
+      hasSignature: !!data?.signature,
+      hasFormat: !!data?.format,
+      hasMetadata: !!data?.metadata,
+      format: data?.format,
+      schema: data?.schema ?? request?.schema,
+      signatureType: typeof data?.signature,
+      signatureLength: data?.signature?.length,
+      metadataKeys: data?.metadata ? Object.keys(data.metadata) : 'none',
       data: JSON.stringify(data),
     })
 
+    if (data?.nextCode) {
+      const nextCodeBuf = Buffer.alloc(8, 0)
+      data.nextCode.copy(nextCodeBuf, 0, 0, Math.min(data.nextCode.length, 8))
+      return nextCodeBuf
+    }
+
+    const resolvedSchema = data?.schema ?? request?.schema
+    const resolvedRequest: any = {
+      ...(request || {}),
+      schema: resolvedSchema,
+    }
+
+    if (data?.omitPubkey !== undefined) {
+      resolvedRequest.omitPubkey = data.omitPubkey
+    }
+
     // Handle Bitcoin transaction format (schema 0)
-    if (request && request.schema === 0) {
+    if (resolvedSchema === 0) {
       console.log('[ProtocolHandler] Processing Bitcoin transaction')
       // Bitcoin transaction response format: [PKH (20)] + [signatures (760)] + [pubkeys (n * 33)]
       console.log('[ProtocolHandler] Constructing full Bitcoin transaction response format')
@@ -1111,16 +1217,16 @@ export class ProtocolHandler {
     }
 
     // Handle Ethereum and other currencies
-    if (request && (request.schema === 1 || request.schema === 2)) {
-      console.log(`[ProtocolHandler] Processing Ethereum transaction (schema ${request.schema})`)
+    if (resolvedSchema === 1 || resolvedSchema === 2) {
+      console.log(`[ProtocolHandler] Processing Ethereum transaction (schema ${resolvedSchema})`)
       // SDK expects: [DER signature (74 bytes)] + [signer address (20 bytes)]
       const derSigLen = 74
       const response = Buffer.alloc(derSigLen + 20)
 
       // Use the signature from SignResponse
-      if (Buffer.isBuffer(data.signature) && data.signature.length > 0) {
-        // Copy signature to DER section
-        data.signature.copy(response, 0, 0, Math.min(data.signature.length, derSigLen))
+      if (data.signature) {
+        const derSignature = this.ensureDerSignature(data.signature)
+        derSignature.copy(response, 0, 0, Math.min(derSignature.length, derSigLen))
       }
 
       // Add signer address (20 bytes)
@@ -1141,6 +1247,11 @@ export class ProtocolHandler {
       return response
     }
 
+    if (resolvedSchema === SignRequestSchema.GENERIC) {
+      console.log('[ProtocolHandler] Processing generic signing response')
+      return this.serializeGenericSigningResponse(data, resolvedRequest)
+    }
+
     // Handle basic signature format (for generic/raw signatures)
     if (data.signature) {
       console.log('[ProtocolHandler] Processing basic signature format')
@@ -1152,40 +1263,261 @@ export class ProtocolHandler {
     return Buffer.alloc(0)
   }
 
+  private serializeGenericSigningResponse(data: any, request: SignRequest): Buffer {
+    const includePubkey = !request.omitPubkey
+    console.log('[ProtocolHandler] serializeGenericSigningResponse', {
+      omitPubkey: request.omitPubkey,
+      hasMetadata: !!data.metadata,
+      signatureLength: (data.signature as any)?.length,
+    })
+    const pubkeySection = includePubkey
+      ? this.getUncompressedPubkeyBuffer(data)
+      : this.buildEmptyPubkeySection()
+    const signatureSection = this.ensureDerSignature(data.signature as Buffer)
+    console.log('[ProtocolHandler] Generic signing DER signature info', {
+      rawType: typeof data.signature,
+      rawLength: (data.signature as any)?.length,
+      derLength: signatureSection.length,
+      derPrefix: signatureSection.slice(0, 5).toString('hex'),
+    })
+
+    return Buffer.concat([pubkeySection, signatureSection])
+  }
+
+  private buildEmptyPubkeySection(): Buffer {
+    const empty = Buffer.alloc(65)
+    empty.writeUInt8(0x04, 0)
+    return empty
+  }
+
+  private getUncompressedPubkeyBuffer(data: any): Buffer {
+    const metadata = data.metadata || {}
+    const candidatePubkeys = [metadata.publicKey, metadata.publicKeyCompressed]
+
+    for (const candidate of candidatePubkeys) {
+      if (candidate) {
+        console.log('[ProtocolHandler] Attempting to normalize pubkey candidate', {
+          type: typeof candidate,
+          length:
+            typeof candidate === 'string'
+              ? candidate.length
+              : candidate instanceof Uint8Array
+                ? candidate.length
+                : Buffer.isBuffer(candidate)
+                  ? candidate.length
+                  : null,
+          sample:
+            typeof candidate === 'string'
+              ? `${candidate.slice(0, 8)}...`
+              : Buffer.from(candidate as any)
+                  .slice(0, 4)
+                  .toString('hex'),
+        })
+      }
+      const normalized = this.normalizePublicKey(candidate)
+      if (normalized) {
+        console.log('[ProtocolHandler] Using normalized pubkey', {
+          length: normalized.length,
+          prefix: normalized.slice(0, 4).toString('hex'),
+        })
+        return normalized
+      }
+    }
+
+    console.warn(
+      '[ProtocolHandler] Missing public key metadata in signing response, returning placeholder',
+    )
+    return this.buildEmptyPubkeySection()
+  }
+
+  private normalizePublicKey(pubkey?: string | Buffer): Buffer | null {
+    if (!pubkey) {
+      return null
+    }
+
+    let pubkeyBuf: Buffer
+    if (typeof pubkey === 'string') {
+      const sanitized = pubkey.startsWith('0x') ? pubkey.slice(2) : pubkey
+      if (!sanitized.length) {
+        return null
+      }
+      pubkeyBuf = Buffer.from(sanitized, 'hex')
+    } else {
+      pubkeyBuf = Buffer.from(pubkey)
+    }
+
+    if (pubkeyBuf.length === 65) {
+      return pubkeyBuf
+    }
+
+    if (pubkeyBuf.length === 64) {
+      const withPrefix = Buffer.alloc(65)
+      withPrefix.writeUInt8(0x04, 0)
+      pubkeyBuf.copy(withPrefix, 1)
+      return withPrefix
+    }
+
+    if (pubkeyBuf.length === 33) {
+      try {
+        const key = secp256k1.keyFromPublic(pubkeyBuf, 'hex')
+        return Buffer.from(key.getPublic(false, 'array'))
+      } catch (error) {
+        console.error('[ProtocolHandler] Failed to decompress public key:', error)
+        return null
+      }
+    }
+
+    return null
+  }
+
+  private ensureDerSignature(signatureInput: Buffer | Uint8Array | string): Buffer {
+    if (!signatureInput) {
+      return Buffer.alloc(0)
+    }
+
+    const toBuffer = (value: Buffer | Uint8Array | string): Buffer => {
+      if (Buffer.isBuffer(value)) {
+        return Buffer.from(value)
+      }
+      if (typeof value === 'string') {
+        const sanitized = value.startsWith('0x') ? value.slice(2) : value
+        return Buffer.from(sanitized, 'hex')
+      }
+      return Buffer.from(value)
+    }
+
+    let signature = toBuffer(signatureInput)
+
+    if (signature.length === 0) {
+      return signature
+    }
+
+    if (this.isDerEncodedSignature(signature)) {
+      return signature
+    }
+
+    if (signature.length === 65 || signature.length === 66) {
+      const recoveryByte = signature[signature.length - 1]
+      if (recoveryByte <= 3) {
+        signature = signature.slice(0, signature.length - 1)
+      }
+    }
+
+    if (signature.length === 64) {
+      return this.createDERSignature(signature.slice(0, 32), signature.slice(32))
+    }
+
+    console.warn('[ProtocolHandler] Unexpected signature format, returning raw bytes', {
+      length: signature.length,
+      startsWith: signature[0],
+    })
+    return signature
+  }
+
+  private isDerEncodedSignature(signature: Buffer): boolean {
+    if (signature.length < 4 || signature[0] !== 0x30) {
+      return false
+    }
+
+    let offset = 1
+    let length = signature[offset++]
+
+    if (length & 0x80) {
+      const lengthOfLength = length & 0x7f
+      if (
+        lengthOfLength === 0 ||
+        lengthOfLength > 4 ||
+        offset + lengthOfLength > signature.length
+      ) {
+        return false
+      }
+      length = 0
+      for (let i = 0; i < lengthOfLength; i++) {
+        length = (length << 8) | signature[offset++]
+      }
+    }
+
+    if (signature.length !== offset + length) {
+      return false
+    }
+
+    if (signature[offset++] !== 0x02) {
+      return false
+    }
+
+    const rLen = signature[offset++]
+    if (offset + rLen > signature.length) {
+      return false
+    }
+    offset += rLen
+
+    if (signature[offset++] !== 0x02) {
+      return false
+    }
+
+    const sLen = signature[offset++]
+    if (offset + sLen !== signature.length) {
+      return false
+    }
+
+    return true
+  }
+
   /**
    * Creates a proper DER-encoded signature from r and s components
    * @param r - r component as hex string
    * @param s - s component as hex string
    * @returns DER-encoded signature buffer
    */
-  private createDERSignature(r: string, s: string): Buffer {
-    const rBuf = Buffer.from(r, 'hex')
-    const sBuf = Buffer.from(s, 'hex')
+  private createDERSignature(rInput: Buffer | string, sInput: Buffer | string): Buffer {
+    const toBuffer = (value: Buffer | string) => {
+      if (Buffer.isBuffer(value)) {
+        return Buffer.from(value)
+      }
+      const sanitized = value.startsWith('0x') ? value.slice(2) : value
+      return Buffer.from(sanitized, 'hex')
+    }
 
-    // DER SEQUENCE structure: 0x30 [total-length] 0x02 [r-length] [r] 0x02 [s-length] [s]
-    const rLen = rBuf.length
-    const sLen = sBuf.length
-    const totalLen = 4 + rLen + sLen // 0x02 + len + data for each component
+    const normalizeComponent = (component: Buffer) => {
+      let normalized = Buffer.from(component)
 
-    const der = Buffer.alloc(2 + totalLen)
-    let offset = 0
+      while (normalized.length > 1 && normalized[0] === 0x00) {
+        normalized = normalized.slice(1)
+      }
 
-    // SEQUENCE tag and length
-    der[offset++] = 0x30
-    der[offset++] = totalLen
+      if (normalized[0] & 0x80) {
+        normalized = Buffer.concat([Buffer.from([0x00]), normalized])
+      }
 
-    // R component
-    der[offset++] = 0x02
-    der[offset++] = rLen
-    rBuf.copy(der, offset)
-    offset += rLen
+      return normalized
+    }
 
-    // S component
-    der[offset++] = 0x02
-    der[offset++] = sLen
-    sBuf.copy(der, offset)
+    const r = normalizeComponent(toBuffer(rInput))
+    const s = normalizeComponent(toBuffer(sInput))
 
-    return der
+    const sequence = Buffer.concat([
+      Buffer.from([0x02, r.length]),
+      r,
+      Buffer.from([0x02, s.length]),
+      s,
+    ])
+
+    const encodeLength = (length: number) => {
+      if (length <= 0x7f) {
+        return Buffer.from([length])
+      }
+
+      const bytes: number[] = []
+      let remaining = length
+      while (remaining > 0) {
+        bytes.unshift(remaining & 0xff)
+        remaining >>= 8
+      }
+      return Buffer.from([0x80 | bytes.length, ...bytes])
+    }
+
+    const lengthBytes = encodeLength(sequence.length)
+    return Buffer.concat([Buffer.from([0x30]), lengthBytes, sequence])
   }
 
   /**

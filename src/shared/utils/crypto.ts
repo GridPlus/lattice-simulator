@@ -5,8 +5,9 @@
 import { createHash, randomBytes } from 'crypto'
 import aes from 'aes-js'
 import { ec as EC } from 'elliptic'
-import { ProtocolConstants } from '@/shared/types'
+import { keccak256 } from 'viem/utils'
 import { HARDENED_OFFSET } from '../constants'
+import { ProtocolConstants } from '../types'
 
 /**
  * Generates a random device ID
@@ -163,7 +164,7 @@ export function isValidBitcoinAddress(address: string): boolean {
  * @returns Ethereum address with 0x prefix
  */
 export function generateEthereumAddress(publicKey: Buffer): string {
-  const hash = createHash('keccak256').update(publicKey.slice(1)).digest()
+  const hash = Buffer.from(keccak256(publicKey.slice(1)).replace(/^0x/, ''), 'hex')
   return '0x' + hash.slice(-20).toString('hex')
 }
 

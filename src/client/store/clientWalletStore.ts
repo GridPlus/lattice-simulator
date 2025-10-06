@@ -6,6 +6,12 @@
 import { create } from 'zustand'
 import { subscribeWithSelector, persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import {
+  getWalletConfig,
+  setWalletMnemonicOverride,
+  normalizeMnemonic,
+  validateMnemonic,
+} from '@/shared/walletConfig'
 import type {
   WalletAccount,
   WalletCollection,
@@ -89,6 +95,9 @@ interface WalletState {
 
   /** Error message from wallet operations */
   error: string | null
+
+  /** Active mnemonic used for wallet derivation */
+  activeMnemonic: string | null
 }
 
 /**
@@ -101,6 +110,9 @@ interface WalletActions {
 
   /** Clear all wallet data */
   clearWallets: () => void
+
+  /** Persist a mnemonic override for deriving wallets */
+  setActiveMnemonic: (mnemonic: string) => void
 
   // Account Management
   /** Create new accounts for a specific coin type */
@@ -148,6 +160,7 @@ const INITIAL_WALLET_STATE: WalletState = {
   isInitialized: false,
   isLoading: false,
   error: null,
+  activeMnemonic: null,
 }
 
 /**
@@ -168,6 +181,32 @@ export const useWalletStore = create<WalletStore>()(
 
           try {
             console.log('[WalletStore] Initializing wallets from mnemonic...')
+
+            // Determine which mnemonic to use and ensure the override is applied before derivation
+            let mnemonic = get().activeMnemonic?.trim()
+            if (!mnemonic) {
+              const config = await getWalletConfig()
+              mnemonic = config.mnemonic
+              set(state => {
+                state.activeMnemonic = mnemonic || null
+              })
+            }
+
+            if (!mnemonic) {
+              throw new Error('Mnemonic not available for wallet initialization')
+            }
+
+            const normalizedMnemonic = normalizeMnemonic(mnemonic)
+
+            if (!validateMnemonic(normalizedMnemonic)) {
+              throw new Error('Invalid mnemonic provided for wallet initialization')
+            }
+
+            set(state => {
+              state.activeMnemonic = normalizedMnemonic
+            })
+
+            setWalletMnemonicOverride(normalizedMnemonic)
 
             // Load wallet services dynamically
             const services = await getWalletServices()
@@ -239,8 +278,25 @@ export const useWalletStore = create<WalletStore>()(
             state.activeWallets = INITIAL_ACTIVE_WALLETS
             state.isInitialized = false
             state.error = null
+            state.activeMnemonic = null
           })
+          setWalletMnemonicOverride(null)
           console.log('[WalletStore] Wallets cleared')
+        },
+
+        setActiveMnemonic: (mnemonic: string) => {
+          const sanitized = mnemonic.trim()
+          const normalized = sanitized.length > 0 ? normalizeMnemonic(sanitized) : null
+
+          if (sanitized.length > 0 && normalized && !validateMnemonic(normalized)) {
+            console.warn('[WalletStore] Ignoring invalid mnemonic set attempt')
+            return
+          }
+
+          set(state => {
+            state.activeMnemonic = normalized
+          })
+          setWalletMnemonicOverride(normalized)
         },
 
         // Account Management
@@ -381,13 +437,18 @@ export const useWalletStore = create<WalletStore>()(
     ),
     {
       name: 'lattice-wallet-store',
-      version: 1,
+      version: 2,
       // Only persist essential data, not loading states or errors
       partialize: state => ({
         wallets: state.wallets,
         activeWallets: state.activeWallets,
         isInitialized: state.isInitialized,
+        activeMnemonic: state.activeMnemonic,
       }),
+      onRehydrateStorage: () => state => {
+        const mnemonic = state?.activeMnemonic?.trim()
+        setWalletMnemonicOverride(mnemonic && mnemonic.length > 0 ? mnemonic : null)
+      },
     },
   ),
 )

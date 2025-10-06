@@ -189,17 +189,57 @@ export class GenericSignRequestParser implements ISignRequestParser {
     console.log('[GenericParser] Parsing generic/unknown payload')
     console.log(`[GenericParser] Schema: ${schema}, Payload length: ${payload.length}`)
 
-    // Use a generic default path
-    const defaultPath = [0x8000002c, 0x80000000, 0x80000000] // m/44'/0'/0'
+    let offset = 0
 
-    return {
-      path: defaultPath,
-      schema,
-      curve: 0, // Default to secp256k1
-      encoding: 0, // Default encoding
-      hashType: 0, // Default hash type
-      data: payload,
+    const encoding = payload.readUInt32LE(offset)
+    offset += 4
+
+    const hashType = payload.readUInt8(offset)
+    offset += 1
+
+    const curve = payload.readUInt8(offset)
+    offset += 1
+
+    const pathLength = payload.readUInt32LE(offset)
+    offset += 4
+
+    const path: number[] = []
+    for (let i = 0; i < 5; i++) {
+      const segment = payload.readUInt32LE(offset)
+      offset += 4
+      if (i < pathLength) {
+        path.push(segment)
+      }
     }
+
+    const omitPubkeyFlag = payload.readUInt8(offset)
+    offset += 1
+
+    let messageLength: number | null = null
+    if (payload.length >= offset + 2) {
+      messageLength = payload.readUInt16LE(offset)
+      offset += 2
+    }
+
+    let message = payload.slice(offset)
+    if (messageLength !== null && messageLength <= message.length) {
+      message = message.slice(0, messageLength)
+    }
+
+    const result = {
+      path,
+      schema,
+      curve,
+      encoding,
+      hashType,
+      data: message,
+      omitPubkey: omitPubkeyFlag === 1,
+      rawPayload: payload,
+    }
+
+    console.log('[GenericParser] Parsed sign request keys:', Object.keys(result))
+
+    return result
   }
 }
 

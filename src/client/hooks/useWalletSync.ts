@@ -22,24 +22,30 @@ export function useWalletSync() {
       return
     }
 
+    const syncToServer = () => {
+      const { wallets, activeMnemonic } = useWalletStore.getState()
+      const allAccounts = [
+        ...wallets.ETH.external,
+        ...wallets.ETH.internal,
+        ...wallets.BTC.external,
+        ...wallets.BTC.internal,
+        ...wallets.SOL.external,
+        ...wallets.SOL.internal,
+      ]
+
+      if (allAccounts.length > 0 && isConnected) {
+        console.log(`[useWalletSync] Syncing ${allAccounts.length} wallet accounts to server`)
+        sendSyncWalletAccountsCommand(deviceId, allAccounts, activeMnemonic)
+      }
+    }
+
+    // Ensure server sees persisted accounts after reconnect
+    syncToServer()
+
     // Subscribe to wallet store changes
     const unsubscribe = useWalletStore.subscribe(
-      state => {
-        // Get all accounts from the wallet store
-        const allAccounts = [
-          ...state.wallets.ETH.external,
-          ...state.wallets.ETH.internal,
-          ...state.wallets.BTC.external,
-          ...state.wallets.BTC.internal,
-          ...state.wallets.SOL.external,
-          ...state.wallets.SOL.internal,
-        ]
-
-        // Only sync if we have accounts and are connected
-        if (allAccounts.length > 0 && isConnected) {
-          console.log(`[useWalletSync] Syncing ${allAccounts.length} wallet accounts to server`)
-          sendSyncWalletAccountsCommand(deviceId, allAccounts)
-        }
+      () => {
+        syncToServer()
       },
       // Subscribe to wallets changes specifically
       (state: any) => state.wallets,
@@ -54,9 +60,9 @@ export function useWalletSync() {
  */
 export function useSyncWalletsToServer() {
   const deviceId = useDeviceStore((state: any) => state.deviceInfo.deviceId)
-  const wallets = useWalletStore((state: any) => state.wallets)
 
   return () => {
+    const { wallets, activeMnemonic } = useWalletStore.getState()
     const allAccounts = [
       ...wallets.ETH.external,
       ...wallets.ETH.internal,
@@ -68,7 +74,7 @@ export function useSyncWalletsToServer() {
 
     if (allAccounts.length > 0) {
       console.log(`[useSyncWalletsToServer] Manually syncing ${allAccounts.length} wallet accounts`)
-      sendSyncWalletAccountsCommand(deviceId, allAccounts)
+      sendSyncWalletAccountsCommand(deviceId, allAccounts, activeMnemonic)
     }
   }
 }

@@ -262,19 +262,12 @@ export function getDerivationInfo(
  * @returns Validation result with error message if invalid
  */
 export function validateDerivationPath(path: number[]): { valid: boolean; error?: string } {
-  if (path.length < 3) {
-    return { valid: false, error: 'Path must have at least 3 segments (purpose/coin/account)' }
+  if (path.length === 0) {
+    return { valid: false, error: 'Path must contain at least one segment' }
   }
 
   if (path.length > 6) {
     return { valid: false, error: 'Path is too long (max 6 segments)' }
-  }
-
-  // Check if first three segments are hardened (purpose, coin type, account)
-  for (let i = 0; i < Math.min(3, path.length); i++) {
-    if (path[i] < HARDENED_OFFSET) {
-      return { valid: false, error: `Segment ${i} should be hardened (>= 0x80000000)` }
-    }
   }
 
   return { valid: true }

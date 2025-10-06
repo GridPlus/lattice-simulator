@@ -4,13 +4,13 @@
  */
 
 import { Keypair, PublicKey } from '@solana/web3.js'
-import { deriveMultipleKeys, getDerivationInfo } from '@/shared/utils/hdWallet'
+import { deriveMultipleKeys, getDerivationInfo } from '../shared/utils/hdWallet'
 import type {
   SolanaWalletAccount,
   CreateAccountParams,
   WalletDerivationResult,
   WalletAccountType,
-} from '@/shared/types/wallet'
+} from '../shared/types/wallet'
 import type { HDKey } from '@scure/bip32'
 
 /**

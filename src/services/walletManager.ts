@@ -6,13 +6,18 @@
 import { createMultipleBitcoinAccounts } from './bitcoinWallet'
 import { createMultipleEthereumAccounts } from './ethereumWallet'
 import { createMultipleSolanaAccounts } from './solanaWallet'
-import type { ActiveWallets } from '@/shared/types/device'
+import {
+  setWalletMnemonicOverride,
+  normalizeMnemonic,
+  validateMnemonic,
+} from '../shared/walletConfig'
+import type { ActiveWallets } from '../shared/types/device'
 import type {
   WalletAccount,
   WalletCoinType,
   WalletCollection,
   ActiveWallets as WalletActiveWallets,
-} from '@/shared/types/wallet'
+} from '../shared/types/wallet'
 
 /**
  * Wallet Manager Service
@@ -40,14 +45,39 @@ export class WalletManager {
     try {
       // Initialize crypto libraries but don't create accounts
       // Accounts will be created on-demand when requested by client
+      await this.createDefaultAccounts()
       this.initialized = true
-      console.log(
-        '[WalletManager] Initialized crypto libraries (accounts will be created on-demand)',
-      )
+      console.log('[WalletManager] Initialized wallet manager with default accounts')
     } catch (error) {
       console.error('[WalletManager] Failed to initialize:', error)
       throw error
     }
+  }
+
+  /**
+   * Applies an incoming mnemonic override and rebuilds cached wallet state when it changes
+   */
+  async applyMnemonicOverride(mnemonic?: string | null): Promise<boolean> {
+    const normalized =
+      typeof mnemonic === 'string' && mnemonic.trim().length > 0
+        ? normalizeMnemonic(mnemonic)
+        : null
+
+    if (normalized && !validateMnemonic(normalized)) {
+      console.warn('[WalletManager] Ignoring invalid mnemonic override received from client')
+      return false
+    }
+
+    const changed = setWalletMnemonicOverride(normalized)
+
+    if (!changed) {
+      return false
+    }
+
+    console.log('[WalletManager] Applying mnemonic override and reinitializing wallet data')
+    this.reset()
+    await this.initialize()
+    return true
   }
 
   /**
@@ -138,12 +168,21 @@ export class WalletManager {
    */
   private async createDefaultAccounts(): Promise<void> {
     // Create Ethereum accounts
-    const ethAccounts = await createMultipleEthereumAccounts(0, 'internal', 3, 0)
-    ethAccounts.forEach(account => {
+    const ethInternalAccounts = await createMultipleEthereumAccounts(0, 'internal', 3, 0)
+    const ethExternalAccounts = await createMultipleEthereumAccounts(0, 'external', 3, 0)
+
+    ethInternalAccounts.forEach(account => {
       this.walletAccounts.set(account.id, account)
     })
-    if (ethAccounts.length > 0) {
-      this.activeWallets.ETH = ethAccounts[0]
+
+    ethExternalAccounts.forEach(account => {
+      this.walletAccounts.set(account.id, account)
+    })
+
+    if (ethExternalAccounts.length > 0) {
+      this.activeWallets.ETH = ethExternalAccounts[0]
+    } else if (ethInternalAccounts.length > 0) {
+      this.activeWallets.ETH = ethInternalAccounts[0]
     }
 
     // Create Bitcoin accounts
@@ -185,15 +224,52 @@ export class WalletManager {
 
     console.log(`[WalletManager] Syncing ${accounts.length} wallet accounts from client`)
 
-    // Clear existing accounts
-    this.walletAccounts.clear()
-
-    // Add all synced accounts
     for (const account of accounts) {
-      this.walletAccounts.set(account.id, account)
+      const coinType = account.coinType as WalletCoinType
+      const existingById = account.id ? this.walletAccounts.get(account.id) : undefined
+      const existingByPath =
+        !existingById && coinType && account.derivationPath
+          ? this.findAccountByPath(account.derivationPath, coinType)
+          : undefined
+      const existing = existingById || existingByPath || null
+
+      if (!account.privateKey && !existing?.privateKey) {
+        console.warn(
+          '[WalletManager] Skipping sync for account without private key (simulator needs signing access)',
+          {
+            id: account.id,
+            coinType: account.coinType,
+            path: account.derivationPath,
+          },
+        )
+        continue
+      }
+
+      const merged = {
+        ...(existing || {}),
+        ...account,
+        privateKey: account.privateKey || existing?.privateKey,
+        publicKey: account.publicKey || existing?.publicKey,
+      } as WalletAccount
+
+      const targetId = existing?.id || account.id
+      if (targetId) {
+        this.walletAccounts.set(targetId, merged)
+      }
+
+      if (account.id && account.id !== targetId) {
+        this.walletAccounts.set(account.id, merged)
+      }
+
+      if (coinType) {
+        const active = this.activeWallets[coinType]
+        if (active && active.id === (existing?.id || account.id)) {
+          this.activeWallets[coinType] = merged as any
+        }
+      }
     }
 
-    console.log(`[WalletManager] Successfully synced ${this.walletAccounts.size} wallet accounts`)
+    console.log(`[WalletManager] Wallet account store size: ${this.walletAccounts.size}`)
   }
 
   /**

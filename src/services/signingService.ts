@@ -8,15 +8,18 @@ import { sign as ed25519Sign } from '@noble/ed25519'
 import { ec as EC } from 'elliptic'
 import { type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { EXTERNAL } from '@/shared/constants'
-import { detectCoinTypeFromPath } from '@/shared/utils'
+import { keccak256 } from 'viem/utils'
+import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
+import { detectCoinTypeFromPath } from '../shared/utils'
+import { deriveHDKey, formatDerivationPath } from '../shared/utils/hdWallet'
+import { getWalletConfig } from '../shared/walletConfig'
 import type {
   WalletAccount,
   EthereumWalletAccount,
   BitcoinWalletAccount,
   SolanaWalletAccount,
   WalletCoinType,
-} from '@/shared/types/wallet'
+} from '../shared/types/wallet'
 
 /**
  * Signature result with metadata
@@ -36,6 +39,8 @@ export interface SignatureResult {
     txHash?: string
     /** Public key used for signing */
     publicKey?: string
+    /** Compressed public key representation */
+    publicKeyCompressed?: string
   }
 }
 
@@ -57,6 +62,8 @@ export interface SigningRequest {
   schema?: number
   /** Whether this is a transaction or message */
   isTransaction?: boolean
+  /** Original payload buffer */
+  rawPayload?: Buffer
 }
 
 /**
@@ -85,13 +92,99 @@ export class SigningService {
     walletAccounts: Map<string, WalletAccount>,
   ): Promise<SignatureResult> {
     // Detect coin type from derivation path
-    const coinType = detectCoinTypeFromPath(request.path)
-
-    // Find the appropriate wallet account
-    const walletAccount = this.findWalletAccount(request.path, coinType, walletAccounts)
-    if (!walletAccount) {
-      throw new Error(`No wallet account found for path: ${request.path.join('/')}`)
+    let coinType = detectCoinTypeFromPath(request.path)
+    if (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM) {
+      coinType = 'ETH'
     }
+
+    if (coinType === 'UNKNOWN') {
+      throw new Error('Unsupported coin type for signing request')
+    }
+
+    let walletAccount = this.findWalletAccount(request.path, coinType, walletAccounts)
+    if (!walletAccount) {
+      const accountIndex =
+        request.path && request.path.length >= 3
+          ? Math.max(request.path[2] - HARDENED_OFFSET, 0)
+          : walletAccounts.size
+      const baseAccount = {
+        id: `auto-${coinType}-${(request.path || []).join('-') || 'root'}`,
+        accountIndex,
+        derivationPath: request.path ? [...request.path] : [],
+        derivationPathString: request.path ? formatDerivationPath(request.path) : 'm',
+        type: 'external' as const,
+        coinType,
+        isActive: false,
+        name: `Auto ${coinType} account`,
+        createdAt: Date.now(),
+      }
+
+      if (coinType === 'ETH') {
+        walletAccount = {
+          ...baseAccount,
+          coinType: 'ETH',
+          address: '',
+          publicKey: '',
+        } as EthereumWalletAccount
+      } else if (coinType === 'BTC') {
+        walletAccount = {
+          ...baseAccount,
+          coinType: 'BTC',
+          address: '',
+          publicKey: '',
+          addressType: 'legacy',
+        } as BitcoinWalletAccount
+      } else if (coinType === 'SOL') {
+        walletAccount = {
+          ...baseAccount,
+          coinType: 'SOL',
+          address: '',
+          publicKey: '',
+        } as SolanaWalletAccount
+      }
+    }
+
+    if (!walletAccount) {
+      throw new Error(`No wallet account available for coin type: ${coinType}`)
+    }
+
+    const defaultEthPath = [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0]
+
+    const derivationPath =
+      request.path && request.path.length > 0
+        ? request.path
+        : walletAccount.derivationPath && walletAccount.derivationPath.length > 0
+          ? walletAccount.derivationPath
+          : defaultEthPath
+
+    if (
+      !walletAccount.derivationPath ||
+      walletAccount.derivationPath.length !== derivationPath.length ||
+      walletAccount.derivationPath.some((value, idx) => value !== derivationPath[idx])
+    ) {
+      walletAccount.derivationPath = [...derivationPath]
+      walletAccount.derivationPathString = formatDerivationPath(derivationPath)
+    }
+
+    if (!request.path || request.path.length === 0) {
+      request.path = [...derivationPath]
+    }
+
+    console.log('[SigningService] Using wallet account for signing:', {
+      id: walletAccount.id,
+      coinType,
+      derivationPath: walletAccount.derivationPath,
+      privateKey: walletAccount.privateKey,
+    })
+
+    console.log('[SigningService] Request payload info:', {
+      dataLength: request.data.length,
+      rawPayloadLength: request.rawPayload ? request.rawPayload.length : undefined,
+      hashType: request.hashType,
+      encoding: request.encoding,
+    })
+
+    console.log('[SigningService] Request keys:', Object.keys(request))
 
     // Sign based on coin type
     switch (coinType) {
@@ -116,12 +209,53 @@ export class SigningService {
     request: SigningRequest,
     wallet: EthereumWalletAccount,
   ): Promise<SignatureResult> {
-    if (!wallet.privateKey) {
-      throw new Error('Ethereum wallet has no private key for signing')
+    const defaultEthPath = [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0]
+
+    const derivationPath =
+      request.path && request.path.length > 0
+        ? request.path
+        : wallet.derivationPath && wallet.derivationPath.length > 0
+          ? wallet.derivationPath
+          : defaultEthPath
+
+    const config = await getWalletConfig()
+    const derivedKey = deriveHDKey(config.seed, derivationPath)
+
+    if (!derivedKey.privateKey) {
+      throw new Error('Failed to derive Ethereum private key from mnemonic')
+    }
+
+    const derivedPrivateKeyHex = `0x${Buffer.from(derivedKey.privateKey).toString('hex')}`
+    wallet.privateKey = derivedPrivateKeyHex
+    wallet.publicKey =
+      wallet.publicKey ||
+      (derivedKey.publicKey ? Buffer.from(derivedKey.publicKey).toString('hex') : wallet.publicKey)
+
+    if (!wallet.address) {
+      // Populate address if missing to keep metadata consistent
+      const derivedAccount = privateKeyToAccount(derivedPrivateKeyHex as Hex)
+      wallet.address = derivedAccount.address
     }
 
     // Use viem for Ethereum signing to match SDK behavior
     const account = privateKeyToAccount(wallet.privateKey as Hex)
+    const privateKeyBuffer = Buffer.from((wallet.privateKey as string).slice(2), 'hex')
+    const publicKeyUncompressed = this.secp256k1
+      .keyFromPrivate(privateKeyBuffer)
+      .getPublic(false, 'hex')
+    const publicKeyCompressed = this.secp256k1
+      .keyFromPrivate(privateKeyBuffer)
+      .getPublic(true, 'hex')
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.debug('[SigningService] Derived Ethereum signing material', {
+        path: derivationPath,
+        privateKey: derivedPrivateKeyHex,
+        address: wallet.address,
+        publicKeyUncompressed,
+        publicKeyCompressed,
+      })
+    }
 
     // For Ethereum, we need to handle different signature types
     // Check if this is message signing (simplified check)
@@ -137,13 +271,39 @@ export class SigningService {
         format: 'compact',
         metadata: {
           signer: wallet.address,
-          publicKey: wallet.publicKey,
+          publicKey: publicKeyUncompressed,
+          publicKeyCompressed,
         },
       }
     } else {
       // Transaction signing
-      const txHash = createHash('keccak256').update(request.data).digest()
-      const signature = this.secp256k1Sign(txHash, Buffer.from(wallet.privateKey.slice(2), 'hex'))
+      const txHashHex = keccak256(request.data)
+      const txHash = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+      const signature = this.secp256k1Sign(txHash, privateKeyBuffer)
+
+      console.log('[SigningService] Signature components:', {
+        hash: txHash.toString('hex'),
+        r: signature.r.toString('hex'),
+        s: signature.s.toString('hex'),
+        recovery: signature.recovery,
+      })
+
+      let recoveredUncompressed = publicKeyUncompressed
+      let recoveredCompressed = publicKeyCompressed
+      try {
+        const recovered = this.secp256k1.recoverPubKey(
+          txHash,
+          { r: signature.r, s: signature.s },
+          signature.recovery,
+        )
+        recoveredUncompressed = recovered.encode('hex', false)
+        recoveredCompressed = recovered.encode('hex', true)
+        console.log(
+          `hereis recoveredUncompressed: ${recoveredUncompressed}, publicKeyUncompressed: ${publicKeyUncompressed}`,
+        )
+      } catch (err) {
+        console.warn('[SigningService] Failed to recover pubkey from signature', err)
+      }
 
       return {
         signature: this.formatDERSignature(signature.r, signature.s),
@@ -151,7 +311,8 @@ export class SigningService {
         format: 'der',
         metadata: {
           signer: wallet.address,
-          publicKey: wallet.publicKey,
+          publicKey: recoveredUncompressed,
+          publicKeyCompressed: recoveredCompressed,
           txHash: '0x' + txHash.toString('hex'),
         },
       }
@@ -266,25 +427,48 @@ export class SigningService {
    * Formats signature as DER encoding
    */
   private formatDERSignature(r: Buffer, s: Buffer): Buffer {
-    // DER encoding: 0x30 [total-length] 0x02 [R-length] [R] 0x02 [S-length] [S]
-    const rLength = r.length
-    const sLength = s.length
-    const totalLength = 4 + rLength + sLength
+    const normalizeComponent = (component: Buffer) => {
+      let normalized = Buffer.from(component)
 
-    const der = Buffer.alloc(totalLength + 2)
-    let offset = 0
+      // Trim leading zeros
+      while (normalized.length > 1 && normalized[0] === 0x00) {
+        normalized = normalized.slice(1)
+      }
 
-    der[offset++] = 0x30 // SEQUENCE
-    der[offset++] = totalLength
-    der[offset++] = 0x02 // INTEGER (r)
-    der[offset++] = rLength
-    r.copy(der, offset)
-    offset += rLength
-    der[offset++] = 0x02 // INTEGER (s)
-    der[offset++] = sLength
-    s.copy(der, offset)
+      // Ensure the value is interpreted as positive
+      if (normalized[0] & 0x80) {
+        normalized = Buffer.concat([Buffer.from([0x00]), normalized])
+      }
 
-    return der
+      return normalized
+    }
+
+    const normalizedR = normalizeComponent(r)
+    const normalizedS = normalizeComponent(s)
+
+    const sequence = Buffer.concat([
+      Buffer.from([0x02, normalizedR.length]),
+      normalizedR,
+      Buffer.from([0x02, normalizedS.length]),
+      normalizedS,
+    ])
+
+    const encodeLength = (length: number) => {
+      if (length <= 0x7f) {
+        return Buffer.from([length])
+      }
+
+      const bytes: number[] = []
+      let remaining = length
+      while (remaining > 0) {
+        bytes.unshift(remaining & 0xff)
+        remaining >>= 8
+      }
+      return Buffer.from([0x80 | bytes.length, ...bytes])
+    }
+
+    const lengthBytes = encodeLength(sequence.length)
+    return Buffer.concat([Buffer.from([0x30]), lengthBytes, sequence])
   }
 
   /**
@@ -292,9 +476,8 @@ export class SigningService {
    */
   private hashMessage(message: Buffer): Buffer {
     const prefix = Buffer.from('\x19Ethereum Signed Message:\n' + message.length.toString())
-    return createHash('keccak256')
-      .update(Buffer.concat([prefix, message]))
-      .digest()
+    const hashHex = keccak256(Buffer.concat([prefix, message]))
+    return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
   }
 
   /**
@@ -344,7 +527,16 @@ export class SigningService {
    * Validates signing request parameters
    */
   validateSigningRequest(request: SigningRequest): boolean {
-    return request.path && request.path.length >= 3 && request.data && request.data.length > 0
+    if (!request.path || request.path.length === 0) {
+      return false
+    }
+    if (!Array.isArray(request.path) || !request.path.every(idx => Number.isInteger(idx))) {
+      return false
+    }
+    if (!request.data || request.data.length === 0) {
+      return false
+    }
+    return true
   }
 
   /**

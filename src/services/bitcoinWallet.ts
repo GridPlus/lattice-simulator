@@ -6,13 +6,13 @@
 import * as bitcoin from 'bitcoinjs-lib'
 import ECPair, { type ECPairInterface } from 'ecpair'
 import * as ecc from 'tiny-secp256k1'
-import { deriveMultipleKeys, getDerivationInfo } from '@/shared/utils/hdWallet'
+import { deriveMultipleKeys, getDerivationInfo } from '../shared/utils/hdWallet'
 import type {
   BitcoinWalletAccount,
   CreateAccountParams,
   WalletDerivationResult,
   WalletAccountType,
-} from '@/shared/types/wallet'
+} from '../shared/types/wallet'
 import type { HDKey } from '@scure/bip32'
 
 // Lazy initialization to avoid SSR issues

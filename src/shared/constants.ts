@@ -10,7 +10,7 @@ import {
   LatticeSignEncoding,
   LatticeSignBlsDst,
   LatticeEncDataSchema,
-} from '@/shared/types'
+} from './types'
 
 export const HARDENED_OFFSET = 0x80000000
 

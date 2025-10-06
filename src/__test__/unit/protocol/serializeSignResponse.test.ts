@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { SignRequestSchema } from '@/server/signRequestParsers'
 import type { ServerLatticeSimulator } from '@/server/serverSimulator'
 
 describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
@@ -152,13 +153,15 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       // Verify R component
       expect(derSignature[2]).toBe(0x02) // INTEGER tag for R
       const rLength = derSignature[3]
-      expect(rLength).toBe(32) // 32 bytes for R
+      expect(rLength).toBeGreaterThanOrEqual(32)
+      expect(rLength).toBeLessThanOrEqual(33)
 
       // Verify S component starts after R
       const sOffset = 4 + rLength
       expect(derSignature[sOffset]).toBe(0x02) // INTEGER tag for S
       const sLength = derSignature[sOffset + 1]
-      expect(sLength).toBe(32) // 32 bytes for S
+      expect(sLength).toBeGreaterThanOrEqual(32)
+      expect(sLength).toBeLessThanOrEqual(33)
     })
   })
 
@@ -194,6 +197,16 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       expect(Buffer.isBuffer(result)).toBe(true)
       expect(result.length).toBe(0)
     })
+
+    it('should serialize nextCode acknowledgements as 8-byte buffers', () => {
+      const nextCode = Buffer.from('0102030405060708', 'hex')
+
+      const result = (protocolHandler as any).serializeSignResponse({ nextCode })
+
+      expect(Buffer.isBuffer(result)).toBe(true)
+      expect(result.length).toBe(8)
+      expect(result.equals(nextCode)).toBe(true)
+    })
   })
 
   describe('DER Encoding Validation', () => {
@@ -213,17 +226,85 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
 
       // Verify R component
       expect(derSig[2]).toBe(0x02) // INTEGER tag
-      expect(derSig[3]).toBe(32) // R length
+      const rLength = derSig[3]
+      expect(rLength).toBeGreaterThanOrEqual(32)
+      expect(rLength).toBeLessThanOrEqual(33)
 
-      const rBytes = derSig.slice(4, 36)
-      expect(rBytes).toEqual(Buffer.from(r, 'hex'))
+      const rBytes = derSig.slice(4, 4 + rLength)
+      expect(rBytes.slice(-32)).toEqual(Buffer.from(r.slice(-64), 'hex'))
 
       // Verify S component
-      expect(derSig[36]).toBe(0x02) // INTEGER tag
-      expect(derSig[37]).toBe(32) // S length
+      const sOffset = 4 + rLength
+      expect(derSig[sOffset]).toBe(0x02) // INTEGER tag
+      const sLength = derSig[sOffset + 1]
+      expect(sLength).toBeGreaterThanOrEqual(32)
+      expect(sLength).toBeLessThanOrEqual(33)
 
-      const sBytes = derSig.slice(38, 70)
-      expect(sBytes).toEqual(Buffer.from(s, 'hex'))
+      const sBytes = derSig.slice(sOffset + 2, sOffset + 2 + sLength)
+      expect(sBytes.slice(-32)).toEqual(Buffer.from(s.slice(-64), 'hex'))
+    })
+  })
+
+  describe('Generic Signing Signature Normalization', () => {
+    const pubkeyHex = '04' + '11'.repeat(32) + '22'.repeat(32) // Simple uncompressed pubkey placeholder
+
+    const buildGenericRequest = (overrides: any = {}) => ({
+      schema: SignRequestSchema.GENERIC,
+      omitPubkey: false,
+      ...overrides,
+    })
+
+    it('should convert 64-byte raw signature into DER encoding', () => {
+      const rawSignature = Buffer.concat([Buffer.alloc(32, 0x01), Buffer.alloc(32, 0x02)])
+
+      const result = (protocolHandler as any).serializeSignResponse(
+        {
+          signature: rawSignature,
+          metadata: { publicKey: pubkeyHex },
+        },
+        buildGenericRequest(),
+      )
+
+      const pubkeySection = result.slice(0, 65)
+      expect(pubkeySection[0]).toBe(0x04)
+      const derSection = result.slice(65)
+      expect(derSection[0]).toBe(0x30)
+    })
+
+    it('should strip recovery byte from 65-byte RSV signatures', () => {
+      const rawSignature = Buffer.concat([
+        Buffer.alloc(32, 0x03),
+        Buffer.alloc(32, 0x04),
+        Buffer.from([0x01]),
+      ])
+
+      const result = (protocolHandler as any).serializeSignResponse(
+        {
+          signature: rawSignature,
+          metadata: { publicKey: pubkeyHex },
+        },
+        buildGenericRequest(),
+      )
+
+      const derSection = result.slice(65)
+      expect(derSection[0]).toBe(0x30)
+    })
+
+    it('should handle hex string signatures', () => {
+      const r = 'aa'.repeat(32)
+      const s = 'bb'.repeat(32)
+      const hexSignature = `0x${r}${s}`
+
+      const result = (protocolHandler as any).serializeSignResponse(
+        {
+          signature: hexSignature,
+          metadata: { publicKey: pubkeyHex },
+        },
+        buildGenericRequest(),
+      )
+
+      const derSection = result.slice(65)
+      expect(derSection[0]).toBe(0x30)
     })
   })
 

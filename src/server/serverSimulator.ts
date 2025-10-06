@@ -3,7 +3,9 @@
  */
 
 import { randomBytes, createHash } from 'crypto'
+import { wordlist } from '@scure/bip39/wordlists/english'
 import elliptic from 'elliptic'
+import { keccak256 } from 'viem/utils'
 import {
   emitPairingModeStarted,
   emitPairingModeEnded,
@@ -16,6 +18,7 @@ import {
   emitSigningRequestCompleted,
 } from './serverDeviceEvents'
 import { requestWalletAddresses } from './serverRequestManager'
+import { SignRequestSchema } from './signRequestParsers'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
 import { EXTERNAL } from '../shared/constants'
@@ -32,6 +35,7 @@ import {
   type WalletPath,
   type ActiveWallets,
   type SigningRequest,
+  type Wallet,
 } from '../shared/types'
 import {
   generateDeviceId,
@@ -40,7 +44,23 @@ import {
   simulateDelay,
   createDeviceResponse,
   supportsFeature,
+  aes256_encrypt,
 } from '../shared/utils'
+import { getWalletConfig } from '../shared/walletConfig'
+
+interface MultipartSignSession {
+  schema: number
+  curve: number
+  encoding: number
+  hashType: number
+  omitPubkey: boolean
+  path: WalletPath
+  expectedLength: number
+  collectedLength: number
+  messageChunks: Buffer[]
+  decoderChunks: Buffer[]
+  nextCode: Buffer
+}
 
 /**
  * SERVER-SIDE ONLY Lattice1 Device Simulator
@@ -92,6 +112,9 @@ export class ServerLatticeSimulator {
   private nextKvRecordId: number = 0
   /** Map from record ID to key for removal by ID */
   private kvRecordIdToKey: Map<number, string> = new Map()
+
+  /** Tracks multipart signing sessions awaiting extra data */
+  private multipartSignSessions: Map<string, MultipartSignSession> = new Map()
 
   /** Whether user approval is currently required for a pending operation */
   private userApprovalRequired: boolean = false
@@ -200,6 +223,10 @@ export class ServerLatticeSimulator {
     // Generate ephemeral key pair for this session
     this.ephemeralKeyPair = generateKeyPair()
 
+    const encryptedWalletData = this.isPaired
+      ? this.encryptActiveWallets(this.clientPublicKey)
+      : undefined
+
     // If device is not paired, enter pairing mode for 60 seconds
     if (!this.isPaired) {
       console.log('[Simulator] Device not paired, entering pairing mode...')
@@ -219,6 +246,7 @@ export class ServerLatticeSimulator {
       firmwareVersion: this.firmwareVersion,
       ephemeralPub: this.ephemeralKeyPair.publicKey,
       activeWallets: this.activeWallets, // Always include, even when not paired
+      encryptedWalletData,
     }
 
     return createDeviceResponse(true, LatticeResponseCode.success, response)
@@ -348,6 +376,46 @@ export class ServerLatticeSimulator {
       false,
       'Invalid finalizePairing request - no signature provided',
     )
+  }
+
+  private encryptActiveWallets(clientPublicKey?: Buffer): Buffer | undefined {
+    if (!clientPublicKey || !this.ephemeralKeyPair) {
+      return undefined
+    }
+
+    try {
+      const ec = new elliptic.ec('p256')
+      const deviceKey = ec.keyFromPrivate(this.ephemeralKeyPair.privateKey)
+      const clientKey = ec.keyFromPublic(clientPublicKey)
+      const sharedSecret = Buffer.from(deviceKey.derive(clientKey.getPublic()).toArray('be', 32))
+
+      const walletPayload = this.buildWalletDescriptorPayload()
+      return aes256_encrypt(walletPayload, sharedSecret)
+    } catch (error) {
+      console.error('[Simulator] Failed to encrypt wallet data:', error)
+      return undefined
+    }
+  }
+
+  private buildWalletDescriptorPayload(): Buffer {
+    const payload = Buffer.alloc(144)
+    this.writeWalletDescriptor(payload, 0, this.activeWallets?.internal)
+    this.writeWalletDescriptor(payload, 71, this.activeWallets?.external)
+    // Last two bytes remain zero to satisfy SDK padding checks
+    return payload
+  }
+
+  private writeWalletDescriptor(target: Buffer, offset: number, wallet?: Wallet) {
+    if (!wallet) {
+      return
+    }
+    const uidBuf = wallet.uid ? Buffer.from(wallet.uid, 'hex') : Buffer.alloc(0)
+    uidBuf.copy(target, offset, 0, Math.min(uidBuf.length, 32))
+    target.writeUInt32BE(wallet.capabilities ?? 0, offset + 32)
+    if (wallet.name) {
+      const nameBuf = Buffer.from(wallet.name, 'utf8')
+      nameBuf.slice(0, 35).copy(target, offset + 36)
+    }
   }
 
   /**
@@ -518,6 +586,7 @@ export class ServerLatticeSimulator {
 
     // Validate request
     if (!request.startPath || request.startPath.length < 3) {
+      console.log('[Simulator] Invalid derivation path:', request.startPath)
       return createDeviceResponse<GetAddressesResponse>(
         false,
         LatticeResponseCode.invalidMsg,
@@ -613,14 +682,24 @@ export class ServerLatticeSimulator {
         'No data to sign',
       )
     }
+    const isExtraDataRequest = request.schema === SignRequestSchema.EXTRA_DATA
 
-    if (!request.path || request.path.length < 3) {
+    if (!isExtraDataRequest && (!request.path || request.path.length === 0)) {
+      console.log('[Simulator] Invalid derivation request.path:', request.path)
       return createDeviceResponse<SignResponse>(
         false,
         LatticeResponseCode.invalidMsg,
         undefined,
         'Invalid derivation path',
       )
+    }
+
+    if (isExtraDataRequest) {
+      return this.handleExtraDataSignRequest(request)
+    }
+
+    if (request.hasExtraPayloads) {
+      return this.handleMultipartBaseRequest(request)
     }
 
     // Check if auto-approve is disabled - create pending request for user approval
@@ -654,11 +733,237 @@ export class ServerLatticeSimulator {
       })
     }
 
+    return this.executeSigning(request)
+  }
+
+  private generateNextCode(): Buffer {
+    return randomBytes(8)
+  }
+
+  private extractGenericRequestInfo(request: SignRequest) {
+    if (!request.rawPayload) {
+      throw new Error('Missing raw payload for multipart signing request')
+    }
+
+    const payload = request.rawPayload
+    let offset = 0
+
+    const encoding = payload.readUInt32LE(offset)
+    offset += 4
+    const hashType = payload.readUInt8(offset)
+    offset += 1
+    const curve = payload.readUInt8(offset)
+    offset += 1
+
+    const pathLength = payload.readUInt32LE(offset)
+    offset += 4
+    const path: WalletPath = []
+    for (let i = 0; i < 5; i++) {
+      const segment = payload.readUInt32LE(offset)
+      offset += 4
+      if (i < pathLength) {
+        path.push(segment)
+      }
+    }
+
+    const omitPubkeyFlag = payload.readUInt8(offset)
+    offset += 1
+
+    if (payload.length < offset + 2) {
+      throw new Error('Malformed signing request payload')
+    }
+
+    const messageLength = payload.readUInt16LE(offset)
+    offset += 2
+
+    const baseChunk = payload.slice(offset)
+    const messageChunkLength = Math.min(messageLength, baseChunk.length)
+    const messageChunk = baseChunk.slice(0, messageChunkLength)
+    const remainingChunk = baseChunk.slice(messageChunkLength)
+
+    return {
+      encoding,
+      hashType,
+      curve,
+      path,
+      omitPubkey: omitPubkeyFlag === 1,
+      messageLength,
+      messageChunk,
+      remainingChunk,
+    }
+  }
+
+  private handleMultipartBaseRequest(request: SignRequest): DeviceResponse<SignResponse> {
     try {
-      // Use enhanced signing service for real cryptographic signatures
+      const info = this.extractGenericRequestInfo(request)
+      const nextCode = this.generateNextCode()
+
+      const session: MultipartSignSession = {
+        schema: request.schema,
+        curve: request.curve ?? info.curve,
+        encoding: request.encoding ?? info.encoding,
+        hashType: request.hashType ?? info.hashType,
+        omitPubkey: request.omitPubkey ?? info.omitPubkey,
+        path: (request.path && request.path.length > 0 ? request.path : info.path) as WalletPath,
+        expectedLength: info.messageLength,
+        collectedLength: info.messageChunk.length,
+        messageChunks: [info.messageChunk],
+        decoderChunks: info.remainingChunk.length ? [info.remainingChunk] : [],
+        nextCode,
+      }
+
+      if (process.env.DEBUG_SIGNING === '1') {
+        console.debug('[Simulator] Initialized multipart signing session', {
+          nextCode: nextCode.toString('hex'),
+          expectedLength: session.expectedLength,
+          initialChunkLength: info.messageChunk.length,
+          initialDecoderBytes: info.remainingChunk.length,
+          schema: request.schema,
+        })
+      }
+
+      this.multipartSignSessions.set(nextCode.toString('hex'), session)
+
+      return createDeviceResponse<SignResponse>(true, LatticeResponseCode.success, {
+        nextCode,
+        schema: request.schema,
+        omitPubkey: session.omitPubkey,
+      })
+    } catch (error) {
+      console.error('[Simulator] Failed to process multipart signing request:', error)
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Failed to process multipart signing request',
+      )
+    }
+  }
+
+  private async handleExtraDataSignRequest(
+    request: SignRequest,
+  ): Promise<DeviceResponse<SignResponse>> {
+    const payload = request.rawPayload ?? request.data
+    if (!payload || payload.length < 12) {
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Invalid extra data payload',
+      )
+    }
+
+    const providedNextCode = (request.nextCode ?? payload.slice(0, 8)) as Buffer
+    const sessionKey = providedNextCode.toString('hex')
+    const session = this.multipartSignSessions.get(sessionKey)
+
+    if (!session) {
+      console.warn('[Simulator] Received extra data for unknown session', sessionKey)
+      return createDeviceResponse<SignResponse>(
+        false,
+        LatticeResponseCode.invalidMsg,
+        undefined,
+        'Unknown multipart signing session',
+      )
+    }
+
+    this.multipartSignSessions.delete(sessionKey)
+
+    let offset = 8
+    const frameLength = payload.readUInt32LE(offset)
+    offset += 4
+    const frame = payload.slice(offset, offset + frameLength)
+
+    const remaining = Math.max(session.expectedLength - session.collectedLength, 0)
+    const messageChunk =
+      remaining > 0 ? frame.slice(0, Math.min(frame.length, remaining)) : Buffer.alloc(0)
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.debug('[Simulator] Processing extra data frame', {
+        session: sessionKey,
+        frameLength,
+        messageChunkLength: messageChunk.length,
+        decoderChunkLength: frame.length - messageChunk.length,
+        collectedBefore: session.collectedLength,
+        expectedLength: session.expectedLength,
+        hasMoreFrames: request.hasExtraPayloads,
+      })
+    }
+
+    if (messageChunk.length) {
+      session.messageChunks.push(messageChunk)
+      session.collectedLength += messageChunk.length
+    }
+
+    if (frame.length > messageChunk.length) {
+      const decoderChunk = frame.slice(messageChunk.length)
+      if (decoderChunk.length) {
+        session.decoderChunks.push(decoderChunk)
+      }
+    }
+
+    if (request.hasExtraPayloads) {
+      const newNextCode = this.generateNextCode()
+      session.nextCode = newNextCode
+      this.multipartSignSessions.set(newNextCode.toString('hex'), session)
+
+      if (process.env.DEBUG_SIGNING === '1') {
+        console.debug('[Simulator] Awaiting additional payload frames', {
+          session: sessionKey,
+          nextCode: newNextCode.toString('hex'),
+          collectedLength: session.collectedLength,
+          expectedLength: session.expectedLength,
+        })
+      }
+
+      return createDeviceResponse<SignResponse>(true, LatticeResponseCode.success, {
+        nextCode: newNextCode,
+        schema: session.schema,
+        omitPubkey: session.omitPubkey,
+      })
+    }
+
+    const message = Buffer.concat(session.messageChunks)
+    const messageToSign = session.expectedLength
+      ? message.slice(0, session.expectedLength)
+      : message
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.debug('[Simulator] Finalizing multipart signing session', {
+        session: sessionKey,
+        collectedLength: session.collectedLength,
+        expectedLength: session.expectedLength,
+        messageToSignLength: messageToSign.length,
+        decoderBytes: session.decoderChunks.reduce((sum, chunk) => sum + chunk.length, 0),
+        messageKeccak: keccak256(messageToSign),
+      })
+    }
+
+    const finalRequest: SignRequest = {
+      data: messageToSign,
+      path: session.path,
+      schema: session.schema,
+      curve: session.curve,
+      encoding: session.encoding,
+      hashType: session.hashType,
+      omitPubkey: session.omitPubkey,
+    }
+
+    const response = await this.executeSigning(finalRequest)
+
+    if (response.data) {
+      response.data.schema = session.schema
+      response.data.omitPubkey = session.omitPubkey
+      response.data.path = session.path
+    }
+
+    return response
+  }
+
+  private async executeSigning(request: SignRequest): Promise<DeviceResponse<SignResponse>> {
+    try {
       console.log('[Simulator] Using enhanced signing service for crypto signing')
 
-      // Prepare signing request
       const signingRequest = {
         path: request.path,
         data: request.data,
@@ -666,10 +971,11 @@ export class ServerLatticeSimulator {
         encoding: request.encoding,
         hashType: request.hashType,
         schema: request.schema,
-        isTransaction: true, // Assume transaction unless proven otherwise
+        isTransaction: true,
+        omitPubkey: request.omitPubkey,
+        rawPayload: request.rawPayload,
       }
 
-      // Validate signing request
       if (!signingService.validateSigningRequest(signingRequest)) {
         return createDeviceResponse<SignResponse>(
           false,
@@ -679,16 +985,12 @@ export class ServerLatticeSimulator {
         )
       }
 
-      // Ensure wallet manager is initialized
       if (!walletManager.isInitialized()) {
         console.warn('[Simulator] Wallet manager not initialized, initializing now...')
         await walletManager.initialize()
       }
 
-      // Get wallet accounts for signing
       const walletAccounts = walletManager.getAllWalletAccounts()
-
-      // Sign the data
       const signatureResult = await signingService.signData(signingRequest, walletAccounts)
 
       console.log('[Simulator] Enhanced signing completed:', {
@@ -701,13 +1003,18 @@ export class ServerLatticeSimulator {
       const response: SignResponse = {
         signature: signatureResult.signature,
         recovery: signatureResult.recovery,
+        metadata: signatureResult.metadata,
+        schema: request.schema,
+        omitPubkey: request.omitPubkey,
+        curve: request.curve,
+        encoding: request.encoding,
+        hashType: request.hashType,
+        path: request.path,
       }
 
       return createDeviceResponse(true, LatticeResponseCode.success, response)
     } catch (error) {
       console.error('[Simulator] Enhanced signing failed:', error)
-
-      // Fallback to mock signing for backwards compatibility
       console.warn('[Simulator] Falling back to mock signing')
       const privateKey = this.derivePrivateKey(request.path)
       const mockSignature = this.mockSign(request.data, privateKey)
@@ -715,10 +1022,49 @@ export class ServerLatticeSimulator {
       const response: SignResponse = {
         signature: mockSignature,
         recovery: request.curve === EXTERNAL.SIGNING.CURVES.SECP256K1 ? 0 : undefined,
+        metadata: {
+          publicKey: undefined,
+        },
+        schema: request.schema,
+        omitPubkey: request.omitPubkey,
+        curve: request.curve,
+        encoding: request.encoding,
+        hashType: request.hashType,
+        path: request.path,
       }
 
       return createDeviceResponse(true, LatticeResponseCode.success, response)
     }
+  }
+
+  /**
+   * Exports the current wallet seed and mnemonic
+   */
+  async exportSeed(): Promise<
+    DeviceResponse<{ seed: Buffer; wordIndices: number[]; numWords: number }>
+  > {
+    const config = await getWalletConfig()
+    const seedBuffer = Buffer.from(config.seed)
+    const seed =
+      seedBuffer.length >= 64
+        ? seedBuffer.slice(0, 64)
+        : Buffer.concat([seedBuffer, Buffer.alloc(64 - seedBuffer.length)])
+
+    const mnemonicWords = config.mnemonic.trim().split(/\s+/)
+    const wordIndices = Array.from({ length: 24 }, (_, idx) => {
+      const word = mnemonicWords[idx]
+      if (!word) return 0
+      const wordIndex = wordlist.indexOf(word)
+      return wordIndex >= 0 ? wordIndex : 0
+    })
+
+    const numWords = mnemonicWords.length
+
+    return createDeviceResponse(true, LatticeResponseCode.success, {
+      seed,
+      wordIndices,
+      numWords,
+    })
   }
 
   /**
