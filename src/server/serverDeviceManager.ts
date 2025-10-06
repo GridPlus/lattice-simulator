@@ -8,6 +8,8 @@
 
 import { ServerLatticeSimulator } from './serverSimulator'
 
+const AUTO_APPROVE_DEFAULT = process.env.LATTICE_AUTO_APPROVE?.toLowerCase() === 'true'
+
 /**
  * Device Manager for Lattice1 Device Simulator
  *
@@ -41,7 +43,7 @@ export class DeviceManager {
     // Initialize simulator with default config (no client store dependency)
     const defaultConfig = {
       simulatedFirmwareVersion: [0, 15, 0],
-      autoApproveRequests: true,
+      autoApproveRequests: AUTO_APPROVE_DEFAULT,
       userApprovalTimeoutMs: 60000,
     }
 
