@@ -1,6 +1,7 @@
 'use client'
 
 import { Wallet, Eye, EyeOff, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import { useWalletStore } from '@/client/store/clientWalletStore'
 import { SIMULATOR_CONSTANTS } from '@/shared/constants'
@@ -11,6 +12,7 @@ interface WalletSetupProps {
 }
 
 export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
+  const router = useRouter()
   const { initializeWallets, isInitialized, isLoading, error, clearError, setActiveMnemonic } =
     useWalletStore()
 
@@ -281,6 +283,11 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
   )
 
   if (isInitialized) {
+    const handleContinue = () => {
+      onSetupComplete?.()
+      router.push('/wallets')
+    }
+
     return (
       <div className="max-w-2xl mx-auto p-6">
         <div className="text-center">
@@ -292,7 +299,7 @@ export function WalletSetup({ onSetupComplete }: WalletSetupProps) {
             Your HD wallets have been set up and are ready to use.
           </p>
           <button
-            onClick={onSetupComplete}
+            onClick={handleContinue}
             className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
             Continue to Wallets

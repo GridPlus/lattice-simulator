@@ -12,6 +12,8 @@ import {
   normalizeMnemonic,
   validateMnemonic,
 } from '@/shared/walletConfig'
+import { sendSetActiveWalletCommand } from '../clientWebSocketCommands'
+import { useDeviceStore } from './clientDeviceStore'
 import type {
   WalletAccount,
   WalletCollection,
@@ -415,6 +417,13 @@ export const useWalletStore = create<WalletStore>()(
           console.log(
             `[WalletStore] Set active ${coinType} wallet: ${account.name} (${account.address})`,
           )
+
+          const deviceState = useDeviceStore.getState()
+          const deviceId = deviceState.deviceInfo?.deviceId
+
+          if (deviceState.isConnected && deviceId && account.id) {
+            sendSetActiveWalletCommand(deviceId, coinType, account.id)
+          }
         },
 
         getActiveWallet: (coinType: WalletCoinType) => {

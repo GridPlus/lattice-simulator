@@ -321,8 +321,24 @@ export class WalletManager {
         `Account coin type ${account.coinType} does not match requested type ${coinType}`,
       )
     }
-    this.activeWallets[coinType] = account as any
-    console.log(`[WalletManager] Set active ${coinType} wallet:`, account.id)
+    const storedAccount = account.id ? this.walletAccounts.get(account.id) : undefined
+
+    // Clear previous active flags for this coin type
+    this.walletAccounts.forEach(existingAccount => {
+      if (existingAccount.coinType === coinType) {
+        existingAccount.isActive = existingAccount.id === account.id
+      }
+    })
+
+    if (!storedAccount && account.id) {
+      this.walletAccounts.set(account.id, account)
+    }
+
+    const resolvedAccount = storedAccount ?? account
+    resolvedAccount.isActive = true
+
+    this.activeWallets[coinType] = resolvedAccount as any
+    console.log(`[WalletManager] Set active ${coinType} wallet:`, resolvedAccount.id)
   }
 
   /**

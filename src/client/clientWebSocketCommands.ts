@@ -144,3 +144,14 @@ export function sendSyncWalletAccountsCommand(
 
   sendDeviceCommand(deviceId, 'sync_wallet_accounts', payload)
 }
+
+/**
+ * Sends a command to set the active wallet for a specific coin type
+ */
+export function sendSetActiveWalletCommand(
+  deviceId: string,
+  coinType: 'ETH' | 'BTC' | 'SOL',
+  accountId: string,
+) {
+  sendDeviceCommand(deviceId, 'set_active_wallet', { coinType, accountId })
+}

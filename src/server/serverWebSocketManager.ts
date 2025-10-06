@@ -568,6 +568,40 @@ class ServerWebSocketManager {
           }
           break
 
+        case 'set_active_wallet':
+          const { coinType: activeCoinType, accountId } = data || {}
+          if (!activeCoinType || !accountId) {
+            this.sendError(ws, 'coinType and accountId are required to set active wallet')
+            return
+          }
+
+          try {
+            const { walletManager } = await import('../services/walletManager')
+            const account = walletManager.getWalletAccount(accountId)
+
+            if (!account) {
+              this.sendError(ws, `Wallet account not found for id: ${accountId}`)
+              return
+            }
+
+            walletManager.setActiveWallet(activeCoinType, account)
+
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: {
+                command,
+                success: true,
+                coinType: activeCoinType,
+                accountId,
+              },
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error(`[ServerWsManager] Error setting active wallet: ${error}`)
+            this.sendError(ws, `Error setting active wallet: ${(error as Error).message}`)
+          }
+          break
+
         case 'sync_wallet_accounts':
           const payload = data || {}
           const { walletAccounts, mnemonic } = payload
