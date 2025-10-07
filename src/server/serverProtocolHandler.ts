@@ -3,6 +3,7 @@
  * Handles parsing and routing of encrypted secure requests
  */
 
+import { createHash } from 'crypto'
 import crc32 from 'crc-32'
 import elliptic from 'elliptic'
 import {
@@ -76,6 +77,8 @@ export interface SecureResponse {
 export class ProtocolHandler {
   /** Reference to the device simulator instance */
   private simulator: ServerLatticeSimulator
+  /** Cache of known shared secrets keyed by ephemeral id */
+  private sharedSecretCache: Map<number, Buffer> = new Map()
 
   /**
    * Creates a new ProtocolHandler instance
@@ -103,7 +106,7 @@ export class ProtocolHandler {
       console.log(`[ProtocolHandler] Encrypted data length: ${request.data.length}`)
 
       // Decrypt the request data using the shared secret
-      const decryptionResult = await this.decryptRequestData(request.data)
+      const decryptionResult = await this.decryptRequestData(request.data, request.ephemeralId)
       if (!decryptionResult) {
         return {
           code: LatticeResponseCode.pairFailed,
@@ -203,67 +206,83 @@ export class ProtocolHandler {
    */
   private async decryptRequestData(
     encryptedData: Buffer,
+    ephemeralId?: number,
   ): Promise<{ requestType: number; requestData: Buffer } | null> {
-    // Get the shared secret from the simulator
-    const sharedSecret = this.simulator.getSharedSecret()
-    if (!sharedSecret) {
-      console.error('[ProtocolHandler] No shared secret available for decryption')
-      return null
+    const primarySecret = this.simulator.getSharedSecret()
+    const candidates: Array<{ secret: Buffer; id: number }> = []
+
+    if (primarySecret) {
+      candidates.push({
+        secret: primarySecret,
+        id: this.computeEphemeralId(primarySecret),
+      })
     }
 
-    console.log('[ProtocolHandler] Shared secret length:', sharedSecret.length)
-    console.log('[ProtocolHandler] Shared secret (hex):', sharedSecret.toString('hex'))
-
-    try {
-      // Decrypt the data using AES-256-CBC
-      const decryptedData = aes256_decrypt(encryptedData, sharedSecret)
-
-      console.log('[ProtocolHandler] Decrypted data length:', decryptedData.length)
-      console.log('[ProtocolHandler] Decrypted data (hex):', decryptedData.toString('hex'))
-
-      // The decrypted data has structure: [requestType (1)] | [data] | [checksum (4)]
-      if (decryptedData.length < 5) {
-        throw new Error('Decrypted data too short (need at least 5 bytes)')
+    if (ephemeralId !== undefined) {
+      const cachedSecret = this.sharedSecretCache.get(ephemeralId)
+      if (cachedSecret) {
+        candidates.unshift({ secret: cachedSecret, id: ephemeralId })
       }
-
-      let offset = 0
-      // Extract request type (first byte)
-      const requestType = decryptedData.readUInt8(offset)
-      offset += 1
-      console.log('[ProtocolHandler] Extracted request type:', requestType)
-
-      const requestDataSize: number =
-        ProtocolConstants.msgSizes.secure.data.request.encrypted[
-          requestType as keyof typeof ProtocolConstants.msgSizes.secure.data.request.encrypted
-        ]
-
-      // Extract actual request data (everything between requestType and checksum)
-      const requestData = decryptedData.slice(offset, offset + requestDataSize)
-      offset += requestDataSize
-      console.log('[ProtocolHandler] Extracted request data length:', requestData.length)
-      console.log('[ProtocolHandler] Extracted request data (hex):', requestData.toString('hex'))
-
-      // Extract checksum (last 4 bytes) - SDK writes with writeUInt32LE, so we read with readUInt32LE
-      const checksum = decryptedData.readUInt32LE(offset)
-      console.log('[ProtocolHandler] Extracted checksum:', checksum.toString(16))
-
-      // Validate checksum against the data portion (requestType + requestData)
-      const dataToValidate = decryptedData.slice(0, offset)
-      const calculatedChecksum = crc32.buf(dataToValidate) >>> 0 // Convert to unsigned 32-bit
-      console.log('[ProtocolHandler] Calculated checksum:', calculatedChecksum.toString(16))
-
-      if (checksum !== calculatedChecksum) {
-        throw new Error(
-          `Checksum mismatch in decrypted request data: received=${checksum}, calculated=${calculatedChecksum}`,
-        )
-      }
-      console.log('[ProtocolHandler] Checksum validation passed')
-
-      return { requestType, requestData }
-    } catch (error) {
-      console.error('[ProtocolHandler] Decryption/deserialization failed:', error)
-      return null
     }
+
+    const tried = new Set<string>()
+
+    for (const candidate of candidates) {
+      const keyHex = candidate.secret.toString('hex')
+      if (tried.has(keyHex)) continue
+      tried.add(keyHex)
+
+      console.log('[ProtocolHandler] Trying shared secret candidate:', keyHex)
+
+      try {
+        const decryptedData = aes256_decrypt(encryptedData, candidate.secret)
+
+        console.log('[ProtocolHandler] Decrypted data length:', decryptedData.length)
+        console.log('[ProtocolHandler] Decrypted data (hex):', decryptedData.toString('hex'))
+
+        if (decryptedData.length < 5) {
+          throw new Error('Decrypted data too short (need at least 5 bytes)')
+        }
+
+        let offset = 0
+        const requestType = decryptedData.readUInt8(offset)
+        offset += 1
+        console.log('[ProtocolHandler] Extracted request type:', requestType)
+
+        const requestDataSize: number =
+          ProtocolConstants.msgSizes.secure.data.request.encrypted[
+            requestType as keyof typeof ProtocolConstants.msgSizes.secure.data.request.encrypted
+          ]
+
+        const requestData = decryptedData.slice(offset, offset + requestDataSize)
+        offset += requestDataSize
+        console.log('[ProtocolHandler] Extracted request data length:', requestData.length)
+        console.log('[ProtocolHandler] Extracted request data (hex):', requestData.toString('hex'))
+
+        const checksum = decryptedData.readUInt32LE(offset)
+        console.log('[ProtocolHandler] Extracted checksum:', checksum.toString(16))
+
+        const dataToValidate = decryptedData.slice(0, offset)
+        const calculatedChecksum = crc32.buf(dataToValidate) >>> 0
+        console.log('[ProtocolHandler] Calculated checksum:', calculatedChecksum.toString(16))
+
+        if (checksum !== calculatedChecksum) {
+          throw new Error(
+            `Checksum mismatch in decrypted request data: received=${checksum}, calculated=${calculatedChecksum}`,
+          )
+        }
+        console.log('[ProtocolHandler] Checksum validation passed')
+
+        this.sharedSecretCache.set(candidate.id, candidate.secret)
+
+        return { requestType, requestData }
+      } catch (error) {
+        console.error('[ProtocolHandler] Decryption attempt failed:', error)
+      }
+    }
+
+    console.error('[ProtocolHandler] Unable to decrypt request with available shared secrets')
+    return null
   }
 
   /**
@@ -288,11 +307,15 @@ export class ProtocolHandler {
       throw new Error('No shared secret available for response encryption')
     }
 
-    // Generate a new ephemeral key pair for the next request
-    const newEphemeralKeyPair = generateKeyPair()
+    // Reuse the current device ephemeral key to keep shared secrets in sync with SDK
+    let responseEphemeralKeyPair = this.simulator.getEphemeralKeyPair()
+    if (!responseEphemeralKeyPair) {
+      responseEphemeralKeyPair = generateKeyPair()
+      this.simulator.updateEphemeralKeyPair(responseEphemeralKeyPair)
+    }
 
     // Build the response payload: [newEphemeralPub (65)] | [responseData] | [checksum (4)]
-    const newEphemeralPub = newEphemeralKeyPair.publicKey
+    const newEphemeralPub = responseEphemeralKeyPair.publicKey
     console.log(`[ProtocolHandler] Response data(unpadded) length: ${responseData.length}`)
     console.log(`[ProtocolHandler] Response data(unpadded) (hex): ${responseData.toString('hex')}`)
     const responseDataSize: number =
@@ -358,9 +381,6 @@ export class ProtocolHandler {
     // Encrypt the padded response payload
     const encryptedPayload = aes256_encrypt(paddedPayload, sharedSecret)
 
-    // Update the simulator's ephemeral key pair for future requests
-    this.simulator.updateEphemeralKeyPair(newEphemeralKeyPair)
-
     console.log('[ProtocolHandler] Padded payload length:', paddedPayload.length)
     console.log('[ProtocolHandler] Encrypted response length:', encryptedPayload.length)
     return encryptedPayload
@@ -377,6 +397,11 @@ export class ProtocolHandler {
    */
   private calculateChecksum(data: Buffer): number {
     return crc32.buf(data) >>> 0 // Convert to unsigned 32-bit
+  }
+
+  private computeEphemeralId(sharedSecret: Buffer): number {
+    const hash = createHash('sha256').update(sharedSecret).digest()
+    return hash.readUInt32BE(0)
   }
 
   /**

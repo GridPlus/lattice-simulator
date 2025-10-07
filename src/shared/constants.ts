@@ -120,8 +120,7 @@ export const SIMULATOR_CONSTANTS = {
   DEFAULT_REQUEST_TIMEOUT_MS: 30000, // 30 seconds
 
   // Default seeds for testing (NEVER use in production)
-  DEFAULT_MNEMONIC:
-    'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+  DEFAULT_MNEMONIC: 'test test test test test test test test test test test junk',
 
   // Supported firmware versions
   FIRMWARE_VERSIONS: {

@@ -6,6 +6,8 @@
  * cryptocurrency transaction formats and message types.
  */
 
+import { EXTERNAL } from '../shared/constants'
+import { buildEthereumSigningPreimage, decodeEthereumTxPayload } from './utils/ethereumTx'
 import type { SignRequest } from '../shared/types'
 
 /**
@@ -96,20 +98,34 @@ export class EthereumTransactionParser implements ISignRequestParser {
     console.log('[EthereumParser] Parsing Ethereum transaction payload')
     console.log(`[EthereumParser] Payload length: ${payload.length}`)
 
-    // For Ethereum transactions, we typically need to extract:
-    // - Derivation path (usually embedded in payload)
-    // - Transaction data (to, value, gas, data, etc.)
-
-    // Default Ethereum path: m/44'/60'/0'/0/0
+    const meta = decodeEthereumTxPayload(payload, { hasExtraPayloads })
     const defaultEthPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
+    const effectivePath = meta.path.length ? meta.path : defaultEthPath
+
+    const baseData = meta.dataChunk.slice(0, Math.min(meta.dataLength, meta.dataChunk.length))
+    let dataToSign: Buffer
+    let hashType: number = EXTERNAL.SIGNING.HASHES.KECCAK256
+
+    if (hasExtraPayloads) {
+      dataToSign = baseData
+    } else {
+      if (meta.prehash) {
+        dataToSign = baseData
+        hashType = EXTERNAL.SIGNING.HASHES.NONE
+      } else {
+        dataToSign = buildEthereumSigningPreimage(meta, baseData)
+      }
+    }
 
     return {
-      path: defaultEthPath, // TODO: Extract from payload if available
+      path: effectivePath,
       schema,
-      curve: 0, // Ethereum uses secp256k1
-      encoding: 4, // EVM encoding
-      hashType: 1, // Keccak256
-      data: payload,
+      curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
+      encoding: EXTERNAL.SIGNING.ENCODINGS.EVM,
+      hashType,
+      data: dataToSign,
+      hasExtraPayloads,
+      rawPayload: payload,
     }
   }
 }

@@ -44,6 +44,17 @@ export interface SignatureResult {
   }
 }
 
+const isBuffer = (data: Buffer | Uint8Array | string): data is Buffer => Buffer.isBuffer(data)
+
+const toBuffer = (value: Buffer | Uint8Array | string): Buffer => {
+  if (isBuffer(value)) return value
+  if (typeof value === 'string') {
+    const hex = value.startsWith('0x') ? value.slice(2) : value
+    return Buffer.from(hex, 'hex')
+  }
+  return Buffer.from(value)
+}
+
 /**
  * Signing request parameters
  */
@@ -257,6 +268,11 @@ export class SigningService {
       })
     }
 
+    console.log('[SigningService] Active Ethereum account:', {
+      address: wallet.address,
+      derivationPath,
+    })
+
     // For Ethereum, we need to handle different signature types
     // Check if this is message signing (simplified check)
     if (request.schema === 1) {
@@ -277,12 +293,27 @@ export class SigningService {
       }
     } else {
       // Transaction signing
-      const txHashHex = keccak256(request.data)
-      const txHash = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
-      const signature = this.secp256k1Sign(txHash, privateKeyBuffer)
+      let signingDigest: Buffer
+      let signablePayload: Buffer | null = null
+
+      if (request.hashType === EXTERNAL.SIGNING.HASHES.NONE) {
+        signingDigest = toBuffer(request.data)
+      } else if (request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM) {
+        // For EVM encoding, the SDK sends the full serialized transaction
+        // including empty signature placeholders. We sign the hash of the full transaction.
+        const txData = toBuffer(request.data)
+        const txHashHex = keccak256(txData)
+        signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+        signablePayload = txData
+      } else {
+        const txHashHex = keccak256(request.data)
+        signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+      }
+
+      const signature = this.secp256k1Sign(signingDigest, privateKeyBuffer)
 
       console.log('[SigningService] Signature components:', {
-        hash: txHash.toString('hex'),
+        hash: signingDigest.toString('hex'),
         r: signature.r.toString('hex'),
         s: signature.s.toString('hex'),
         recovery: signature.recovery,
@@ -292,7 +323,7 @@ export class SigningService {
       let recoveredCompressed = publicKeyCompressed
       try {
         const recovered = this.secp256k1.recoverPubKey(
-          txHash,
+          signingDigest,
           { r: signature.r, s: signature.s },
           signature.recovery,
         )
@@ -305,6 +336,13 @@ export class SigningService {
         console.warn('[SigningService] Failed to recover pubkey from signature', err)
       }
 
+      const txHashMetadata =
+        request.hashType === EXTERNAL.SIGNING.HASHES.NONE
+          ? undefined
+          : signablePayload
+            ? `0x${signablePayload.toString('hex')}`
+            : `0x${signingDigest.toString('hex')}`
+
       return {
         signature: this.formatDERSignature(signature.r, signature.s),
         recovery: signature.recovery,
@@ -313,7 +351,7 @@ export class SigningService {
           signer: wallet.address,
           publicKey: recoveredUncompressed,
           publicKeyCompressed: recoveredCompressed,
-          txHash: '0x' + txHash.toString('hex'),
+          txHash: txHashMetadata,
         },
       }
     }

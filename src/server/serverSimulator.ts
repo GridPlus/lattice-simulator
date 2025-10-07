@@ -23,6 +23,11 @@ import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
 import { EXTERNAL } from '../shared/constants'
 import {
+  buildEthereumSigningPreimage,
+  decodeEthereumTxPayload,
+  type DecodedEthereumTxPayload,
+} from './utils/ethereumTx'
+import {
   LatticeResponseCode,
   type DeviceResponse,
   type ConnectRequest,
@@ -60,6 +65,7 @@ interface MultipartSignSession {
   messageChunks: Buffer[]
   decoderChunks: Buffer[]
   nextCode: Buffer
+  ethMeta?: DecodedEthereumTxPayload
 }
 
 /**
@@ -699,7 +705,7 @@ export class ServerLatticeSimulator {
     }
 
     if (request.hasExtraPayloads) {
-      return this.handleMultipartBaseRequest(request)
+      return await this.handleMultipartBaseRequest(request)
     }
 
     // Check if auto-approve is disabled - create pending request for user approval
@@ -746,6 +752,35 @@ export class ServerLatticeSimulator {
     }
 
     const payload = request.rawPayload
+
+    if (request.schema === SignRequestSchema.ETHEREUM_TRANSACTION) {
+      const meta = decodeEthereumTxPayload(payload, {
+        hasExtraPayloads: request.hasExtraPayloads ?? false,
+      })
+      const messageChunk = meta.dataChunk.slice(0, Math.min(meta.dataLength, meta.dataChunk.length))
+      const remainingChunk = meta.remainingChunk
+      const path: WalletPath =
+        request.path && request.path.length > 0
+          ? (request.path as WalletPath)
+          : (meta.path as WalletPath)
+
+      const defaultHashType = meta.prehash
+        ? EXTERNAL.SIGNING.HASHES.NONE
+        : EXTERNAL.SIGNING.HASHES.KECCAK256
+
+      return {
+        encoding: request.encoding ?? EXTERNAL.SIGNING.ENCODINGS.EVM,
+        hashType: request.hashType ?? defaultHashType,
+        curve: request.curve ?? EXTERNAL.SIGNING.CURVES.SECP256K1,
+        path,
+        omitPubkey: request.omitPubkey ?? false,
+        messageLength: meta.dataLength,
+        messageChunk,
+        remainingChunk,
+        ethMeta: meta,
+      }
+    }
+
     let offset = 0
 
     const encoding = payload.readUInt32LE(offset)
@@ -793,9 +828,52 @@ export class ServerLatticeSimulator {
     }
   }
 
-  private handleMultipartBaseRequest(request: SignRequest): DeviceResponse<SignResponse> {
+  private async handleMultipartBaseRequest(
+    request: SignRequest,
+  ): Promise<DeviceResponse<SignResponse>> {
     try {
       const info = this.extractGenericRequestInfo(request)
+
+      // Check if all data is already present in the first request
+      const isComplete = info.messageLength === info.messageChunk.length
+
+      console.log('[Simulator] handleMultipartBaseRequest check:', {
+        messageLength: info.messageLength,
+        chunkLength: info.messageChunk.length,
+        isComplete,
+        schema: request.schema,
+      })
+
+      if (isComplete) {
+        // Data is complete, sign immediately instead of creating multipart session
+        console.log('[Simulator] Data complete in first request, signing immediately')
+
+        let signingPayload = info.messageChunk
+        let hashType = request.hashType ?? info.hashType
+
+        if (info.ethMeta) {
+          signingPayload = Buffer.from(
+            buildEthereumSigningPreimage(info.ethMeta, info.messageChunk),
+          )
+          if (info.ethMeta.prehash) {
+            hashType = EXTERNAL.SIGNING.HASHES.NONE
+          }
+        }
+
+        const finalRequest: SignRequest = {
+          data: signingPayload,
+          path: (request.path && request.path.length > 0 ? request.path : info.path) as WalletPath,
+          schema: request.schema,
+          curve: request.curve ?? info.curve,
+          encoding: request.encoding ?? info.encoding,
+          hashType,
+          omitPubkey: request.omitPubkey ?? info.omitPubkey,
+        }
+
+        return await this.executeSigning(finalRequest)
+      }
+
+      // Data incomplete, create multipart session
       const nextCode = this.generateNextCode()
 
       const session: MultipartSignSession = {
@@ -810,6 +888,7 @@ export class ServerLatticeSimulator {
         messageChunks: [info.messageChunk],
         decoderChunks: info.remainingChunk.length ? [info.remainingChunk] : [],
         nextCode,
+        ethMeta: info.ethMeta,
       }
 
       if (process.env.DEBUG_SIGNING === '1') {
@@ -924,28 +1003,39 @@ export class ServerLatticeSimulator {
     }
 
     const message = Buffer.concat(session.messageChunks)
-    const messageToSign = session.expectedLength
-      ? message.slice(0, session.expectedLength)
-      : message
+    const effectiveLength = session.expectedLength
+      ? Math.min(session.expectedLength, message.length)
+      : message.length
+    const fullData = message.slice(0, effectiveLength)
+
+    let signingPayload = fullData
+    let hashType = session.hashType
+
+    if (session.ethMeta) {
+      signingPayload = Buffer.from(buildEthereumSigningPreimage(session.ethMeta, fullData))
+      if (session.ethMeta.prehash) {
+        hashType = EXTERNAL.SIGNING.HASHES.NONE
+      }
+    }
 
     if (process.env.DEBUG_SIGNING === '1') {
       console.debug('[Simulator] Finalizing multipart signing session', {
         session: sessionKey,
         collectedLength: session.collectedLength,
         expectedLength: session.expectedLength,
-        messageToSignLength: messageToSign.length,
+        messageToSignLength: signingPayload.length,
         decoderBytes: session.decoderChunks.reduce((sum, chunk) => sum + chunk.length, 0),
-        messageKeccak: keccak256(messageToSign),
+        messageKeccak: keccak256(signingPayload),
       })
     }
 
     const finalRequest: SignRequest = {
-      data: messageToSign,
+      data: signingPayload,
       path: session.path,
       schema: session.schema,
       curve: session.curve,
       encoding: session.encoding,
-      hashType: session.hashType,
+      hashType,
       omitPubkey: session.omitPubkey,
     }
 
@@ -1523,6 +1613,13 @@ export class ServerLatticeSimulator {
    */
   getDeviceId(): string {
     return this.deviceId
+  }
+
+  /**
+   * Gets the current ephemeral key pair used for encrypted messaging
+   */
+  getEphemeralKeyPair(): { publicKey: Buffer; privateKey: Buffer } | undefined {
+    return this.ephemeralKeyPair
   }
 
   /**
