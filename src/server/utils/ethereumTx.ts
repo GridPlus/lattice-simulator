@@ -2,6 +2,60 @@ import { Buffer } from 'buffer'
 import { RLP } from '@ethereumjs/rlp'
 import { PROTOCOL_CONSTANTS } from '../../shared/constants'
 
+/**
+ * Parse authorization list from serialized EIP-7702 transaction data
+ */
+const parseAuthorizationList = (data: Buffer): Buffer[][] => {
+  try {
+    console.log('[parseAuthorizationList] Input data length:', data.length)
+    console.log('[parseAuthorizationList] First byte:', data[0])
+
+    // EIP-7702 transactions have type 4 prefix
+    if (data.length === 0 || data[0] !== 4) {
+      console.log('[parseAuthorizationList] Not an EIP-7702 transaction')
+      return []
+    }
+
+    // Remove the type prefix and decode RLP
+    const rlpData = data.slice(1)
+    const decoded = RLP.decode(rlpData) as any[]
+
+    console.log('[parseAuthorizationList] Decoded length:', decoded.length)
+
+    // EIP-7702 structure: [chainId, nonce, maxPriorityFeePerGas, maxFeePerGas, gasLimit, to, value, data, accessList, authorizationList]
+    if (decoded.length >= 10) {
+      const authorizationList = decoded[9]
+      console.log('[parseAuthorizationList] Authorization list type:', typeof authorizationList)
+      console.log(
+        '[parseAuthorizationList] Authorization list is array:',
+        Array.isArray(authorizationList),
+      )
+      console.log('[parseAuthorizationList] Authorization list length:', authorizationList?.length)
+
+      if (Array.isArray(authorizationList)) {
+        const result = authorizationList.map((auth: any) => {
+          if (Buffer.isBuffer(auth)) {
+            // Single authorization as buffer
+            return [auth]
+          } else if (Array.isArray(auth)) {
+            // Authorization list as array of buffers
+            return auth.map((item: any) => (Buffer.isBuffer(item) ? item : Buffer.from(item)))
+          }
+          return []
+        })
+        console.log('[parseAuthorizationList] Parsed authorization list:', result.length, 'items')
+        return result
+      }
+    }
+
+    console.log('[parseAuthorizationList] No authorization list found')
+    return []
+  } catch (error) {
+    console.log('[parseAuthorizationList] Error parsing authorization list:', error)
+    return []
+  }
+}
+
 const CONTRACT_DEPLOY_SENTINEL = Buffer.from('08002e0fec8e6acf00835f43c9764f7364fa3f42', 'hex')
 
 const trimLeadingZeros = (buf: Buffer): Buffer => {
@@ -37,7 +91,7 @@ export interface DecodedEthereumTxPayload {
   to: Buffer
   value: Buffer
   maxPriorityFeePerGas: Buffer
-  txType?: 0 | 1 | 2
+  txType?: 0 | 1 | 2 | 4
   dataLength: number
   dataChunk: Buffer
   remainingChunk: Buffer
@@ -115,10 +169,18 @@ export const decodeEthereumTxPayload = (
 
   const chainId = chainIdBuf ? bufferToBigInt(chainIdBuf) : undefined
 
-  let txType: 0 | 1 | 2 | undefined
+  let txType: 0 | 1 | 2 | 4 | undefined
   if (txTypeByte === 1) txType = 1
   else if (txTypeByte === 2) txType = 2
+  else if (txTypeByte === 4) txType = 4
   else txType = undefined
+
+  console.log(
+    '[decodeEthereumTxPayload] Transaction type byte:',
+    txTypeByte,
+    'Detected type:',
+    txType,
+  )
 
   const prehash = prehashUnsupportedFlag || (!hasExtraPayloads && dataLength > dataChunk.length)
 
@@ -150,6 +212,7 @@ const buildTypedPreimage = (meta: DecodedEthereumTxPayload, data: Buffer): Buffe
   const accessList: Buffer[][] = []
 
   if (meta.txType === 2) {
+    // EIP-1559 (Fee Market)
     const maxPriority = normalizeQuantity(meta.maxPriorityFeePerGas)
     const maxFee = normalizeQuantity(meta.gasPrice)
     const payload = [
@@ -164,6 +227,30 @@ const buildTypedPreimage = (meta: DecodedEthereumTxPayload, data: Buffer): Buffe
       accessList,
     ]
     return Buffer.concat([Buffer.from([2]), Buffer.from(RLP.encode(payload))])
+  }
+
+  if (meta.txType === 4) {
+    // EIP-7702 (Account Abstraction)
+    console.log('[buildTypedPreimage] Processing EIP-7702 transaction')
+    const maxPriority = normalizeQuantity(meta.maxPriorityFeePerGas)
+    const maxFee = normalizeQuantity(meta.gasPrice)
+
+    // Parse the authorization list from the transaction data
+    const authorizationList = parseAuthorizationList(data)
+
+    const payload = [
+      chainIdBuf,
+      nonce,
+      maxPriority,
+      maxFee,
+      gasLimit,
+      toBuf,
+      value,
+      data,
+      accessList,
+      authorizationList,
+    ]
+    return Buffer.concat([Buffer.from([4]), Buffer.from(RLP.encode(payload))])
   }
 
   // EIP-2930
@@ -182,7 +269,7 @@ export const buildEthereumSigningPreimage = (
 
   const trimmedData = data.length ? data.slice(0, meta.dataLength) : Buffer.alloc(0)
 
-  if (meta.txType === 1 || meta.txType === 2) {
+  if (meta.txType === 1 || meta.txType === 2 || meta.txType === 4) {
     return buildTypedPreimage(meta, trimmedData)
   }
 

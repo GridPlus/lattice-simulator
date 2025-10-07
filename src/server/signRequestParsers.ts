@@ -98,6 +98,20 @@ export class EthereumTransactionParser implements ISignRequestParser {
     console.log('[EthereumParser] Parsing Ethereum transaction payload')
     console.log(`[EthereumParser] Payload length: ${payload.length}`)
 
+    // Extract encoding type from payload (similar to GenericSignRequestParser)
+    let encoding = EXTERNAL.SIGNING.ENCODINGS.EVM // Default to EVM
+    if (payload.length >= 4) {
+      const extractedEncoding = payload.readUInt32LE(0)
+      // Only use extracted encoding if it's a valid Ethereum encoding
+      if (
+        extractedEncoding === EXTERNAL.SIGNING.ENCODINGS.EVM ||
+        extractedEncoding === EXTERNAL.SIGNING.ENCODINGS.EIP7702_AUTH ||
+        extractedEncoding === EXTERNAL.SIGNING.ENCODINGS.EIP7702_AUTH_LIST
+      ) {
+        encoding = extractedEncoding
+      }
+    }
+
     const meta = decodeEthereumTxPayload(payload, { hasExtraPayloads })
     const defaultEthPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
     const effectivePath = meta.path.length ? meta.path : defaultEthPath
@@ -121,7 +135,7 @@ export class EthereumTransactionParser implements ISignRequestParser {
       path: effectivePath,
       schema,
       curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
-      encoding: EXTERNAL.SIGNING.ENCODINGS.EVM,
+      encoding,
       hashType,
       data: dataToSign,
       hasExtraPayloads,

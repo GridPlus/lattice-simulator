@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { SignRequestSchema } from '@/server/signRequestParsers'
 import type { ServerLatticeSimulator } from '@/server/serverSimulator'
+import { SigningService } from '@/services/signingService'
+import { ec as EC } from 'elliptic'
 
 describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
   let protocolHandler: ProtocolHandler
@@ -366,6 +368,30 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       // Signer address validation
       const signer = result.slice(74)
       expect(signer).toEqual(Buffer.from(ethData.metadata.signer, 'hex'))
+    })
+  })
+
+  describe('SigningService Recovery Normalization', () => {
+    it('should normalize recovery parameter to y-parity bit', () => {
+      const signingService = new SigningService()
+      const privateKey = Buffer.from(
+        'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
+        'hex',
+      )
+      const messageHash = Buffer.from(
+        'a76aa060fa5404bc5341562b0bc82c4b7df8bfe022316bb5a8d6ea89f8130d2d',
+        'hex',
+      )
+
+      const result = (signingService as any).secp256k1Sign(messageHash, privateKey)
+      const ec = new EC('secp256k1')
+      const referenceSignature = ec
+        .keyFromPrivate(privateKey)
+        .sign(messageHash, { canonical: true })
+      const expectedRecovery = (referenceSignature.recoveryParam ?? 0) & 1
+
+      expect(result.recovery).toBe(expectedRecovery)
+      expect([0, 1]).toContain(result.recovery)
     })
   })
 })

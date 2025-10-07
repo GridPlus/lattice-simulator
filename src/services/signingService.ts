@@ -29,6 +29,8 @@ export interface SignatureResult {
   signature: Buffer
   /** Recovery ID for ECDSA signatures (Ethereum) */
   recovery?: number
+  /** Full recovery identifier (includes parity & compression bits) */
+  recoveryId?: number
   /** Signature format */
   format: 'der' | 'raw' | 'compact'
   /** Additional signature data */
@@ -298,13 +300,23 @@ export class SigningService {
 
       if (request.hashType === EXTERNAL.SIGNING.HASHES.NONE) {
         signingDigest = toBuffer(request.data)
-      } else if (request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM) {
-        // For EVM encoding, the SDK sends the full serialized transaction
+      } else if (
+        request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM ||
+        request.encoding === EXTERNAL.SIGNING.ENCODINGS.EIP7702_AUTH ||
+        request.encoding === EXTERNAL.SIGNING.ENCODINGS.EIP7702_AUTH_LIST
+      ) {
+        // For EVM and EIP-7702 encodings, the SDK sends the full serialized transaction
         // including empty signature placeholders. We sign the hash of the full transaction.
         const txData = toBuffer(request.data)
         const txHashHex = keccak256(txData)
         signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
         signablePayload = txData
+
+        if (process.env.DEBUG_SIGNING === '1') {
+          console.debug('[SigningService] Processing transaction with encoding:', request.encoding)
+          console.debug('[SigningService] Transaction data length:', txData.length)
+          console.debug('[SigningService] Transaction hash:', txHashHex)
+        }
       } else {
         const txHashHex = keccak256(request.data)
         signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
@@ -317,6 +329,7 @@ export class SigningService {
         r: signature.r.toString('hex'),
         s: signature.s.toString('hex'),
         recovery: signature.recovery,
+        recoveryId: signature.recoveryId,
       })
 
       let recoveredUncompressed = publicKeyUncompressed
@@ -325,13 +338,18 @@ export class SigningService {
         const recovered = this.secp256k1.recoverPubKey(
           signingDigest,
           { r: signature.r, s: signature.s },
-          signature.recovery,
+          signature.recoveryId,
         )
-        recoveredUncompressed = recovered.encode('hex', false)
-        recoveredCompressed = recovered.encode('hex', true)
-        console.log(
-          `hereis recoveredUncompressed: ${recoveredUncompressed}, publicKeyUncompressed: ${publicKeyUncompressed}`,
-        )
+        const candidateUncompressed = recovered.encode('hex', false)
+        const candidateCompressed = recovered.encode('hex', true)
+        if (candidateUncompressed === publicKeyUncompressed) {
+          recoveredUncompressed = candidateUncompressed
+          recoveredCompressed = candidateCompressed
+        } else {
+          console.warn(
+            '[SigningService] Recovered pubkey does not match derived pubkey; using derived key instead',
+          )
+        }
       } catch (err) {
         console.warn('[SigningService] Failed to recover pubkey from signature', err)
       }
@@ -346,6 +364,7 @@ export class SigningService {
       return {
         signature: this.formatDERSignature(signature.r, signature.s),
         recovery: signature.recovery,
+        recoveryId: signature.recoveryId,
         format: 'der',
         metadata: {
           signer: wallet.address,
@@ -430,17 +449,22 @@ export class SigningService {
     r: Buffer
     s: Buffer
     recovery: number
+    recoveryId: number
   } {
     const keyPair = this.secp256k1.keyFromPrivate(privateKey)
     const signature = keyPair.sign(hash, { canonical: true })
 
-    // Calculate recovery ID
-    const recovery = this.calculateRecoveryId(hash, signature, keyPair.getPublic())
+    const rawRecovery =
+      typeof signature.recoveryParam === 'number'
+        ? signature.recoveryParam
+        : this.calculateRecoveryId(hash, signature, keyPair.getPublic())
+    const recovery = rawRecovery & 1
 
     return {
       r: Buffer.from(signature.r.toArray('be', 32)),
       s: Buffer.from(signature.s.toArray('be', 32)),
       recovery,
+      recoveryId: rawRecovery,
     }
   }
 
@@ -452,12 +476,14 @@ export class SigningService {
       try {
         const recoveredKey = this.secp256k1.recoverPubKey(hash, signature, recovery)
         if (recoveredKey.encode('hex') === publicKey.encode('hex')) {
+          console.log(`[calculateRecoveryId] Found matching recovery ID: ${recovery}`)
           return recovery
         }
       } catch {
         continue
       }
     }
+    console.log('[calculateRecoveryId] No matching recovery ID found, defaulting to 0')
     return 0
   }
 

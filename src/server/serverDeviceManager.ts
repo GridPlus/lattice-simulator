@@ -10,6 +10,20 @@ import { ServerLatticeSimulator } from './serverSimulator'
 
 const AUTO_APPROVE_DEFAULT = process.env.LATTICE_AUTO_APPROVE?.toLowerCase() === 'true'
 
+// Parse firmware version from env var or use default [0, 18, 0]
+const parseFirmwareVersion = (): [number, number, number] => {
+  const envVersion = process.env.LATTICE_FIRMWARE_VERSION
+  if (envVersion) {
+    const parts = envVersion.split('.').map(Number)
+    if (parts.length === 3 && parts.every(n => !isNaN(n))) {
+      return [parts[0], parts[1], parts[2]]
+    }
+  }
+  return [0, 18, 0]
+}
+
+const FIRMWARE_VERSION_DEFAULT = parseFirmwareVersion()
+
 /**
  * Device Manager for Lattice1 Device Simulator
  *
@@ -42,14 +56,14 @@ export class DeviceManager {
   constructor(deviceId?: string) {
     // Initialize simulator with default config (no client store dependency)
     const defaultConfig = {
-      simulatedFirmwareVersion: [0, 15, 0],
+      simulatedFirmwareVersion: FIRMWARE_VERSION_DEFAULT,
       autoApproveRequests: AUTO_APPROVE_DEFAULT,
       userApprovalTimeoutMs: 60000,
     }
 
     this.simulator = new ServerLatticeSimulator({
       deviceId,
-      firmwareVersion: defaultConfig.simulatedFirmwareVersion as [number, number, number],
+      firmwareVersion: defaultConfig.simulatedFirmwareVersion,
       autoApprove: defaultConfig.autoApproveRequests,
     })
 
