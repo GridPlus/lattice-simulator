@@ -99,7 +99,7 @@ export class EthereumTransactionParser implements ISignRequestParser {
     console.log(`[EthereumParser] Payload length: ${payload.length}`)
 
     // Extract encoding type from payload (similar to GenericSignRequestParser)
-    let encoding = EXTERNAL.SIGNING.ENCODINGS.EVM // Default to EVM
+    let encoding: number = EXTERNAL.SIGNING.ENCODINGS.EVM // Default to EVM
     if (payload.length >= 4) {
       const extractedEncoding = payload.readUInt32LE(0)
       // Only use extracted encoding if it's a valid Ethereum encoding
