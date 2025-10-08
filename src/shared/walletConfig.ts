@@ -28,6 +28,12 @@ export interface WalletConfig {
   isDefault: boolean
 }
 
+export interface EnvironmentConfig {
+  isCI: boolean
+  noDelay: boolean
+  autoApprove: boolean
+}
+
 /**
  * Returns the currently configured mnemonic override, if any
  */
@@ -158,11 +164,71 @@ export function generateNewMnemonic(): string {
 }
 
 /**
- * Gets environment variable configuration info
+ * Gets environment configuration for CI, delays, and auto-approval
  *
- * @returns Object with environment variable names and their status
+ * @returns EnvironmentConfig object with CI detection and behavior settings
  */
-export function getEnvInfo(): {
+export function getEnvironmentConfig(): EnvironmentConfig {
+  const isSet = (value?: string) => ['1', 'true', 'yes'].includes(value?.toLowerCase() || '0')
+
+  // Detect CI environment
+  const isCI =
+    isSet(process.env.CI) ||
+    isSet(process.env.GITHUB_ACTIONS) ||
+    isSet(process.env.TRAVIS) ||
+    isSet(process.env.CIRCLECI)
+
+  // NO_DELAY: explicit setting OR default to true in CI
+  const noDelay = isSet(process.env.NO_DELAY) || (!isSet(process.env.NO_DELAY) && isCI)
+
+  // LATTICE_AUTO_APPROVE: explicit setting OR default to true in CI
+  const autoApprove =
+    isSet(process.env.LATTICE_AUTO_APPROVE) || (!isSet(process.env.LATTICE_AUTO_APPROVE) && isCI)
+
+  return {
+    isCI,
+    noDelay,
+    autoApprove,
+  }
+}
+
+/**
+ * Gets comprehensive environment information including all relevant env vars
+ *
+ * @returns Object with all environment variable information
+ */
+export function getEnv(): {
+  envVars: string[]
+  hasEnvMnemonic: boolean
+  envMnemonicSource?: string
+  isCI: boolean
+  noDelay: boolean
+  autoApprove: boolean
+  ciDetectedFrom: string[]
+} {
+  const mnemonicInfo = getMnemonicEnvInfo()
+  const envConfig = getEnvironmentConfig()
+
+  // Track which CI indicators were detected
+  const ciDetectedFrom: string[] = []
+  if (process.env.CI === '1') ciDetectedFrom.push('CI=1')
+  if (process.env.GITHUB_ACTIONS === 'true') ciDetectedFrom.push('GITHUB_ACTIONS=true')
+  if (process.env.TRAVIS === 'true') ciDetectedFrom.push('TRAVIS=true')
+  if (process.env.CIRCLECI === 'true') ciDetectedFrom.push('CIRCLECI=true')
+
+  return {
+    ...mnemonicInfo,
+    ...envConfig,
+    ciDetectedFrom,
+  }
+}
+
+/**
+ * Gets mnemonic-related environment variable configuration info
+ *
+ * @returns Object with mnemonic environment variable names and their status
+ */
+export function getMnemonicEnvInfo(): {
   envVars: string[]
   hasEnvMnemonic: boolean
   envMnemonicSource?: string
@@ -194,14 +260,21 @@ export function getEnvInfo(): {
  */
 export async function logWalletConfigStatus(): Promise<void> {
   const config = await getWalletConfig()
-  const envInfo = getEnvInfo()
+  const envInfo = getEnv()
 
   console.log('[WalletConfig] Configuration Status:')
   console.log(`  - Using ${config.isDefault ? 'default' : 'environment'} mnemonic`)
   console.log(`  - Environment variables checked: ${envInfo.envVars.join(', ')}`)
+  console.log(`  - CI Environment: ${envInfo.isCI ? 'Yes' : 'No'}`)
+  console.log(`  - No Delay: ${envInfo.noDelay ? 'Yes' : 'No'}`)
+  console.log(`  - Auto Approve: ${envInfo.autoApprove ? 'Yes' : 'No'}`)
 
   if (envInfo.hasEnvMnemonic) {
     console.log(`  - Environment mnemonic source: ${envInfo.envMnemonicSource}`)
+  }
+
+  if (envInfo.isCI && envInfo.ciDetectedFrom.length > 0) {
+    console.log(`  - CI detected from: ${envInfo.ciDetectedFrom.join(', ')}`)
   }
 
   if (config.isDefault) {

@@ -251,7 +251,6 @@ export class SigningService {
     }
 
     // Use viem for Ethereum signing to match SDK behavior
-    const account = privateKeyToAccount(wallet.privateKey as Hex)
     const privateKeyBuffer = Buffer.from((wallet.privateKey as string).slice(2), 'hex')
     const publicKeyUncompressed = this.secp256k1
       .keyFromPrivate(privateKeyBuffer)
@@ -276,17 +275,30 @@ export class SigningService {
     })
 
     // For Ethereum, we need to handle different signature types
-    // Check if this is message signing (simplified check)
-    if (request.schema === 1) {
-      // Assuming 1 is ETH_MSG schema
-      // Message signing
-      const signature = await account.signMessage({
-        message: { raw: request.data },
+    // Check if this is message signing (schema 3 = ETH_MSG)
+    if (request.schema === 3) {
+      // ETH_MSG schema (personal_sign, EIP-712)
+      // Message signing - but need to return DER format like real device
+      const messageHash = this.hashMessage(request.data)
+      const signature = this.secp256k1Sign(messageHash, privateKeyBuffer)
+
+      const derSignature = this.formatDERSignature(signature.r, signature.s)
+
+      console.log('[SigningService] ETH_MSG Signature components:', {
+        hash: messageHash.toString('hex'),
+        r: signature.r.toString('hex'),
+        s: signature.s.toString('hex'),
+        recovery: signature.recovery,
+        recoveryId: signature.recoveryId,
+        derSignatureLength: derSignature.length,
+        derSignaturePrefix: derSignature.slice(0, 10).toString('hex'),
       })
 
       return {
-        signature: Buffer.from(signature.slice(2), 'hex'),
-        format: 'compact',
+        signature: derSignature,
+        recovery: signature.recovery,
+        recoveryId: signature.recoveryId,
+        format: 'der',
         metadata: {
           signer: wallet.address,
           publicKey: publicKeyUncompressed,
@@ -332,8 +344,6 @@ export class SigningService {
         recoveryId: signature.recoveryId,
       })
 
-      let recoveredUncompressed = publicKeyUncompressed
-      let recoveredCompressed = publicKeyCompressed
       try {
         const recovered = this.secp256k1.recoverPubKey(
           signingDigest,
@@ -341,11 +351,7 @@ export class SigningService {
           signature.recoveryId,
         )
         const candidateUncompressed = recovered.encode('hex', false)
-        const candidateCompressed = recovered.encode('hex', true)
-        if (candidateUncompressed === publicKeyUncompressed) {
-          recoveredUncompressed = candidateUncompressed
-          recoveredCompressed = candidateCompressed
-        } else {
+        if (candidateUncompressed !== publicKeyUncompressed) {
           console.warn(
             '[SigningService] Recovered pubkey does not match derived pubkey; using derived key instead',
           )
@@ -368,8 +374,8 @@ export class SigningService {
         format: 'der',
         metadata: {
           signer: wallet.address,
-          publicKey: recoveredUncompressed,
-          publicKeyCompressed: recoveredCompressed,
+          publicKey: publicKeyUncompressed,
+          publicKeyCompressed: publicKeyCompressed,
           txHash: txHashMetadata,
         },
       }

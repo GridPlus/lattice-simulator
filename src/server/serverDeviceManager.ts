@@ -7,8 +7,10 @@
  */
 
 import { ServerLatticeSimulator } from './serverSimulator'
+import { getEnvironmentConfig } from '../shared/walletConfig'
 
-const AUTO_APPROVE_DEFAULT = process.env.LATTICE_AUTO_APPROVE?.toLowerCase() === 'true'
+const envConfig = getEnvironmentConfig()
+const AUTO_APPROVE_DEFAULT = envConfig.autoApprove
 
 // Parse firmware version from env var or use default [0, 18, 0]
 const parseFirmwareVersion = (): [number, number, number] => {

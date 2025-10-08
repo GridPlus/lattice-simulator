@@ -19,6 +19,7 @@ import {
   generateSeedFromMnemonic,
 } from './crypto'
 import { DERIVATION_PATHS, SIMULATOR_CONSTANTS } from '../constants'
+import { getEnvironmentConfig } from '../walletConfig'
 
 /**
  * Generates a unique request ID
@@ -129,6 +130,11 @@ export async function simulateDelay(
   variationMs: number = 200,
 ): Promise<void> {
   const delay = baseMs + Math.random() * variationMs
+  const envConfig = getEnvironmentConfig()
+
+  if (envConfig.noDelay) {
+    return
+  }
   await new Promise(resolve => setTimeout(resolve, delay))
 }
 

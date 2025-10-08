@@ -1241,9 +1241,12 @@ export class ProtocolHandler {
       return response
     }
 
-    // Handle Ethereum and other currencies
-    if (resolvedSchema === 1 || resolvedSchema === 2) {
-      console.log(`[ProtocolHandler] Processing Ethereum transaction (schema ${resolvedSchema})`)
+    // Handle Ethereum transactions and messages (schemas 1, 2, 3)
+    // Schema 3 = ETH_MSG (personal_sign, EIP-712)
+    if (resolvedSchema === 1 || resolvedSchema === 2 || resolvedSchema === 3) {
+      console.log(
+        `[ProtocolHandler] Processing Ethereum transaction/message (schema ${resolvedSchema})`,
+      )
       // SDK expects: [DER signature (74 bytes)] + [signer address (20 bytes)]
       const derSigLen = 74
       const response = Buffer.alloc(derSigLen + 20)
