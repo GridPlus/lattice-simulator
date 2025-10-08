@@ -1387,7 +1387,7 @@ export class ProtocolHandler {
 
     if (pubkeyBuf.length === 33) {
       try {
-        const key = secp256k1.keyFromPublic(pubkeyBuf, 'hex')
+        const key = secp256k1.keyFromPublic(Array.from(pubkeyBuf))
         return Buffer.from(key.getPublic(false, 'array'))
       } catch (error) {
         console.error('[ProtocolHandler] Failed to decompress public key:', error)

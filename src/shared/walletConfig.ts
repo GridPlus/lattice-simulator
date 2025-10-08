@@ -125,7 +125,7 @@ export async function getWalletConfig(): Promise<WalletConfig> {
       if (validateMnemonic(envMnemonic)) {
         mnemonic = envMnemonic
         source = 'environment'
-        console.log('[WalletConfig] Using mnemonic from environment variable')
+        console.log('[WalletConfig] Using mnemonic from environment variable: ', envMnemonic)
       } else {
         console.warn(
           '[WalletConfig] Invalid mnemonic in environment variable, falling back to default',

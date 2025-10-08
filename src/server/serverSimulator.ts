@@ -3,6 +3,8 @@
  */
 
 import { randomBytes, createHash } from 'crypto'
+import { HDKey } from '@scure/bip32'
+import { mnemonicToSeedSync } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english'
 import elliptic from 'elliptic'
 import { keccak256 } from 'viem/utils'
@@ -1106,7 +1108,7 @@ export class ServerLatticeSimulator {
     } catch (error) {
       console.error('[Simulator] Enhanced signing failed:', error)
       console.warn('[Simulator] Falling back to mock signing')
-      const privateKey = this.derivePrivateKey(request.path)
+      const privateKey = await this.derivePrivateKey(request.path)
       const mockSignature = this.mockSign(request.data, privateKey)
 
       const response: SignResponse = {
@@ -1578,11 +1580,22 @@ export class ServerLatticeSimulator {
    * @returns Mock private key for the path
    * @private
    */
-  private derivePrivateKey(path: WalletPath): Buffer {
-    // Simplified mock derivation - in real implementation use proper BIP32
-    const pathString = path.join('/')
-    Buffer.from(pathString + (this.pairingCode || 'default')) // Use path for derivation
-    return randomBytes(32) // Mock private key
+  private async derivePrivateKey(path: WalletPath): Promise<Buffer> {
+    // Use proper BIP32 derivation from mnemonic
+    const walletConfig = await getWalletConfig()
+    if (!walletConfig.mnemonic) {
+      throw new Error('No mnemonic available for key derivation')
+    }
+
+    const seed = mnemonicToSeedSync(walletConfig.mnemonic)
+    const hdkey = HDKey.fromMasterSeed(seed)
+    const derivedKey = hdkey.derive(path.join('/'))
+
+    if (!derivedKey.privateKey) {
+      throw new Error('Failed to derive private key from path')
+    }
+
+    return Buffer.from(derivedKey.privateKey)
   }
 
   /**

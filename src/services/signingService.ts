@@ -320,14 +320,31 @@ export class SigningService {
         // For EVM and EIP-7702 encodings, the SDK sends the full serialized transaction
         // including empty signature placeholders. We sign the hash of the full transaction.
         const txData = toBuffer(request.data)
-        const txHashHex = keccak256(txData)
-        signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
-        signablePayload = txData
 
-        if (process.env.DEBUG_SIGNING === '1') {
-          console.debug('[SigningService] Processing transaction with encoding:', request.encoding)
-          console.debug('[SigningService] Transaction data length:', txData.length)
-          console.debug('[SigningService] Transaction hash:', txHashHex)
+        // Detect if this is a prehashed transaction (SDK prehashes large transactions)
+        // Prehashed transactions have: first 32 bytes are the hash, rest are zeros
+        let isPrehashed = false
+        if (txData.length >= 32) {
+          const first32 = txData.slice(0, 32)
+          const rest = txData.slice(32)
+          // Check if rest is all zeros
+          const allZeros = rest.every(byte => byte === 0)
+          if (allZeros && first32.some(byte => byte !== 0)) {
+            isPrehashed = true
+            console.log('[SigningService] Detected prehashed transaction')
+          }
+        }
+
+        if (isPrehashed) {
+          // Data is already hashed - use it directly as the signing digest
+          signingDigest = txData.slice(0, 32)
+          signablePayload = txData
+          console.log('[SigningService] Using prehashed transaction data directly')
+        } else {
+          // Normal transaction - hash it
+          const txHashHex = keccak256(txData)
+          signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+          signablePayload = txData
         }
       } else {
         const txHashHex = keccak256(request.data)
@@ -465,6 +482,18 @@ export class SigningService {
         ? signature.recoveryParam
         : this.calculateRecoveryId(hash, signature, keyPair.getPublic())
     const recovery = rawRecovery & 1
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.debug('[SigningService] secp256k1Sign debug:', {
+        hash: hash.toString('hex'),
+        privateKey: privateKey.toString('hex'),
+        r: signature.r.toString('hex'),
+        s: signature.s.toString('hex'),
+        rawRecovery,
+        recovery,
+        publicKey: keyPair.getPublic(false, 'hex'),
+      })
+    }
 
     return {
       r: Buffer.from(signature.r.toArray('be', 32)),
