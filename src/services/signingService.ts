@@ -4,7 +4,7 @@
  */
 
 import { createHash } from 'crypto'
-import { sign as ed25519Sign } from '@noble/ed25519'
+import * as ed25519 from '@noble/ed25519'
 import { ec as EC } from 'elliptic'
 import { type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
@@ -20,6 +20,14 @@ import type {
   SolanaWalletAccount,
   WalletCoinType,
 } from '../shared/types/wallet'
+
+// Configure SHA-512 for @noble/ed25519 (required in v3.0+)
+// @ts-ignore - The hashes API exists at runtime
+ed25519.hashes.sha512 = (...messages: Uint8Array[]) => {
+  const hash = createHash('sha512')
+  messages.forEach(m => hash.update(m))
+  return hash.digest()
+}
 
 /**
  * Signature result with metadata
@@ -444,16 +452,72 @@ export class SigningService {
     request: SigningRequest,
     wallet: SolanaWalletAccount,
   ): Promise<SignatureResult> {
+    // Derive the key if wallet doesn't have private key
     if (!wallet.privateKey) {
-      throw new Error('Solana wallet has no private key for signing')
+      const config = await getWalletConfig()
+      const derivationPath =
+        request.path && request.path.length > 0
+          ? request.path
+          : wallet.derivationPath && wallet.derivationPath.length > 0
+            ? wallet.derivationPath
+            : [HARDENED_OFFSET + 44, HARDENED_OFFSET + 501, HARDENED_OFFSET, HARDENED_OFFSET, 0]
+
+      const derivedKey = deriveHDKey(config.seed, derivationPath)
+
+      if (!derivedKey.privateKey) {
+        throw new Error('Failed to derive Solana private key from mnemonic')
+      }
+
+      // For Ed25519, we need the 32-byte seed (not the extended 64-byte key)
+      wallet.privateKey = Buffer.from(derivedKey.privateKey).slice(0, 32).toString('hex')
+      wallet.publicKey =
+        wallet.publicKey ||
+        (derivedKey.publicKey
+          ? Buffer.from(derivedKey.publicKey).toString('hex')
+          : wallet.publicKey)
+
+      if (process.env.DEBUG_SIGNING === '1') {
+        console.debug('[SigningService] Derived Solana signing material', {
+          path: derivationPath,
+          privateKey: wallet.privateKey,
+          publicKey: wallet.publicKey,
+        })
+      }
     }
 
     // Solana uses ed25519 signatures
     const privateKeyBytes = Buffer.from(wallet.privateKey, 'hex')
-    const signature = await ed25519Sign(request.data, privateKeyBytes.subarray(0, 32))
 
+    // Use the first 32 bytes for the seed (ed25519 uses 32-byte seeds)
+    const seed = privateKeyBytes.length === 32 ? privateKeyBytes : privateKeyBytes.subarray(0, 32)
+
+    // Sign with ed25519
+    const signature = await ed25519.sign(request.data, seed)
+    const sigBuffer = Buffer.from(signature)
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.debug('[SigningService] Ed25519 Signature', {
+        dataToSign: request.data.toString('hex'),
+        signatureLength: sigBuffer.length,
+        signature: sigBuffer.toString('hex'),
+      })
+    }
+
+    // Ed25519 signatures are 64 bytes: first 32 bytes are R, last 32 bytes are S
+    // SDK expects raw format (not DER) for Ed25519
+    const r = sigBuffer.slice(0, 32)
+    const s = sigBuffer.slice(32, 64)
+
+    console.log('[SigningService] Solana/Ed25519 signature components:', {
+      r: r.toString('hex'),
+      s: s.toString('hex'),
+      fullSignature: sigBuffer.toString('hex'),
+    })
+
+    // Return raw signature format (R || S) for Ed25519
+    // SDK parses this as: r = first 32 bytes, s = next 32 bytes
     return {
-      signature: Buffer.from(signature),
+      signature: sigBuffer, // Raw 64-byte signature (R || S)
       format: 'raw',
       metadata: {
         signer: wallet.address,

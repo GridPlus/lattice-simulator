@@ -1293,20 +1293,38 @@ export class ProtocolHandler {
 
   private serializeGenericSigningResponse(data: any, request: SignRequest): Buffer {
     const includePubkey = !request.omitPubkey
+    const isEd25519 = request.curve === 1
+
     console.log('[ProtocolHandler] serializeGenericSigningResponse', {
       omitPubkey: request.omitPubkey,
       hasMetadata: !!data.metadata,
       signatureLength: (data.signature as any)?.length,
+      curveType: request.curve,
+      isEd25519,
     })
+
+    // For Ed25519, pubkey is 32 bytes; for secp256k1, it's 65 bytes
     const pubkeySection = includePubkey
-      ? this.getUncompressedPubkeyBuffer(data)
-      : this.buildEmptyPubkeySection()
-    const signatureSection = this.ensureDerSignature(data.signature as Buffer)
-    console.log('[ProtocolHandler] Generic signing DER signature info', {
+      ? isEd25519
+        ? this.getEd25519PubkeyBuffer(data)
+        : this.getUncompressedPubkeyBuffer(data)
+      : isEd25519
+        ? Buffer.alloc(32)
+        : this.buildEmptyPubkeySection()
+
+    // For Ed25519 (curve type 1), use raw signature format (no DER encoding)
+    // Ed25519 signatures are always 64 bytes (32 bytes R + 32 bytes S)
+    const signatureSection = isEd25519
+      ? Buffer.from(data.signature as Buffer)
+      : this.ensureDerSignature(data.signature as Buffer)
+
+    console.log('[ProtocolHandler] Generic signing signature info', {
       rawType: typeof data.signature,
       rawLength: (data.signature as any)?.length,
-      derLength: signatureSection.length,
-      derPrefix: signatureSection.slice(0, 5).toString('hex'),
+      isEd25519,
+      pubkeyLength: pubkeySection.length,
+      finalLength: signatureSection.length,
+      finalPrefix: signatureSection.slice(0, 5).toString('hex'),
     })
 
     return Buffer.concat([pubkeySection, signatureSection])
@@ -1316,6 +1334,36 @@ export class ProtocolHandler {
     const empty = Buffer.alloc(65)
     empty.writeUInt8(0x04, 0)
     return empty
+  }
+
+  private getEd25519PubkeyBuffer(data: any): Buffer {
+    const metadata = data.metadata || {}
+    const pubkey = metadata.publicKey
+
+    if (!pubkey) {
+      console.warn('[ProtocolHandler] Missing Ed25519 public key, returning zeros')
+      return Buffer.alloc(32)
+    }
+
+    const pubkeyBuf =
+      typeof pubkey === 'string'
+        ? Buffer.from(pubkey.startsWith('0x') ? pubkey.slice(2) : pubkey, 'hex')
+        : Buffer.from(pubkey)
+
+    // Ed25519 public keys are 32 bytes
+    if (pubkeyBuf.length === 32) {
+      return pubkeyBuf
+    }
+
+    // If longer, take first 32 bytes
+    if (pubkeyBuf.length > 32) {
+      return pubkeyBuf.slice(0, 32)
+    }
+
+    // If shorter, pad with zeros
+    const padded = Buffer.alloc(32)
+    pubkeyBuf.copy(padded, 0)
+    return padded
   }
 
   private getUncompressedPubkeyBuffer(data: any): Buffer {
