@@ -643,8 +643,12 @@ export class ServerLatticeSimulator {
         addresses: addressResponse.addresses.map(addr => addr.address),
       }
 
-      // Add public keys if requested
-      if (request.flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+      // Add public keys if requested (for any pubkey-requesting flag)
+      if (
+        request.flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
+        request.flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB ||
+        request.flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB
+      ) {
         response.publicKeys = addressResponse.addresses.map(addr => addr.publicKey)
       }
 
