@@ -11,7 +11,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { keccak256 } from 'viem/utils'
 import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
 import { detectCoinTypeFromPath } from '../shared/utils'
-import { deriveHDKey, formatDerivationPath } from '../shared/utils/hdWallet'
+import { deriveHDKey, deriveEd25519Key, formatDerivationPath } from '../shared/utils/hdWallet'
 import { getWalletConfig } from '../shared/walletConfig'
 import type {
   WalletAccount,
@@ -22,11 +22,11 @@ import type {
 } from '../shared/types/wallet'
 
 // Configure SHA-512 for @noble/ed25519 (required in v3.0+)
-// @ts-ignore - The hashes API exists at runtime
-ed25519.hashes.sha512 = (...messages: Uint8Array[]) => {
-  const hash = createHash('sha512')
-  messages.forEach(m => hash.update(m))
-  return hash.digest()
+// The hashes.sha512 property needs to be set before using synchronous methods
+if (!ed25519.hashes.sha512) {
+  ed25519.hashes.sha512 = (message: Uint8Array) => {
+    return new Uint8Array(createHash('sha512').update(message).digest())
+  }
 }
 
 /**
@@ -169,26 +169,14 @@ export class SigningService {
       throw new Error(`No wallet account available for coin type: ${coinType}`)
     }
 
-    const defaultEthPath = [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0]
-
-    const derivationPath =
-      request.path && request.path.length > 0
-        ? request.path
-        : walletAccount.derivationPath && walletAccount.derivationPath.length > 0
-          ? walletAccount.derivationPath
-          : defaultEthPath
-
-    if (
-      !walletAccount.derivationPath ||
-      walletAccount.derivationPath.length !== derivationPath.length ||
-      walletAccount.derivationPath.some((value, idx) => value !== derivationPath[idx])
-    ) {
-      walletAccount.derivationPath = [...derivationPath]
-      walletAccount.derivationPathString = formatDerivationPath(derivationPath)
-    }
-
+    // Set default path for request if not provided, but don't update wallet's path yet
+    // (The specific signing function will update it after deriving new keys if needed)
     if (!request.path || request.path.length === 0) {
-      request.path = [...derivationPath]
+      const defaultEthPath = [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0]
+      request.path =
+        walletAccount.derivationPath && walletAccount.derivationPath.length > 0
+          ? [...walletAccount.derivationPath]
+          : [...defaultEthPath]
     }
 
     console.log('[SigningService] Using wallet account for signing:', {
@@ -452,47 +440,59 @@ export class SigningService {
     request: SigningRequest,
     wallet: SolanaWalletAccount,
   ): Promise<SignatureResult> {
-    // Derive the key if wallet doesn't have private key
-    if (!wallet.privateKey) {
+    const derivationPath =
+      request.path && request.path.length > 0
+        ? request.path
+        : wallet.derivationPath && wallet.derivationPath.length > 0
+          ? wallet.derivationPath
+          : [HARDENED_OFFSET + 44, HARDENED_OFFSET + 501, HARDENED_OFFSET, HARDENED_OFFSET, 0]
+
+    // Always derive the key if wallet doesn't have private key OR if the derivation path has changed
+    const shouldDerive =
+      !wallet.privateKey ||
+      !wallet.derivationPath ||
+      wallet.derivationPath.length !== derivationPath.length ||
+      wallet.derivationPath.some((value, idx) => value !== derivationPath[idx])
+
+    if (shouldDerive) {
       const config = await getWalletConfig()
-      const derivationPath =
-        request.path && request.path.length > 0
-          ? request.path
-          : wallet.derivationPath && wallet.derivationPath.length > 0
-            ? wallet.derivationPath
-            : [HARDENED_OFFSET + 44, HARDENED_OFFSET + 501, HARDENED_OFFSET, HARDENED_OFFSET, 0]
+      const { privateKey } = deriveEd25519Key(config.seed, derivationPath)
 
-      const derivedKey = deriveHDKey(config.seed, derivationPath)
-
-      if (!derivedKey.privateKey) {
+      if (!privateKey || privateKey.length !== 32) {
         throw new Error('Failed to derive Solana private key from mnemonic')
       }
 
-      // For Ed25519, we need the 32-byte seed (not the extended 64-byte key)
-      wallet.privateKey = Buffer.from(derivedKey.privateKey).slice(0, 32).toString('hex')
-      wallet.publicKey =
-        wallet.publicKey ||
-        (derivedKey.publicKey
-          ? Buffer.from(derivedKey.publicKey).toString('hex')
-          : wallet.publicKey)
+      const seed = Buffer.from(privateKey)
+      wallet.privateKey = seed.toString('hex')
+
+      // Derive the public key from the seed to ensure it matches
+      const publicKey = ed25519.getPublicKey(seed)
+      wallet.publicKey = Buffer.from(publicKey).toString('hex')
+
+      // Update the wallet's derivation path
+      wallet.derivationPath = [...derivationPath]
+      wallet.derivationPathString = formatDerivationPath(derivationPath)
 
       if (process.env.DEBUG_SIGNING === '1') {
         console.debug('[SigningService] Derived Solana signing material', {
           path: derivationPath,
-          privateKey: wallet.privateKey,
+          seed: wallet.privateKey,
           publicKey: wallet.publicKey,
         })
       }
     }
 
     // Solana uses ed25519 signatures
+    if (!wallet.privateKey) {
+      throw new Error('Failed to derive Solana private key')
+    }
     const privateKeyBytes = Buffer.from(wallet.privateKey, 'hex')
 
     // Use the first 32 bytes for the seed (ed25519 uses 32-byte seeds)
     const seed = privateKeyBytes.length === 32 ? privateKeyBytes : privateKeyBytes.subarray(0, 32)
 
-    // Sign with ed25519
-    const signature = await ed25519.sign(request.data, seed)
+    // Sign with ed25519 (now synchronous with configured hash)
+    const signature = ed25519.sign(request.data, seed)
     const sigBuffer = Buffer.from(signature)
 
     if (process.env.DEBUG_SIGNING === '1') {

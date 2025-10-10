@@ -176,16 +176,73 @@ export class SolanaSignRequestParser implements ISignRequestParser {
     console.log('[SolanaParser] Parsing Solana transaction payload')
     console.log(`[SolanaParser] Payload length: ${payload.length}`)
 
-    // Default Solana path: m/44'/501'/0'/0'
     const defaultSolPath = [0x8000002c, 0x800001f5, 0x80000000, 0x80000000]
 
+    let offset = 0
+
+    const readUInt32LE = () => {
+      if (offset + 4 > payload.length) {
+        return null
+      }
+      const value = payload.readUInt32LE(offset)
+      offset += 4
+      return value
+    }
+
+    const readUInt8 = () => {
+      if (offset + 1 > payload.length) {
+        return null
+      }
+      const value = payload.readUInt8(offset)
+      offset += 1
+      return value
+    }
+
+    const readUInt16LE = () => {
+      if (offset + 2 > payload.length) {
+        return null
+      }
+      const value = payload.readUInt16LE(offset)
+      offset += 2
+      return value
+    }
+
+    const encoding = readUInt32LE() ?? EXTERNAL.SIGNING.ENCODINGS.SOLANA
+    const hashType = readUInt8() ?? EXTERNAL.SIGNING.HASHES.NONE
+    const curve = readUInt8() ?? EXTERNAL.SIGNING.CURVES.ED25519
+
+    const pathLength = readUInt32LE() ?? 0
+    const path: number[] = []
+    for (let i = 0; i < 5; i++) {
+      const segment = readUInt32LE()
+      if (segment === null) {
+        break
+      }
+      if (i < pathLength) {
+        path.push(segment)
+      }
+    }
+
+    const omitPubkeyFlag = readUInt8() ?? 0
+
+    const messageLength = readUInt16LE()
+    let message = payload.slice(offset)
+    if (messageLength !== null && messageLength <= message.length) {
+      message = message.slice(0, messageLength)
+    }
+
+    const effectivePath = path.length ? path : defaultSolPath
+
     return {
-      path: defaultSolPath, // TODO: Extract from payload if available
+      path: effectivePath,
       schema,
-      curve: 1, // Ed25519
-      encoding: 2, // Solana encoding
-      hashType: 2, // SHA256
-      data: payload,
+      curve,
+      encoding,
+      hashType,
+      data: message,
+      omitPubkey: omitPubkeyFlag === 1,
+      hasExtraPayloads,
+      rawPayload: payload,
     }
   }
 }

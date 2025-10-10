@@ -3,6 +3,7 @@
  * Implements proper BIP-32/BIP-44 hierarchical deterministic wallet derivation
  */
 
+import { createHmac } from 'crypto'
 import { HDKey } from '@scure/bip32'
 import { HARDENED_OFFSET } from '../constants'
 import { getWalletConfig } from '../walletConfig'
@@ -151,6 +152,44 @@ export function deriveHDKey(seed: Uint8Array, derivationPath: number[]): HDKey {
   // Derive child key using path
   const pathString = formatDerivationPath(derivationPath)
   return masterKey.derive(pathString)
+}
+
+const ED25519_SEED_KEY = Buffer.from('ed25519 seed', 'utf8')
+
+/**
+ * Derives Ed25519 key material using SLIP-0010 hardened derivation
+ */
+export function deriveEd25519Key(
+  seed: Uint8Array,
+  derivationPath: number[],
+): { privateKey: Buffer; chainCode: Buffer } {
+  if (!seed || seed.length === 0) {
+    throw new Error('Seed is required for Ed25519 derivation')
+  }
+
+  let keyMaterial = createHmac('sha512', ED25519_SEED_KEY).update(seed).digest()
+  let privateKey = keyMaterial.subarray(0, 32)
+  let chainCode = keyMaterial.subarray(32)
+
+  for (const index of derivationPath) {
+    if (index < HARDENED_OFFSET) {
+      throw new Error('Ed25519 derivation requires hardened indices')
+    }
+
+    const data = Buffer.alloc(1 + privateKey.length + 4)
+    data[0] = 0x00
+    Buffer.from(privateKey).copy(data, 1)
+    data.writeUInt32BE(index, data.length - 4)
+
+    keyMaterial = createHmac('sha512', chainCode).update(data).digest()
+    privateKey = keyMaterial.subarray(0, 32)
+    chainCode = keyMaterial.subarray(32)
+  }
+
+  return {
+    privateKey: Buffer.from(privateKey),
+    chainCode: Buffer.from(chainCode),
+  }
 }
 
 /**
