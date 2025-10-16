@@ -5,6 +5,7 @@
 
 import { createHmac } from 'crypto'
 import { HDKey } from '@scure/bip32'
+import { deriveSeedTree } from 'bls12-381-keygen'
 import { HARDENED_OFFSET } from '../constants'
 import { getWalletConfig } from '../walletConfig'
 import type { WalletCoinType } from '../types/wallet'
@@ -189,6 +190,27 @@ export function deriveEd25519Key(
   return {
     privateKey: Buffer.from(privateKey),
     chainCode: Buffer.from(chainCode),
+  }
+}
+
+/**
+ * Derives BLS12-381 key material using EIP-2333 tree-based derivation
+ * https://eips.ethereum.org/EIPS/eip-2333
+ */
+export function deriveBLS12381Key(
+  seed: Uint8Array,
+  derivationPath: number[],
+): { privateKey: Buffer } {
+  if (!seed || seed.length === 0) {
+    throw new Error('Seed is required for BLS12-381 derivation')
+  }
+
+  // Convert derivation path to the format expected by deriveSeedTree
+  // The path should be an array of numbers
+  const privateKey = deriveSeedTree(seed, derivationPath)
+
+  return {
+    privateKey: Buffer.from(privateKey),
   }
 }
 

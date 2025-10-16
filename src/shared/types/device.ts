@@ -243,6 +243,11 @@ export interface SignRequest {
   hasExtraPayloads?: boolean
   nextCode?: Buffer
   rawPayload?: Buffer
+  protocol?: 'signPersonal' | 'eip712'
+  messageLength?: number
+  displayHex?: boolean
+  isPrehashed?: boolean
+  typedDataPayload?: Buffer
 }
 
 export interface SignResponse {

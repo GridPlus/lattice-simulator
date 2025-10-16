@@ -213,6 +213,10 @@ export class WalletManager {
     return new Map(this.walletAccounts)
   }
 
+  isInitialized(): boolean {
+    return this.initialized
+  }
+
   /**
    * Syncs wallet accounts from client-side to server-side storage
    * @param accounts - Array of wallet accounts from client
@@ -432,13 +436,6 @@ export class WalletManager {
 
     console.log(`[WalletManager] Created ${accounts.length} new ${coinType} accounts`)
     return accounts
-  }
-
-  /**
-   * Checks if the wallet manager is initialized
-   */
-  isInitialized(): boolean {
-    return this.initialized
   }
 
   /**

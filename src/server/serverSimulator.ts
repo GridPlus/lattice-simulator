@@ -2,7 +2,8 @@
  * Core Lattice1 Device Simulation Engine
  */
 
-import { randomBytes, createHash } from 'crypto'
+import { randomBytes, createHash, createCipheriv, pbkdf2Sync } from 'crypto'
+import { getPublicKey as blsGetPublicKey } from '@noble/bls12-381'
 import { HDKey } from '@scure/bip32'
 import { mnemonicToSeedSync } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english'
@@ -20,10 +21,11 @@ import {
   emitSigningRequestCompleted,
 } from './serverDeviceEvents'
 import { requestWalletAddresses } from './serverRequestManager'
+import { wsManager } from './serverWebSocketManager'
 import { SignRequestSchema } from './signRequestParsers'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
-import { EXTERNAL } from '../shared/constants'
+import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
 import {
   buildEthereumSigningPreimage,
   decodeEthereumTxPayload,
@@ -53,7 +55,49 @@ import {
   supportsFeature,
   aes256_encrypt,
 } from '../shared/utils'
-import { getWalletConfig } from '../shared/walletConfig'
+import { deriveBLS12381Key } from '../shared/utils/hdWallet'
+import {
+  getWalletConfig,
+  setWalletMnemonicOverride,
+  setWalletSeedOverride,
+} from '../shared/walletConfig'
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
+
+function decodeBase58(value: string): Buffer {
+  if (!value || typeof value !== 'string') {
+    return Buffer.alloc(0)
+  }
+
+  const digits: number[] = [0]
+
+  for (let i = 0; i < value.length; i++) {
+    const char = value[i]
+    const index = BASE58_ALPHABET.indexOf(char)
+    if (index === -1) {
+      throw new Error(`Invalid base58 character "${char}" at position ${i}`)
+    }
+
+    let carry = index
+    for (let j = 0; j < digits.length; j++) {
+      const val = digits[j] * 58 + carry
+      digits[j] = val & 0xff
+      carry = val >> 8
+    }
+
+    while (carry > 0) {
+      digits.push(carry & 0xff)
+      carry >>= 8
+    }
+  }
+
+  // Preserve leading zeros (represented by '1' in base58)
+  for (let k = 0; k < value.length && value[k] === '1'; k++) {
+    digits.push(0)
+  }
+
+  return Buffer.from(digits.reverse())
+}
 
 interface MultipartSignSession {
   schema: number
@@ -68,6 +112,8 @@ interface MultipartSignSession {
   decoderChunks: Buffer[]
   nextCode: Buffer
   ethMeta?: DecodedEthereumTxPayload
+  protocol?: 'signPersonal' | 'eip712'
+  isPrehashed?: boolean
 }
 
 /**
@@ -113,6 +159,9 @@ export class ServerLatticeSimulator {
 
   /** Currently active internal and external wallets */
   private activeWallets: ActiveWallets
+
+  /** Currently loaded seed (if loaded via loadSeed) */
+  private currentSeed?: Buffer
 
   /** Stored key-value records */
   private kvRecords: Record<string, string> = {}
@@ -582,6 +631,11 @@ export class ServerLatticeSimulator {
    * @throws {DeviceResponse} When device is not paired, locked, or path is invalid
    */
   async getAddresses(request: GetAddressesRequest): Promise<DeviceResponse<GetAddressesResponse>> {
+    console.log('[Simulator] getAddresses request', {
+      startPath: request.startPath,
+      count: request.n,
+      flag: request.flag,
+    })
     await simulateDelay(200, 100)
 
     if (!this.isPaired) {
@@ -612,6 +666,12 @@ export class ServerLatticeSimulator {
       )
     }
 
+    // Check if this is a BLS request
+    if (request.flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB) {
+      const fallback = await this.deriveBLSAddresses(request.startPath, request.n)
+      return createDeviceResponse(true, LatticeResponseCode.success, fallback)
+    }
+
     // Detect coin type from path
     const coinType = detectCoinTypeFromPath(request.startPath)
     if (coinType === 'UNKNOWN') {
@@ -623,44 +683,143 @@ export class ServerLatticeSimulator {
       )
     }
 
-    // Use proper request/response pattern to get real addresses from client-side wallet derivation
-    console.log('[Simulator] Requesting wallet addresses from client via WebSocket')
+    const fallback = await this.deriveAddressesFallback(
+      request.startPath,
+      request.n,
+      coinType,
+      request.flag,
+    )
 
-    try {
-      // Import request manager here to avoid circular dependencies
-
-      // Send request to client and wait for real wallet addresses
-      const addressResponse = await requestWalletAddresses(this.deviceId, {
+    // Optionally notify connected clients so they can sync, but don't block on it
+    if (wsManager.hasConnections(this.deviceId)) {
+      requestWalletAddresses(this.deviceId, {
         startPath: request.startPath,
         count: request.n,
         coinType,
         flag: request.flag,
+      }).catch(error => {
+        console.warn('[Simulator] Optional client address request failed:', error)
       })
+    }
 
-      console.log('[Simulator] Received wallet addresses from client:', addressResponse)
+    return createDeviceResponse(true, LatticeResponseCode.success, fallback)
+  }
 
-      const response: GetAddressesResponse = {
-        addresses: addressResponse.addresses.map(addr => addr.address),
-      }
-
-      // Add public keys if requested (for any pubkey-requesting flag)
-      if (
-        request.flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
-        request.flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB ||
-        request.flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB
-      ) {
-        response.publicKeys = addressResponse.addresses.map(addr => addr.publicKey)
-      }
-
-      return createDeviceResponse(true, LatticeResponseCode.success, response)
-    } catch (error) {
-      console.error('[Simulator] Error getting wallet addresses from client:', error)
-      return createDeviceResponse<GetAddressesResponse>(
-        false,
-        LatticeResponseCode.internalError,
-        undefined,
-        'Failed to derive wallet addresses',
+  private async deriveAddressesFallback(
+    startPath: WalletPath,
+    count: number,
+    coinType: 'ETH' | 'BTC' | 'SOL',
+    flag?: number,
+  ): Promise<GetAddressesResponse> {
+    if (!walletManager.isInitialized()) {
+      console.warn(
+        '[Simulator] Wallet manager not initialized, initializing for fallback derivation',
       )
+      await walletManager.initialize()
+    }
+
+    const accountIndex = Math.max((startPath[2] ?? HARDENED_OFFSET) - HARDENED_OFFSET, 0)
+    const changeIndex = startPath[3] ?? 0
+    const startIndex = startPath[4] ?? 0
+    const walletType = changeIndex === 1 ? 'internal' : 'external'
+
+    let addressType: 'segwit' | 'legacy' | 'wrapped-segwit' = 'segwit'
+    if (coinType === 'BTC') {
+      const purpose = startPath[0]
+      if (purpose === HARDENED_OFFSET + 44) addressType = 'legacy'
+      else if (purpose === HARDENED_OFFSET + 49) addressType = 'wrapped-segwit'
+      else if (purpose === HARDENED_OFFSET + 84) addressType = 'segwit'
+    }
+
+    const derived = await walletManager.deriveAddressesOnDemand(
+      coinType,
+      accountIndex,
+      walletType,
+      addressType,
+      startIndex,
+      count,
+    )
+
+    console.log('[Simulator] Fallback derived addresses', {
+      coinType,
+      accountIndex,
+      walletType,
+      addressType,
+      startIndex,
+      count,
+      addresses: derived.map(item => item.address),
+    })
+
+    const addresses = derived.map(addr => addr.address)
+
+    const response: GetAddressesResponse = { addresses }
+
+    if (
+      flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
+      flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB ||
+      flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB
+    ) {
+      response.publicKeys = derived.map(item => {
+        if (!item.publicKey) {
+          return Buffer.alloc(0)
+        }
+        try {
+          if (flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB) {
+            return decodeBase58(item.publicKey)
+          }
+          const hex = item.publicKey.startsWith('0x') ? item.publicKey.slice(2) : item.publicKey
+          return Buffer.from(hex, 'hex')
+        } catch (error) {
+          console.warn('[Simulator] Failed to normalize public key', {
+            coinType,
+            flag,
+            publicKey: item.publicKey,
+            error,
+          })
+          return Buffer.alloc(0)
+        }
+      })
+    }
+
+    return response
+  }
+
+  private async deriveBLSAddresses(
+    startPath: WalletPath,
+    count: number,
+  ): Promise<GetAddressesResponse> {
+    const config = await getWalletConfig()
+    const addresses: string[] = []
+    const publicKeys: Buffer[] = []
+
+    // BLS paths don't have a standard address format, so we just return the pubkey as the "address"
+    for (let i = 0; i < count; i++) {
+      // For BLS, we need to derive each path individually
+      // The test uses paths like m/12381/3600/0/0/0, m/12381/3600/1/0/0, etc.
+      // where the account index (3rd element) increments
+      const path = [...startPath]
+      if (path.length >= 3) {
+        path[2] = startPath[2] + i
+      }
+
+      const { privateKey } = deriveBLS12381Key(config.seed, path)
+      const publicKey = blsGetPublicKey(privateKey)
+      const publicKeyBuffer = Buffer.from(publicKey)
+
+      publicKeys.push(publicKeyBuffer)
+      // Use the public key hex as the "address" for BLS
+      addresses.push(publicKeyBuffer.toString('hex'))
+    }
+
+    console.log('[Simulator] Derived BLS addresses/pubkeys', {
+      count,
+      startPath,
+      publicKeys: publicKeys.map(pk => pk.toString('hex')),
+    })
+
+    return {
+      addresses,
+      publicKeys,
     }
   }
 
@@ -787,6 +946,34 @@ export class ServerLatticeSimulator {
       }
     }
 
+    if (request.schema === SignRequestSchema.ETHEREUM_MESSAGE) {
+      const defaultEthPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0] as WalletPath
+      const path: WalletPath =
+        request.path && request.path.length > 0 ? (request.path as WalletPath) : defaultEthPath
+
+      const messageChunk = Buffer.from(request.data)
+      const messageLength = request.messageLength ?? messageChunk.length
+      const protocol = request.protocol
+      const isPrehashed = request.isPrehashed ?? false
+
+      const inferredHashType = isPrehashed
+        ? EXTERNAL.SIGNING.HASHES.NONE
+        : EXTERNAL.SIGNING.HASHES.KECCAK256
+
+      return {
+        encoding: request.encoding ?? EXTERNAL.SIGNING.ENCODINGS.EVM,
+        hashType: request.hashType ?? inferredHashType,
+        curve: request.curve ?? EXTERNAL.SIGNING.CURVES.SECP256K1,
+        path,
+        omitPubkey: request.omitPubkey ?? false,
+        messageLength,
+        messageChunk,
+        remainingChunk: Buffer.alloc(0),
+        protocol,
+        isPrehashed,
+      }
+    }
+
     let offset = 0
 
     const encoding = payload.readUInt32LE(offset)
@@ -874,6 +1061,9 @@ export class ServerLatticeSimulator {
           encoding: request.encoding ?? info.encoding,
           hashType,
           omitPubkey: request.omitPubkey ?? info.omitPubkey,
+          protocol: request.protocol ?? info.protocol,
+          isPrehashed: request.isPrehashed ?? info.isPrehashed,
+          messageLength: info.messageLength,
         }
 
         return await this.executeSigning(finalRequest)
@@ -895,6 +1085,8 @@ export class ServerLatticeSimulator {
         decoderChunks: info.remainingChunk.length ? [info.remainingChunk] : [],
         nextCode,
         ethMeta: info.ethMeta,
+        protocol: request.protocol ?? info.protocol,
+        isPrehashed: request.isPrehashed ?? info.isPrehashed,
       }
 
       if (process.env.DEBUG_SIGNING === '1') {
@@ -1043,6 +1235,9 @@ export class ServerLatticeSimulator {
       encoding: session.encoding,
       hashType,
       omitPubkey: session.omitPubkey,
+      protocol: session.protocol,
+      isPrehashed: session.isPrehashed,
+      messageLength: session.expectedLength,
     }
 
     const response = await this.executeSigning(finalRequest)
@@ -1067,9 +1262,12 @@ export class ServerLatticeSimulator {
         encoding: request.encoding,
         hashType: request.hashType,
         schema: request.schema,
-        isTransaction: true,
+        isTransaction: request.schema !== SignRequestSchema.ETHEREUM_MESSAGE,
         omitPubkey: request.omitPubkey,
         rawPayload: request.rawPayload,
+        protocol: request.protocol,
+        messageLength: request.messageLength,
+        isPrehashed: request.isPrehashed,
       }
 
       if (!signingService.validateSigningRequest(signingRequest)) {
@@ -1161,6 +1359,187 @@ export class ServerLatticeSimulator {
       wordIndices,
       numWords,
     })
+  }
+
+  async loadSeed(params: {
+    seed: Buffer
+    mnemonic?: string
+    exportability: number
+    iface: number
+  }): Promise<DeviceResponse<boolean>> {
+    try {
+      console.log('[Simulator] Loading seed via wallet job', {
+        iface: params.iface,
+        exportability: params.exportability,
+        seedLen: params.seed.length,
+      })
+      if (!params.seed || params.seed.length === 0) {
+        return createDeviceResponse(
+          false,
+          LatticeResponseCode.invalidMsg,
+          false,
+          'Seed is required',
+        )
+      }
+
+      this.currentSeed = Buffer.from(params.seed)
+      setWalletSeedOverride(new Uint8Array(params.seed), params.mnemonic ?? undefined)
+      walletManager.reset()
+      await walletManager.initialize()
+
+      const fallbackPreview = await this.deriveAddressesFallback(
+        [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0],
+        1,
+        'ETH',
+      )
+      console.log('[Simulator] Seed load preview address', fallbackPreview.addresses[0])
+
+      return createDeviceResponse(true, LatticeResponseCode.success, true)
+    } catch (error) {
+      console.error('[Simulator] Failed to load seed:', error)
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.internalError,
+        false,
+        error instanceof Error ? error.message : 'Failed to load seed',
+      )
+    }
+  }
+
+  async deleteSeed(): Promise<DeviceResponse<boolean>> {
+    try {
+      this.currentSeed = undefined
+      setWalletSeedOverride(null)
+      setWalletMnemonicOverride(null)
+      walletManager.reset()
+      await walletManager.initialize()
+
+      return createDeviceResponse(true, LatticeResponseCode.success, true)
+    } catch (error) {
+      console.error('[Simulator] Failed to delete seed:', error)
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.internalError,
+        false,
+        error instanceof Error ? error.message : 'Failed to delete seed',
+      )
+    }
+  }
+
+  /**
+   * Exports encrypted data (EIP2335 BLS keystore)
+   *
+   * Creates an EIP2335-compliant keystore for BLS12-381 keys, encrypted with
+   * the provided password using PBKDF2 key derivation and AES-128-CTR encryption.
+   *
+   * @param request - Request containing schema, path, and encryption parameters
+   * @returns Promise resolving to encrypted keystore data
+   */
+  async fetchEncryptedData(request: {
+    schema: number
+    path: number[]
+    params?: { c?: number }
+    walletUID?: Buffer
+  }): Promise<DeviceResponse<Buffer>> {
+    try {
+      console.log('[Simulator] fetchEncryptedData request:', {
+        schema: request.schema,
+        path: request.path,
+        params: request.params,
+        walletUID: request.walletUID ? request.walletUID.toString('hex') : undefined,
+      })
+
+      const supportedSchema = EXTERNAL.ENC_DATA.SCHEMAS.BLS_KEYSTORE_EIP2335_PBKDF_V4
+      if (request.schema !== supportedSchema) {
+        return createDeviceResponse(
+          false,
+          LatticeResponseCode.invalidMsg,
+          Buffer.alloc(0),
+          'Unsupported encryption schema',
+        )
+      }
+
+      const iterationCount =
+        request.params?.c && request.params.c > 0 ? request.params.c : 262144 /* default */
+      const password = process.env.ENC_PW ?? '12345678'
+      const passwordBuffer = Buffer.from(password, 'utf8')
+
+      const config = await getWalletConfig()
+      const { privateKey } = deriveBLS12381Key(config.seed, request.path)
+      if (!privateKey || privateKey.length !== 32) {
+        throw new Error('Failed to derive BLS12-381 private key')
+      }
+
+      const publicKey = Buffer.from(blsGetPublicKey(privateKey))
+
+      const salt = randomBytes(32)
+      const iv = randomBytes(16)
+
+      const derivedKey = pbkdf2Sync(passwordBuffer, salt, iterationCount, 32, 'sha256')
+      const encryptionKey = derivedKey.subarray(0, 16)
+      const checksumKey = derivedKey.subarray(16)
+
+      const cipher = createCipheriv('aes-128-ctr', encryptionKey, iv)
+      const ciphertext = Buffer.concat([cipher.update(privateKey), cipher.final()])
+
+      if (ciphertext.length !== privateKey.length) {
+        throw new Error('Unexpected ciphertext length for BLS private key')
+      }
+
+      const checksum = createHash('sha256')
+        .update(Buffer.concat([checksumKey, ciphertext]))
+        .digest()
+
+      const payloadSize =
+        4 + // iteration count
+        ciphertext.length +
+        salt.length +
+        checksum.length +
+        iv.length +
+        publicKey.length
+
+      const responseBuffer = Buffer.alloc(4 + payloadSize)
+      let offset = 0
+
+      responseBuffer.writeUInt32LE(payloadSize, offset)
+      offset += 4
+      responseBuffer.writeUInt32LE(iterationCount, offset)
+      offset += 4
+
+      ciphertext.copy(responseBuffer, offset)
+      offset += ciphertext.length
+
+      salt.copy(responseBuffer, offset)
+      offset += salt.length
+
+      checksum.copy(responseBuffer, offset)
+      offset += checksum.length
+
+      iv.copy(responseBuffer, offset)
+      offset += iv.length
+
+      publicKey.copy(responseBuffer, offset)
+
+      console.log('[Simulator] Prepared EIP2335 export payload', {
+        iterationCount,
+        ciphertext: ciphertext.toString('hex'),
+        salt: salt.toString('hex'),
+        checksum: checksum.toString('hex'),
+        iv: iv.toString('hex'),
+        pubkey: publicKey.toString('hex'),
+        payloadSize,
+      })
+
+      return createDeviceResponse(true, LatticeResponseCode.success, responseBuffer)
+    } catch (error) {
+      console.error('[Simulator] Failed to export encrypted data:', error)
+      return createDeviceResponse(
+        false,
+        LatticeResponseCode.internalError,
+        Buffer.alloc(0),
+        error instanceof Error ? error.message : 'Failed to export encrypted data',
+      )
+    }
   }
 
   /**

@@ -681,6 +681,11 @@ class ServerWebSocketManager {
       timestamp: Date.now(),
     })
   }
+
+  hasConnections(deviceId: string): boolean {
+    const connections = this.connections.get(deviceId)
+    return !!connections && connections.size > 0
+  }
 }
 
 // Create singleton instance

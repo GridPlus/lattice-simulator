@@ -4,6 +4,7 @@
  */
 
 import { createHash } from 'crypto'
+import { wordlist } from '@scure/bip39/wordlists/english'
 import crc32 from 'crc-32'
 import elliptic from 'elliptic'
 import {
@@ -12,6 +13,7 @@ import {
   requestRemoveKvRecords,
 } from './serverRequestManager'
 import { parseSignRequestPayload, SignRequestSchema } from './signRequestParsers'
+import { EXTERNAL } from '../shared/constants'
 import {
   LatticeSecureEncryptedRequestType,
   LatticeResponseCode,
@@ -31,7 +33,9 @@ const GP_ERRORS = {
 }
 
 const WalletJobType = {
+  LOAD_SEED: 3,
   EXPORT_SEED: 4,
+  DELETE_SEED: 5,
 }
 
 /**
@@ -159,7 +163,7 @@ export class ProtocolHandler {
 
         case LatticeSecureEncryptedRequestType.fetchEncryptedData:
           console.log('[ProtocolHandler] Handling fetchEncryptedData request')
-          response = await this.handleFetchEncryptedDataRequest()
+          response = await this.handleFetchEncryptedDataRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.test:
@@ -668,17 +672,28 @@ export class ProtocolHandler {
    * Handles encrypted data fetch request
    *
    * Processes requests for fetching encrypted data from device.
-   * Currently not implemented in simulator.
+   * Supports BLS EIP2335 keystore export.
    *
    * @param data - Encrypted fetch request data
    * @returns Promise resolving to fetch response
    * @private
    */
-  private async handleFetchEncryptedDataRequest(): Promise<SecureResponse> {
-    // Mock implementation - not yet supported
-    return {
-      code: LatticeResponseCode.disabled,
-      error: 'Encrypted data fetching not yet implemented',
+  private async handleFetchEncryptedDataRequest(data: Buffer): Promise<SecureResponse> {
+    try {
+      const request = this.parseFetchEncryptedDataRequest(data)
+      const response = await this.simulator.fetchEncryptedData(request)
+
+      return {
+        code: response.code,
+        data: response.data,
+        error: response.error,
+      }
+    } catch (error) {
+      console.error('[ProtocolHandler] Error handling fetchEncryptedData request:', error)
+      return {
+        code: LatticeResponseCode.internalError,
+        error: error instanceof Error ? error.message : 'Failed to fetch encrypted data',
+      }
     }
   }
 
@@ -700,11 +715,18 @@ export class ProtocolHandler {
       const payloadLength = data.readUInt16BE(4)
       const payload = data.slice(6, 6 + payloadLength)
 
+      console.log('[ProtocolHandler] Raw wallet job payload:', payload.toString('hex'))
+
       if (payload.length < 40) {
         throw new Error('Invalid wallet job payload length')
       }
 
       const jobType = payload.readUInt32LE(36)
+
+      console.log('[ProtocolHandler] Wallet job request', {
+        payloadLength,
+        jobType,
+      })
 
       switch (jobType) {
         case WalletJobType.EXPORT_SEED: {
@@ -737,7 +759,93 @@ export class ProtocolHandler {
           }
         }
 
+        case WalletJobType.DELETE_SEED: {
+          const iface = payload.readUInt8(40)
+          console.log('[ProtocolHandler] Handling delete seed job', { iface })
+          const deleteResponse = await this.simulator.deleteSeed()
+
+          if (!deleteResponse.success) {
+            return {
+              code: deleteResponse.code,
+              error: deleteResponse.error || 'Failed to delete seed',
+            }
+          }
+
+          const responsePayload = Buffer.alloc(6)
+          responsePayload.writeUInt32LE(GP_ERRORS.SUCCESS >>> 0, 0)
+          responsePayload.writeUInt16LE(0, 4)
+
+          return {
+            code: LatticeResponseCode.success,
+            data: responsePayload,
+          }
+        }
+
+        case WalletJobType.LOAD_SEED: {
+          console.log('[ProtocolHandler] Handling load seed job', { payload })
+          const iface = payload.readUInt8(40)
+          let offset = 41
+
+          const seed = payload.slice(offset, offset + 64)
+          offset += 64
+
+          const exportability = payload.readUInt8(offset)
+          offset += 1
+
+          let mnemonic: string | undefined
+
+          if (payload.length >= offset + 100) {
+            const wordSection = payload.slice(offset, offset + 100)
+            const wordCount = wordSection.readUInt32LE(96)
+
+            if (wordCount > 0 && wordCount <= 24) {
+              const words: string[] = []
+              for (let i = 0; i < wordCount; i++) {
+                const wordIdx = wordSection.readUInt32LE(i * 4)
+                if (wordIdx >= 0 && wordIdx < wordlist.length) {
+                  words.push(wordlist[wordIdx])
+                }
+              }
+              if (words.length === wordCount) {
+                mnemonic = words.join(' ')
+              }
+            }
+          }
+
+          const loadResponse = await this.simulator.loadSeed({
+            iface,
+            seed,
+            exportability,
+            mnemonic,
+          })
+
+          console.log('[ProtocolHandler] Load seed result', {
+            iface,
+            exportability,
+            hasMnemonic: !!mnemonic,
+            success: loadResponse.success,
+            error: loadResponse.error,
+          })
+
+          if (!loadResponse.success) {
+            return {
+              code: loadResponse.code,
+              error: loadResponse.error || 'Failed to load seed',
+            }
+          }
+
+          const responsePayload = Buffer.alloc(6)
+          responsePayload.writeUInt32LE(GP_ERRORS.SUCCESS >>> 0, 0)
+          responsePayload.writeUInt16LE(0, 4)
+
+          return {
+            code: LatticeResponseCode.success,
+            data: responsePayload,
+          }
+        }
+
         default: {
+          console.warn(`[ProtocolHandler] Unsupported wallet job type encountered: ${jobType}`)
           console.warn(`[ProtocolHandler] Unsupported wallet job type: ${jobType}`)
           const errorPayload = Buffer.alloc(6)
           errorPayload.writeUInt32LE(GP_ERRORS.EINVAL >>> 0, 0)
@@ -1016,6 +1124,59 @@ export class ProtocolHandler {
     return { type, ids }
   }
 
+  private parseFetchEncryptedDataRequest(data: Buffer): {
+    schema: number
+    walletUID: Buffer
+    path: number[]
+    params?: { c?: number }
+  } {
+    // Parse fetch encrypted data request
+    // Format: schema (1) | walletUID (32) | pathLength (1) | path (5 * u32 LE) | params (4)
+    if (data.length < 1 + 32 + 1 + 5 * 4) {
+      throw new Error('Invalid fetchEncryptedData request: insufficient data')
+    }
+
+    let offset = 0
+
+    // Read schema (1 byte)
+    const schema = data.readUInt8(offset)
+    offset += 1
+
+    // Read wallet UID (32 bytes)
+    const walletUID = data.slice(offset, offset + 32)
+    offset += 32
+
+    // Read path length (1 byte)
+    const pathLength = data.readUInt8(offset)
+    offset += 1
+
+    // Read path (5x4 bytes)
+    const path: number[] = []
+    for (let i = 0; i < 5; i++) {
+      const segment = data.readUInt32LE(offset)
+      offset += 4
+      if (i < pathLength) {
+        path.push(segment)
+      }
+    }
+
+    // Read params if available
+    const params: { c?: number } = {}
+    if (data.length >= offset + 4) {
+      // For EIP2335, params include iteration count 'c' (4 bytes LE)
+      const c = data.readUInt32LE(offset)
+      if (c > 0) {
+        params.c = c
+      }
+    }
+
+    console.log(
+      `[ProtocolHandler] Parsed fetchEncryptedData request: schema=${schema}, path=[${path.join(',')}], params=${JSON.stringify(params)}`,
+    )
+
+    return { schema, walletUID, path, params }
+  }
+
   // Response serialization methods (simplified for simulation)
   private serializeConnectResponse(data: any): Buffer {
     console.log('[ProtocolHandler] Serializing connect response data:', {
@@ -1112,7 +1273,7 @@ export class ProtocolHandler {
 
     if (arePubkeys) {
       // For public key responses, add count byte first
-      response.writeUInt8(addresses.length, offset)
+      response.writeUInt8(flag & 0xff, offset)
       offset += 1
 
       // Write public keys as raw bytes (65 bytes each for secp256k1, 32 for ed25519, 48 for bls12_381)
@@ -1294,6 +1455,7 @@ export class ProtocolHandler {
   private serializeGenericSigningResponse(data: any, request: SignRequest): Buffer {
     const includePubkey = !request.omitPubkey
     const isEd25519 = request.curve === 1
+    const isBls = request.curve === EXTERNAL.SIGNING.CURVES.BLS12_381_G2
 
     console.log('[ProtocolHandler] serializeGenericSigningResponse', {
       omitPubkey: request.omitPubkey,
@@ -1301,7 +1463,20 @@ export class ProtocolHandler {
       signatureLength: (data.signature as any)?.length,
       curveType: request.curve,
       isEd25519,
+      isBls,
     })
+
+    if (isBls) {
+      const pubkeySection = includePubkey ? this.getBlsPubkeyBuffer(data) : Buffer.alloc(48)
+      const signatureSection = this.getBlsSignatureBuffer(data.signature)
+
+      console.log('[ProtocolHandler] BLS generic signing response', {
+        pubkeyLength: pubkeySection.length,
+        signatureLength: signatureSection.length,
+      })
+
+      return Buffer.concat([pubkeySection, signatureSection])
+    }
 
     // For Ed25519, pubkey is 32 bytes; for secp256k1, it's 65 bytes
     const pubkeySection = includePubkey
@@ -1488,6 +1663,57 @@ export class ProtocolHandler {
       startsWith: signature[0],
     })
     return signature
+  }
+
+  private getBlsPubkeyBuffer(data: any): Buffer {
+    const metadata = data.metadata || {}
+    const pubkey = metadata.publicKey
+
+    if (!pubkey) {
+      console.warn('[ProtocolHandler] Missing BLS public key, returning zeros')
+      return Buffer.alloc(48)
+    }
+
+    const pubkeyBuf =
+      typeof pubkey === 'string'
+        ? Buffer.from(pubkey.startsWith('0x') ? pubkey.slice(2) : pubkey, 'hex')
+        : Buffer.from(pubkey)
+
+    if (pubkeyBuf.length >= 48) {
+      return pubkeyBuf.slice(0, 48)
+    }
+
+    const padded = Buffer.alloc(48)
+    pubkeyBuf.copy(padded, 0)
+    return padded
+  }
+
+  private getBlsSignatureBuffer(signatureInput: Buffer | Uint8Array | string): Buffer {
+    if (!signatureInput) {
+      return Buffer.alloc(96)
+    }
+
+    let signature: Buffer
+    if (Buffer.isBuffer(signatureInput)) {
+      signature = Buffer.from(signatureInput)
+    } else if (typeof signatureInput === 'string') {
+      const sanitized = signatureInput.startsWith('0x') ? signatureInput.slice(2) : signatureInput
+      signature = Buffer.from(sanitized, 'hex')
+    } else {
+      signature = Buffer.from(signatureInput)
+    }
+
+    if (signature.length === 96) {
+      return signature
+    }
+
+    if (signature.length > 96) {
+      return signature.slice(0, 96)
+    }
+
+    const padded = Buffer.alloc(96)
+    signature.copy(padded, 0)
+    return padded
   }
 
   private isDerEncodedSignature(signature: Buffer): boolean {

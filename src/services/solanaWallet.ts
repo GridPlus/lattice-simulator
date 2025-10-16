@@ -54,7 +54,7 @@ export function createSolanaAccountFromHDKey(
     name: name || `Solana Account ${accountIndex}`,
     createdAt: Date.now(),
     address: keypair.publicKey.toBase58(),
-    publicKey: Buffer.from(keypair.publicKey.toBytes()).toString('hex'), // Convert to hex for storage
+    publicKey: keypair.publicKey.toBase58(),
     privateKey: type === 'internal' ? Buffer.from(keypair.secretKey).toString('hex') : undefined, // Only store for internal accounts
   }
 

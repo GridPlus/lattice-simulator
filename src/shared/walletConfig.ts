@@ -9,6 +9,7 @@ import { SIMULATOR_CONSTANTS } from './constants'
 
 type WalletConfigGlobals = typeof globalThis & {
   __latticeMnemonicOverride?: string
+  __latticeSeedOverride?: Uint8Array
 }
 
 const walletConfigGlobals = globalThis as WalletConfigGlobals
@@ -68,6 +69,53 @@ export function setWalletMnemonicOverride(mnemonic: string | null | undefined): 
 
   walletConfigGlobals.__latticeMnemonicOverride = normalized
   return true
+}
+
+export function getWalletSeedOverride(): Uint8Array | undefined {
+  return walletConfigGlobals.__latticeSeedOverride
+}
+
+export function setWalletSeedOverride(
+  seed: Uint8Array | null | undefined,
+  mnemonic?: string | null,
+): boolean {
+  const current = walletConfigGlobals.__latticeSeedOverride
+
+  if (!seed || seed.length === 0) {
+    if (current) {
+      delete walletConfigGlobals.__latticeSeedOverride
+      if (mnemonic !== undefined) {
+        setWalletMnemonicOverride(mnemonic)
+      }
+      return true
+    }
+    if (mnemonic !== undefined) {
+      setWalletMnemonicOverride(mnemonic)
+    }
+    return false
+  }
+
+  const normalized = new Uint8Array(seed)
+  let changed = false
+
+  if (!current || current.length !== normalized.length) {
+    changed = true
+  } else {
+    for (let i = 0; i < normalized.length; i++) {
+      if (current[i] !== normalized[i]) {
+        changed = true
+        break
+      }
+    }
+  }
+
+  walletConfigGlobals.__latticeSeedOverride = normalized
+
+  if (mnemonic !== undefined) {
+    setWalletMnemonicOverride(mnemonic)
+  }
+
+  return changed
 }
 
 /**
@@ -143,6 +191,16 @@ export async function getWalletConfig(): Promise<WalletConfig> {
 
   // Treat only the baked-in mnemonic as default
   isDefault = source === 'default'
+
+  const seedOverride = getWalletSeedOverride()
+
+  if (seedOverride) {
+    return {
+      mnemonic,
+      seed: new Uint8Array(seedOverride),
+      isDefault: false,
+    }
+  }
 
   // Generate seed from mnemonic (using empty passphrase for simplicity)
   const seed = await mnemonicToSeed(mnemonic, '')

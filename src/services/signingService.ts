@@ -4,14 +4,27 @@
  */
 
 import { createHash } from 'crypto'
+import { SignTypedDataVersion, TypedDataUtils } from '@metamask/eth-sig-util'
+import {
+  getPublicKey as blsGetPublicKey,
+  sign as blsSign,
+  utils as blsUtils,
+} from '@noble/bls12-381'
 import * as ed25519 from '@noble/ed25519'
+import * as cbor from 'cbor'
 import { ec as EC } from 'elliptic'
 import { type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { keccak256 } from 'viem/utils'
-import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
+import bdec from 'cbor-bigdecimal'
+import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '../shared/constants'
 import { detectCoinTypeFromPath } from '../shared/utils'
-import { deriveHDKey, deriveEd25519Key, formatDerivationPath } from '../shared/utils/hdWallet'
+import {
+  deriveHDKey,
+  deriveEd25519Key,
+  deriveBLS12381Key,
+  formatDerivationPath,
+} from '../shared/utils/hdWallet'
 import { getWalletConfig } from '../shared/walletConfig'
 import type {
   WalletAccount,
@@ -28,6 +41,8 @@ if (!ed25519.hashes.sha512) {
     return new Uint8Array(createHash('sha512').update(message).digest())
   }
 }
+
+bdec(cbor)
 
 /**
  * Signature result with metadata
@@ -85,6 +100,12 @@ export interface SigningRequest {
   isTransaction?: boolean
   /** Original payload buffer */
   rawPayload?: Buffer
+  /** Message protocol for ETH_MSG requests */
+  protocol?: 'signPersonal' | 'eip712'
+  /** Total length of the original message */
+  messageLength?: number
+  /** Indicates the payload was prehashed by the client */
+  isPrehashed?: boolean
 }
 
 /**
@@ -112,6 +133,11 @@ export class SigningService {
     request: SigningRequest,
     walletAccounts: Map<string, WalletAccount>,
   ): Promise<SignatureResult> {
+    // Check if this is a BLS signing request
+    if (request.curve === EXTERNAL.SIGNING.CURVES.BLS12_381_G2) {
+      return this.signBLS12381(request)
+    }
+
     // Detect coin type from derivation path
     let coinType = detectCoinTypeFromPath(request.path)
     if (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM) {
@@ -236,17 +262,7 @@ export class SigningService {
 
     const derivedPrivateKeyHex = `0x${Buffer.from(derivedKey.privateKey).toString('hex')}`
     wallet.privateKey = derivedPrivateKeyHex
-    wallet.publicKey =
-      wallet.publicKey ||
-      (derivedKey.publicKey ? Buffer.from(derivedKey.publicKey).toString('hex') : wallet.publicKey)
 
-    if (!wallet.address) {
-      // Populate address if missing to keep metadata consistent
-      const derivedAccount = privateKeyToAccount(derivedPrivateKeyHex as Hex)
-      wallet.address = derivedAccount.address
-    }
-
-    // Use viem for Ethereum signing to match SDK behavior
     const privateKeyBuffer = Buffer.from((wallet.privateKey as string).slice(2), 'hex')
     const publicKeyUncompressed = this.secp256k1
       .keyFromPrivate(privateKeyBuffer)
@@ -254,6 +270,12 @@ export class SigningService {
     const publicKeyCompressed = this.secp256k1
       .keyFromPrivate(privateKeyBuffer)
       .getPublic(true, 'hex')
+
+    wallet.publicKey = publicKeyUncompressed
+
+    const derivedAccount = privateKeyToAccount(derivedPrivateKeyHex as Hex)
+    wallet.address = derivedAccount.address
+    // Use viem for Ethereum signing to match SDK behavior
 
     if (process.env.DEBUG_SIGNING === '1') {
       console.debug('[SigningService] Derived Ethereum signing material', {
@@ -272,35 +294,76 @@ export class SigningService {
 
     // For Ethereum, we need to handle different signature types
     // Check if this is message signing (schema 3 = ETH_MSG)
-    if (request.schema === 3) {
-      // ETH_MSG schema (personal_sign, EIP-712)
-      // Message signing - but need to return DER format like real device
-      const messageHash = this.hashMessage(request.data)
-      const signature = this.secp256k1Sign(messageHash, privateKeyBuffer)
+    if (request.schema === SIGNING_SCHEMA.ETH_MSG) {
+      const protocol = request.protocol ?? 'signPersonal'
 
-      const derSignature = this.formatDERSignature(signature.r, signature.s)
+      if (protocol === 'signPersonal') {
+        const messageBuffer = Buffer.from(request.data)
+        const messageHash = request.isPrehashed ? messageBuffer : this.hashMessage(messageBuffer)
+        const signature = this.secp256k1Sign(messageHash, privateKeyBuffer)
 
-      console.log('[SigningService] ETH_MSG Signature components:', {
-        hash: messageHash.toString('hex'),
-        r: signature.r.toString('hex'),
-        s: signature.s.toString('hex'),
-        recovery: signature.recovery,
-        recoveryId: signature.recoveryId,
-        derSignatureLength: derSignature.length,
-        derSignaturePrefix: derSignature.slice(0, 10).toString('hex'),
-      })
+        const derSignature = this.formatDERSignature(signature.r, signature.s)
 
-      return {
-        signature: derSignature,
-        recovery: signature.recovery,
-        recoveryId: signature.recoveryId,
-        format: 'der',
-        metadata: {
-          signer: wallet.address,
-          publicKey: publicKeyUncompressed,
-          publicKeyCompressed,
-        },
+        console.log('[SigningService] ETH personal_sign components:', {
+          hash: messageHash.toString('hex'),
+          r: signature.r.toString('hex'),
+          s: signature.s.toString('hex'),
+          recovery: signature.recovery,
+          recoveryId: signature.recoveryId,
+          prehashed: request.isPrehashed,
+        })
+
+        return {
+          signature: derSignature,
+          recovery: signature.recovery,
+          recoveryId: signature.recoveryId,
+          format: 'der',
+          metadata: {
+            signer: wallet.address,
+            publicKey: publicKeyUncompressed,
+            publicKeyCompressed,
+          },
+        }
       }
+
+      if (protocol === 'eip712') {
+        const typedDataBuffer = Buffer.from(request.data)
+        const digest = request.isPrehashed
+          ? typedDataBuffer
+          : this.hashEip712Payload(typedDataBuffer)
+
+        console.log('[SigningService] EIP-712 signing input', {
+          prehashed: request.isPrehashed,
+          payloadLength: typedDataBuffer.length,
+          digest: digest.toString('hex'),
+        })
+
+        const signature = this.secp256k1Sign(digest, privateKeyBuffer)
+        const derSignature = this.formatDERSignature(signature.r, signature.s)
+
+        console.log('[SigningService] EIP-712 signature components:', {
+          hash: digest.toString('hex'),
+          r: signature.r.toString('hex'),
+          s: signature.s.toString('hex'),
+          recovery: signature.recovery,
+          recoveryId: signature.recoveryId,
+          prehashed: request.isPrehashed,
+        })
+
+        return {
+          signature: derSignature,
+          recovery: signature.recovery,
+          recoveryId: signature.recoveryId,
+          format: 'der',
+          metadata: {
+            signer: wallet.address,
+            publicKey: publicKeyUncompressed,
+            publicKeyCompressed,
+          },
+        }
+      }
+
+      throw new Error(`Unsupported Ethereum message protocol: ${protocol}`)
     } else {
       // Transaction signing
       let signingDigest: Buffer
@@ -527,6 +590,82 @@ export class SigningService {
   }
 
   /**
+   * Signs data using BLS12-381 (for Ethereum 2.0)
+   */
+  private async signBLS12381(request: SigningRequest): Promise<SignatureResult> {
+    const config = await getWalletConfig()
+    const { privateKey } = deriveBLS12381Key(config.seed, request.path)
+
+    if (!privateKey || privateKey.length !== 32) {
+      throw new Error('Failed to derive BLS12-381 private key')
+    }
+
+    if (!request.data || request.data.length < 5) {
+      throw new Error('BLS signing request missing payload data')
+    }
+
+    const dst = request.data.readUInt32LE(0)
+    const message = request.data.slice(4)
+
+    if (message.length === 0) {
+      throw new Error('BLS signing request contains empty message')
+    }
+
+    const dstLabel = this.resolveBlsDstLabel(dst)
+    const originalDstLabel =
+      typeof blsUtils.getDSTLabel === 'function' ? blsUtils.getDSTLabel() : undefined
+    if (dstLabel && typeof blsUtils.setDSTLabel === 'function') {
+      blsUtils.setDSTLabel(dstLabel)
+    }
+
+    // Derive the G1 public key (48 bytes)
+    const publicKey = blsGetPublicKey(privateKey)
+    const publicKeyBuffer = Buffer.from(publicKey)
+
+    // Sign the message - produces a G2 signature (96 bytes)
+    const signature = await blsSign(message, privateKey)
+    const signatureBuffer = Buffer.from(signature)
+
+    if (dstLabel && originalDstLabel && dstLabel !== originalDstLabel) {
+      blsUtils.setDSTLabel(originalDstLabel)
+    }
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.debug('[SigningService] BLS12-381 Signature', {
+        path: request.path,
+        dst,
+        dataToSign: message.toString('hex'),
+        publicKeyLength: publicKeyBuffer.length,
+        publicKey: publicKeyBuffer.toString('hex'),
+        signatureLength: signatureBuffer.length,
+        signature: signatureBuffer.toString('hex'),
+      })
+    }
+
+    console.log('[SigningService] BLS12-381 signature components:', {
+      publicKeyLength: publicKeyBuffer.length,
+      signatureLength: signatureBuffer.length,
+      path: request.path,
+    })
+
+    // Return raw signature format for BLS
+    return {
+      signature: signatureBuffer, // Raw 96-byte G2 signature
+      format: 'raw',
+      metadata: {
+        publicKey: publicKeyBuffer.toString('hex'),
+      },
+    }
+  }
+
+  private resolveBlsDstLabel(dst: number): string {
+    if (dst === EXTERNAL.SIGNING.BLS_DST.BLS_DST_POP) {
+      return 'BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_'
+    }
+    return 'BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_'
+  }
+
+  /**
    * Performs secp256k1 signing with recovery
    */
   private secp256k1Sign(
@@ -641,6 +780,83 @@ export class SigningService {
     const prefix = Buffer.from('\x19Ethereum Signed Message:\n' + message.length.toString())
     const hashHex = keccak256(Buffer.concat([prefix, message]))
     return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
+  }
+
+  private hashEip712Payload(payload: Buffer): Buffer {
+    const typedData = this.decodeEip712Payload(payload)
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.log(
+        '[SigningService] Normalized EIP-712 data for hashing:',
+        JSON.stringify(typedData, null, 2),
+      )
+    }
+    const hash = TypedDataUtils.eip712Hash(typedData, SignTypedDataVersion.V4)
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.log('[SigningService] Calculated EIP-712 hash:', Buffer.from(hash).toString('hex'))
+    }
+    return Buffer.from(hash)
+  }
+
+  private decodeEip712Payload(payload: Buffer): any {
+    try {
+      const decoded = cbor.decodeFirstSync(payload)
+      // Normalize the decoded data to match TypedDataUtils expectations
+      return this.normalizeEip712Data(decoded)
+    } catch (error) {
+      console.error('[SigningService] Failed to decode EIP-712 payload', error)
+      throw new Error('Failed to decode EIP-712 payload')
+    }
+  }
+
+  /**
+   * Normalizes CBOR-decoded EIP-712 data to match TypedDataUtils expectations.
+   * Converts BigNumber objects to numbers/strings that TypedDataUtils can hash correctly.
+   */
+  private normalizeEip712Data(obj: any): any {
+    if (typeof obj === 'bigint') {
+      const num = Number(obj)
+      return Number.isSafeInteger(num) ? num : obj.toString(10)
+    }
+
+    if (obj && typeof obj === 'object' && obj.constructor && obj.constructor.name === 'BigNumber') {
+      const num = Number(obj.toString(10))
+      if (Number.isSafeInteger(num)) {
+        return num
+      }
+      return obj.toString(10)
+    }
+
+    if (Buffer.isBuffer(obj)) {
+      return `0x${obj.toString('hex')}`
+    }
+
+    if (obj instanceof Uint8Array) {
+      return `0x${Buffer.from(obj).toString('hex')}`
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.normalizeEip712Data(item))
+    }
+
+    if (obj && typeof obj === 'object') {
+      const normalized: Record<string, any> = {}
+      for (const [key, value] of Object.entries(obj)) {
+        normalized[key] = this.normalizeEip712Data(value)
+      }
+      return normalized
+    }
+
+    return obj
+  }
+
+  private isBigNumberLike(value: unknown): value is { toString(radix?: number): string } {
+    return (
+      !!value &&
+      typeof value === 'object' &&
+      typeof (value as any).toString === 'function' &&
+      ((value as any).constructor?.name === 'BigNumber' ||
+        (value as any).constructor?.name === 'BN')
+    )
   }
 
   /**

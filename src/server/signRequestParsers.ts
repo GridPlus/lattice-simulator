@@ -10,14 +10,19 @@ import { EXTERNAL } from '../shared/constants'
 import { buildEthereumSigningPreimage, decodeEthereumTxPayload } from './utils/ethereumTx'
 import type { SignRequest } from '../shared/types'
 
+const ETH_MSG_PROTOCOL = {
+  SIGN_PERSONAL: 0,
+  TYPED_DATA: 1,
+} as const
+
 /**
  * Schema constants mapping to different currencies/request types
  */
 export enum SignRequestSchema {
   BITCOIN = 0,
   ETHEREUM_TRANSACTION = 1,
-  ETHEREUM_MESSAGE = 2,
-  SOLANA = 3,
+  ERC20_TRANSFER = 2,
+  ETHEREUM_MESSAGE = 3,
   EXTRA_DATA = 4,
   GENERIC = 5,
 }
@@ -153,17 +158,90 @@ export class EthereumMessageParser implements ISignRequestParser {
     console.log('[EthereumMessageParser] Parsing Ethereum message payload')
     console.log(`[EthereumMessageParser] Payload length: ${payload.length}`)
 
-    // Default Ethereum path for message signing
-    const defaultEthPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
-
-    return {
-      path: defaultEthPath, // TODO: Extract from payload if available
-      schema,
-      curve: 0, // Ethereum uses secp256k1
-      encoding: 4, // EVM encoding
-      hashType: 1, // Keccak256
-      data: payload,
+    const minimumLength = 1 + 24 + 1 + 2 // protocol + path + display + length
+    if (payload.length < minimumLength) {
+      throw new Error('Ethereum message payload too short')
     }
+
+    let offset = 0
+    const protocolIdx = payload.readUInt8(offset)
+    offset += 1
+
+    const pathLength = payload.readUInt32LE(offset)
+    offset += 4
+
+    const path: number[] = []
+    for (let i = 0; i < 5; i++) {
+      const segment = payload.readUInt32LE(offset)
+      offset += 4
+      if (i < pathLength) {
+        path.push(segment)
+      }
+    }
+
+    const defaultEthPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
+    const effectivePath = path.length ? path : defaultEthPath
+
+    const displayHexFlag = payload.readUInt8(offset)
+    offset += 1
+
+    const messageLength = payload.readUInt16LE(offset)
+    offset += 2
+
+    const remaining = payload.slice(offset)
+
+    const expectedLength = messageLength || remaining.length
+    const baseChunkLength = remaining.length
+    const chunkLength = Math.min(expectedLength, baseChunkLength)
+    let messageChunk = remaining.slice(0, chunkLength)
+
+    const isTypedData = protocolIdx === ETH_MSG_PROTOCOL.TYPED_DATA
+
+    // Determine if this payload is prehashed (no extra frames but chunk shorter than original length)
+    let isPrehashed = false
+    if (!hasExtraPayloads && expectedLength > baseChunkLength) {
+      isPrehashed = true
+      messageChunk = remaining.slice(0, 32)
+    }
+
+    const encoding = EXTERNAL.SIGNING.ENCODINGS.EVM
+    let hashType = isTypedData ? EXTERNAL.SIGNING.HASHES.NONE : EXTERNAL.SIGNING.HASHES.KECCAK256
+
+    if (!isTypedData && isPrehashed) {
+      hashType = EXTERNAL.SIGNING.HASHES.NONE
+    }
+
+    const signRequest: SignRequest = {
+      path: effectivePath,
+      schema,
+      curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
+      encoding,
+      hashType,
+      data: Buffer.from(messageChunk),
+      rawPayload: payload,
+      hasExtraPayloads,
+      messageLength,
+      displayHex: displayHexFlag === 1,
+      protocol: protocolIdx === ETH_MSG_PROTOCOL.TYPED_DATA ? 'eip712' : 'signPersonal',
+      isPrehashed,
+    }
+
+    console.log('[EthereumMessageParser] Parsed message request', {
+      protocol: signRequest.protocol,
+      path: effectivePath,
+      messageLength,
+      chunkLength: messageChunk.length,
+      hasExtraPayloads,
+      isPrehashed,
+      displayHex: signRequest.displayHex,
+      sample: messageChunk.slice(0, Math.min(messageChunk.length, 32)).toString('hex'),
+    })
+
+    if (isTypedData) {
+      signRequest.typedDataPayload = Buffer.from(messageChunk)
+    }
+
+    return signRequest
   }
 }
 
@@ -335,7 +413,7 @@ export class GenericSignRequestParser implements ISignRequestParser {
  * @param schema - Request schema type from SDK envelope
  * @returns Appropriate parser instance
  */
-export function createSignRequestParser(schema: number): ISignRequestParser {
+export function createSignRequestParser(schema: number, payload: Buffer): ISignRequestParser {
   switch (schema) {
     case SignRequestSchema.BITCOIN:
       return new BitcoinSignRequestParser()
@@ -346,11 +424,18 @@ export function createSignRequestParser(schema: number): ISignRequestParser {
     case SignRequestSchema.ETHEREUM_MESSAGE:
       return new EthereumMessageParser()
 
-    case SignRequestSchema.SOLANA:
-      return new SolanaSignRequestParser()
-
     case SignRequestSchema.EXTRA_DATA:
       return new ExtraDataParser()
+
+    case SignRequestSchema.GENERIC: {
+      if (payload.length >= 4) {
+        const encoding = payload.readUInt32LE(0)
+        if (encoding === EXTERNAL.SIGNING.ENCODINGS.SOLANA) {
+          return new SolanaSignRequestParser()
+        }
+      }
+      return new GenericSignRequestParser()
+    }
 
     default:
       console.log(`[SignRequestFactory] Unknown schema ${schema}, using generic parser`)
@@ -370,6 +455,6 @@ export function parseSignRequestPayload(
   hasExtraPayloads: boolean,
   schema: number,
 ): SignRequest {
-  const parser = createSignRequestParser(schema)
+  const parser = createSignRequestParser(schema, payload)
   return parser.parse(payload, hasExtraPayloads, schema)
 }

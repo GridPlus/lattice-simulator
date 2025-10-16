@@ -9,7 +9,7 @@
     "noEmit": true,
     "esModuleInterop": true,
     "module": "esnext",
-    "moduleResolution": "bundler",
+    "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "preserve",
@@ -28,9 +28,25 @@
       "@/shared/*": ["./src/shared/*"],
       "@/utils/*": ["./src/shared/utils/*"],
       "@/types/*": ["./src/shared/types/*"],
-      "@/store/*": ["./src/client/store/*"]
+      "@/store/*": ["./src/client/store/*"],
+      "gridplus-sdk": ["./types/gridplus-sdk/index"],
+      "gridplus-sdk/*": ["./types/gridplus-sdk/index"],
+      "bls12-381-keygen": ["./types/bls12-381-keygen/index"],
+      "cbor-bigdecimal": ["./types/cbor-bigdecimal/index"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "temp/**"]
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "server.ts",
+    "middleware.ts",
+    "tailwind.config.ts",
+    "vitest.config.ts",
+    "types/**/*.d.ts",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", "temp/**", "../gridplus-sdk/**"]
 }
