@@ -332,14 +332,14 @@ export class SigningService {
           ? typedDataBuffer
           : this.hashEip712Payload(typedDataBuffer)
 
+        const signature = this.secp256k1Sign(digest, privateKeyBuffer)
+        const derSignature = this.formatDERSignature(signature.r, signature.s)
+
         console.log('[SigningService] EIP-712 signing input', {
           prehashed: request.isPrehashed,
           payloadLength: typedDataBuffer.length,
           digest: digest.toString('hex'),
         })
-
-        const signature = this.secp256k1Sign(digest, privateKeyBuffer)
-        const derSignature = this.formatDERSignature(signature.r, signature.s)
 
         console.log('[SigningService] EIP-712 signature components:', {
           hash: digest.toString('hex'),

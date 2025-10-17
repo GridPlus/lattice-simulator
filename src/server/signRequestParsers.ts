@@ -182,8 +182,15 @@ export class EthereumMessageParser implements ISignRequestParser {
     const defaultEthPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
     const effectivePath = path.length ? path : defaultEthPath
 
-    const displayHexFlag = payload.readUInt8(offset)
-    offset += 1
+    const isTypedData = protocolIdx === ETH_MSG_PROTOCOL.TYPED_DATA
+
+    // Typed data frames do not include the display flag byte that personal_sign uses.
+    // Only consume the flag when present to keep messageLength aligned correctly.
+    let displayHexFlag = 0
+    if (!isTypedData) {
+      displayHexFlag = payload.readUInt8(offset)
+      offset += 1
+    }
 
     const messageLength = payload.readUInt16LE(offset)
     offset += 2
@@ -194,8 +201,6 @@ export class EthereumMessageParser implements ISignRequestParser {
     const baseChunkLength = remaining.length
     const chunkLength = Math.min(expectedLength, baseChunkLength)
     let messageChunk = remaining.slice(0, chunkLength)
-
-    const isTypedData = protocolIdx === ETH_MSG_PROTOCOL.TYPED_DATA
 
     // Determine if this payload is prehashed (no extra frames but chunk shorter than original length)
     let isPrehashed = false
