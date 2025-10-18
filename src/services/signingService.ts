@@ -284,6 +284,9 @@ export class SigningService {
         address: wallet.address,
         publicKeyUncompressed,
         publicKeyCompressed,
+        isPrehashed: request.isPrehashed ?? false,
+        messageLength: request.messageLength ?? request.data.length,
+        payloadLength: request.data.length,
       })
     }
 
@@ -406,8 +409,12 @@ export class SigningService {
           signablePayload = txData
         }
       } else {
-        const txHashHex = keccak256(request.data)
-        signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+        if (request.isPrehashed) {
+          signingDigest = Buffer.from(request.data)
+        } else {
+          const txHashHex = keccak256(request.data)
+          signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+        }
       }
 
       const signature = this.secp256k1Sign(signingDigest, privateKeyBuffer)

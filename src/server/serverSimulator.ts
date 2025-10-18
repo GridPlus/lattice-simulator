@@ -1009,6 +1009,10 @@ export class ServerLatticeSimulator {
     const messageChunk = baseChunk.slice(0, messageChunkLength)
     const remainingChunk = baseChunk.slice(messageChunkLength)
 
+    const isPrehashed =
+      request.isPrehashed ??
+      (hashType !== EXTERNAL.SIGNING.HASHES.NONE && messageLength > messageChunk.length)
+
     return {
       encoding,
       hashType,
@@ -1018,6 +1022,7 @@ export class ServerLatticeSimulator {
       messageLength,
       messageChunk,
       remainingChunk,
+      isPrehashed,
     }
   }
 
@@ -1224,6 +1229,7 @@ export class ServerLatticeSimulator {
         messageToSignLength: signingPayload.length,
         decoderBytes: session.decoderChunks.reduce((sum, chunk) => sum + chunk.length, 0),
         messageKeccak: keccak256(signingPayload),
+        originalKeccak: keccak256(fullData),
       })
     }
 

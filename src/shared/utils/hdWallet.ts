@@ -205,8 +205,11 @@ export function deriveBLS12381Key(
     throw new Error('Seed is required for BLS12-381 derivation')
   }
 
-  // Convert derivation path to the format expected by deriveSeedTree
-  // The path should be an array of numbers
+  if (!Array.isArray(derivationPath) || derivationPath.length === 0) {
+    throw new Error('Derivation path is required for BLS12-381 derivation')
+  }
+
+  // Use derivation path array directly with deriveSeedTree
   const privateKey = deriveSeedTree(seed, derivationPath)
 
   return {

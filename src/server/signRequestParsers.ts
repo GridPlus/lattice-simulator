@@ -396,6 +396,19 @@ export class GenericSignRequestParser implements ISignRequestParser {
       message = message.slice(0, messageLength)
     }
 
+    const inferredMessageLength = messageLength ?? message.length
+    const isPrehashed =
+      hashType !== EXTERNAL.SIGNING.HASHES.NONE &&
+      messageLength !== null &&
+      messageLength > message.length
+
+    if (process.env.DEBUG_SIGNING === '1' && isPrehashed) {
+      console.debug('[GenericParser] Detected prehashed payload', {
+        declaredLength: messageLength,
+        chunkLength: message.length,
+      })
+    }
+
     const result = {
       path,
       schema,
@@ -405,6 +418,8 @@ export class GenericSignRequestParser implements ISignRequestParser {
       data: message,
       omitPubkey: omitPubkeyFlag === 1,
       rawPayload: payload,
+      messageLength: inferredMessageLength,
+      isPrehashed,
     }
 
     console.log('[GenericParser] Parsed sign request keys:', Object.keys(result))
