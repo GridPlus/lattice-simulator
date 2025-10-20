@@ -44,16 +44,6 @@ export function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
   const payloadLength = buffer.readUInt16BE(offset)
   offset += 2
 
-  console.log(
-    `Protocol version: ${protocolVersion}, Message type: ${messageType}, Payload length: ${payloadLength}`,
-  )
-  console.log(
-    `Message ID: ${messageId.toString('hex')}, Payload length bytes: ${buffer.slice(offset - 2, offset).toString('hex')}`,
-  )
-  console.log(
-    `Total buffer length: ${buffer.length}, Header + payload should be: ${8 + payloadLength + 4}`,
-  )
-
   // Validate protocol version
   if (protocolVersion !== 0x01) {
     throw new Error(`Unsupported protocol version: ${protocolVersion}`)
@@ -70,9 +60,6 @@ export function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
 
   // Read payload data - ensure we don't read beyond buffer bounds
   const availablePayloadLength = Math.min(payloadLength, buffer.length - offset - 4) // -4 for checksum
-  console.log(
-    `[parseProtocolMessage] Header payload length: ${payloadLength}, available: ${availablePayloadLength}, buffer remaining: ${buffer.length - offset}`,
-  )
   const payload = buffer.slice(offset, offset + availablePayloadLength)
   offset += availablePayloadLength
 
@@ -84,7 +71,6 @@ export function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
   if (offset !== buffer.length) {
     throw new Error(`Message size mismatch: expected ${buffer.length}, parsed ${offset}`)
   }
-  console.log(`[parseProtocolMessage] Request type(1:connect, 2:encrypted): ${requestType}`)
   // Check if this is a connect request (request type 0x01)
   if (requestType === 0x01) {
     // This is an unencrypted connect request
@@ -92,9 +78,6 @@ export function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
     if (payload.length !== 65) {
       throw new Error(`Invalid connect request payload size: ${payload.length}, expected 65`)
     }
-
-    console.log(`[parseProtocolMessage] Connect request - payload length: ${payload.length}`)
-    console.log(`[parseProtocolMessage] Public key (hex): ${payload.toString('hex')}`)
 
     return {
       isConnectRequest: true,
@@ -118,10 +101,6 @@ export function parseProtocolMessage(buffer: Buffer): ParsedProtocolMessage {
 
     // Extract encrypted data (remaining bytes after ephemeralId)
     const encryptedData = payload.slice(4)
-
-    console.log(`[parseProtocolMessage] Ephemeral ID: ${ephemeralId}`)
-    console.log(`[parseProtocolMessage] Encrypted data length: ${encryptedData.length}`)
-    console.log(`[parseProtocolMessage] Encrypted data (hex): ${encryptedData.toString('hex')}`)
 
     return {
       isConnectRequest: false,

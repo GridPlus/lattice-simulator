@@ -209,8 +209,11 @@ export function deriveBLS12381Key(
     throw new Error('Derivation path is required for BLS12-381 derivation')
   }
 
-  // Use derivation path array directly with deriveSeedTree
-  const privateKey = deriveSeedTree(seed, derivationPath)
+  const normalizedPath = derivationPath.map(index =>
+    index >= 0x80000000 ? index - 0x80000000 : index,
+  )
+
+  const privateKey = deriveSeedTree(seed, normalizedPath)
 
   return {
     privateKey: Buffer.from(privateKey),

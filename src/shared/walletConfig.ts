@@ -6,6 +6,7 @@
 import { generateMnemonic, mnemonicToSeed } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english'
 import { SIMULATOR_CONSTANTS } from './constants'
+import { debug } from './debug'
 
 type WalletConfigGlobals = typeof globalThis & {
   __latticeMnemonicOverride?: string
@@ -158,7 +159,7 @@ export async function getWalletConfig(): Promise<WalletConfig> {
       mnemonic = overrideMnemonic
       source = 'override'
     } else {
-      console.warn('[WalletConfig] Ignoring invalid mnemonic override; clearing value')
+      debug.wallet('[WalletConfig] Ignoring invalid mnemonic override; clearing value')
       setWalletMnemonicOverride(null)
     }
   }
@@ -173,9 +174,9 @@ export async function getWalletConfig(): Promise<WalletConfig> {
       if (validateMnemonic(envMnemonic)) {
         mnemonic = envMnemonic
         source = 'environment'
-        console.log('[WalletConfig] Using mnemonic from environment variable: ', envMnemonic)
+        debug.wallet('[WalletConfig] Using mnemonic from environment variable: ', envMnemonic)
       } else {
-        console.warn(
+        debug.wallet(
           '[WalletConfig] Invalid mnemonic in environment variable, falling back to default',
         )
       }
@@ -186,7 +187,7 @@ export async function getWalletConfig(): Promise<WalletConfig> {
     // Use default mnemonic when nothing else is provided
     mnemonic = normalizeMnemonic(SIMULATOR_CONSTANTS.DEFAULT_MNEMONIC)
     source = 'default'
-    console.log('[WalletConfig] Using default mnemonic for development')
+    debug.wallet('[WalletConfig] Using default mnemonic for development')
   }
 
   // Treat only the baked-in mnemonic as default
@@ -195,6 +196,10 @@ export async function getWalletConfig(): Promise<WalletConfig> {
   const seedOverride = getWalletSeedOverride()
 
   if (seedOverride) {
+    debug.wallet('[WalletConfig] Using seed override', {
+      mnemonic,
+      source,
+    })
     return {
       mnemonic,
       seed: new Uint8Array(seedOverride),
@@ -204,6 +209,12 @@ export async function getWalletConfig(): Promise<WalletConfig> {
 
   // Generate seed from mnemonic (using empty passphrase for simplicity)
   const seed = await mnemonicToSeed(mnemonic, '')
+
+  debug.wallet('[WalletConfig] Derived seed from mnemonic', {
+    mnemonic,
+    source,
+    isDefault,
+  })
 
   return {
     mnemonic,
@@ -320,22 +331,22 @@ export async function logWalletConfigStatus(): Promise<void> {
   const config = await getWalletConfig()
   const envInfo = getEnv()
 
-  console.log('[WalletConfig] Configuration Status:')
-  console.log(`  - Using ${config.isDefault ? 'default' : 'environment'} mnemonic`)
-  console.log(`  - Environment variables checked: ${envInfo.envVars.join(', ')}`)
-  console.log(`  - CI Environment: ${envInfo.isCI ? 'Yes' : 'No'}`)
-  console.log(`  - No Delay: ${envInfo.noDelay ? 'Yes' : 'No'}`)
-  console.log(`  - Auto Approve: ${envInfo.autoApprove ? 'Yes' : 'No'}`)
+  debug.wallet('[WalletConfig] Configuration Status:')
+  debug.wallet(`  - Using ${config.isDefault ? 'default' : 'environment'} mnemonic`)
+  debug.wallet(`  - Environment variables checked: ${envInfo.envVars.join(', ')}`)
+  debug.wallet(`  - CI Environment: ${envInfo.isCI ? 'Yes' : 'No'}`)
+  debug.wallet(`  - No Delay: ${envInfo.noDelay ? 'Yes' : 'No'}`)
+  debug.wallet(`  - Auto Approve: ${envInfo.autoApprove ? 'Yes' : 'No'}`)
 
   if (envInfo.hasEnvMnemonic) {
-    console.log(`  - Environment mnemonic source: ${envInfo.envMnemonicSource}`)
+    debug.wallet(`  - Environment mnemonic source: ${envInfo.envMnemonicSource}`)
   }
 
   if (envInfo.isCI && envInfo.ciDetectedFrom.length > 0) {
-    console.log(`  - CI detected from: ${envInfo.ciDetectedFrom.join(', ')}`)
+    debug.wallet(`  - CI detected from: ${envInfo.ciDetectedFrom.join(', ')}`)
   }
 
   if (config.isDefault) {
-    console.log('  - ⚠️  Using default development mnemonic. Set LATTICE_MNEMONIC for production.')
+    debug.wallet('  - ⚠️  Using default development mnemonic. Set LATTICE_MNEMONIC for production.')
   }
 }

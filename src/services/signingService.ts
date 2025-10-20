@@ -4,6 +4,8 @@
  */
 
 import { createHash } from 'crypto'
+import { appendFileSync } from 'fs'
+import { resolve } from 'path'
 import { SignTypedDataVersion, TypedDataUtils } from '@metamask/eth-sig-util'
 import {
   getPublicKey as blsGetPublicKey,
@@ -80,6 +82,8 @@ const toBuffer = (value: Buffer | Uint8Array | string): Buffer => {
   return Buffer.from(value)
 }
 
+const DEBUG_LOG_PATH = resolve(__dirname, '../../signing-debug.log')
+
 /**
  * Signing request parameters
  */
@@ -133,10 +137,46 @@ export class SigningService {
     request: SigningRequest,
     walletAccounts: Map<string, WalletAccount>,
   ): Promise<SignatureResult> {
+    // ALWAYS log curve value to debug Ed25519 issue
+    console.log('[SigningService] signData curve check:', {
+      curve: request.curve,
+      curveType: typeof request.curve,
+      ED25519_CONST: EXTERNAL.SIGNING.CURVES.ED25519,
+      SECP256K1_CONST: EXTERNAL.SIGNING.CURVES.SECP256K1,
+      curveMatchEd25519: request.curve === EXTERNAL.SIGNING.CURVES.ED25519,
+      curveMatchSecp: request.curve === EXTERNAL.SIGNING.CURVES.SECP256K1,
+    })
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      const debugInfo = {
+        curve: request.curve,
+        curveType: typeof request.curve,
+        path: request.path,
+        encoding: request.encoding,
+        hashType: request.hashType,
+        ED25519_CONST: EXTERNAL.SIGNING.CURVES.ED25519,
+        BLS_CONST: EXTERNAL.SIGNING.CURVES.BLS12_381_G2,
+        curveMatch: request.curve === EXTERNAL.SIGNING.CURVES.ED25519,
+      }
+      console.log('[SigningService] signData request', debugInfo)
+      try {
+        appendFileSync(DEBUG_LOG_PATH, `[signData] ${JSON.stringify(debugInfo)}\n`)
+      } catch {
+        // ignore
+      }
+    }
     // Check if this is a BLS signing request
     if (request.curve === EXTERNAL.SIGNING.CURVES.BLS12_381_G2) {
       return this.signBLS12381(request)
     }
+
+    // Handle Ed25519 signing regardless of coin type detection
+    if (request.curve === EXTERNAL.SIGNING.CURVES.ED25519) {
+      console.log('[SigningService] Routing to Ed25519 handler')
+      return this.signEd25519(request)
+    }
+
+    console.log('[SigningService] NOT routing to Ed25519, continuing to coin-based logic')
 
     // Detect coin type from derivation path
     let coinType = detectCoinTypeFromPath(request.path)
@@ -278,7 +318,12 @@ export class SigningService {
     // Use viem for Ethereum signing to match SDK behavior
 
     if (process.env.DEBUG_SIGNING === '1') {
-      console.debug('[SigningService] Derived Ethereum signing material', {
+      const debugMessage = `[SigningService] Derived Ethereum signing material path=${derivationPath.join(
+        '/',
+      )} privateKey=${derivedPrivateKeyHex} address=${
+        wallet.address
+      } pubkey=${publicKeyUncompressed}\n`
+      console.log('[SigningService] Derived Ethereum signing material', {
         path: derivationPath,
         privateKey: derivedPrivateKeyHex,
         address: wallet.address,
@@ -288,6 +333,11 @@ export class SigningService {
         messageLength: request.messageLength ?? request.data.length,
         payloadLength: request.data.length,
       })
+      try {
+        appendFileSync(DEBUG_LOG_PATH, debugMessage)
+      } catch {
+        // ignore write errors
+      }
     }
 
     console.log('[SigningService] Active Ethereum account:', {
@@ -302,10 +352,31 @@ export class SigningService {
 
       if (protocol === 'signPersonal') {
         const messageBuffer = Buffer.from(request.data)
-        const messageHash = request.isPrehashed ? messageBuffer : this.hashMessage(messageBuffer)
+        const messageHash = request.isPrehashed
+          ? messageBuffer
+          : this.isPrefixedPersonalMessage(messageBuffer)
+            ? this.keccakBuffer(messageBuffer)
+            : this.hashMessage(messageBuffer)
         const signature = this.secp256k1Sign(messageHash, privateKeyBuffer)
 
         const derSignature = this.formatDERSignature(signature.r, signature.s)
+
+        if (process.env.DEBUG_SIGNING === '1') {
+          const keyPair = this.secp256k1.keyFromPrivate(privateKeyBuffer)
+          const isValid = keyPair.verify(messageHash, {
+            r: signature.r,
+            s: signature.s,
+          })
+          if (!isValid) {
+            console.error('[SigningService] Signature verification failed (personal_sign)', {
+              path: derivationPath,
+              privateKey: derivedPrivateKeyHex,
+              messageHash: messageHash.toString('hex'),
+              r: signature.r.toString('hex'),
+              s: signature.s.toString('hex'),
+            })
+          }
+        }
 
         console.log('[SigningService] ETH personal_sign components:', {
           hash: messageHash.toString('hex'),
@@ -352,6 +423,23 @@ export class SigningService {
           recoveryId: signature.recoveryId,
           prehashed: request.isPrehashed,
         })
+
+        if (process.env.DEBUG_SIGNING === '1') {
+          const keyPair = this.secp256k1.keyFromPrivate(privateKeyBuffer)
+          const isValid = keyPair.verify(digest, {
+            r: signature.r,
+            s: signature.s,
+          })
+          if (!isValid) {
+            console.error('[SigningService] Signature verification failed (eip712)', {
+              path: derivationPath,
+              privateKey: derivedPrivateKeyHex,
+              digest: digest.toString('hex'),
+              r: signature.r.toString('hex'),
+              s: signature.s.toString('hex'),
+            })
+          }
+        }
 
         return {
           signature: derSignature,
@@ -410,9 +498,28 @@ export class SigningService {
         }
       } else {
         if (request.isPrehashed) {
-          signingDigest = Buffer.from(request.data)
+          // Data is already hashed by the SDK - use it directly
+          console.log('[SigningService] Prehashed data length:', request.data.length, 'bytes')
+          console.log(
+            '[SigningService] Prehashed data (first 64 chars):',
+            request.data.toString('hex').slice(0, 64),
+          )
+          console.log(
+            '[SigningService] Prehashed hashType:',
+            request.hashType,
+            '(1=SHA256, 2=KECCAK256)',
+          )
+          signingDigest = Buffer.from(request.data).slice(0, 32)
         } else {
-          const txHashHex = keccak256(request.data)
+          // Use the appropriate hash function based on hashType
+          let txHashHex: string
+          if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
+            const hash = createHash('sha256').update(request.data).digest()
+            txHashHex = `0x${hash.toString('hex')}`
+          } else {
+            // Default to keccak256 for KECCAK256 and other hash types
+            txHashHex = keccak256(request.data)
+          }
           signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
         }
       }
@@ -426,6 +533,23 @@ export class SigningService {
         recovery: signature.recovery,
         recoveryId: signature.recoveryId,
       })
+
+      if (process.env.DEBUG_SIGNING === '1') {
+        const keyPair = this.secp256k1.keyFromPrivate(privateKeyBuffer)
+        const isValid = keyPair.verify(signingDigest, {
+          r: signature.r,
+          s: signature.s,
+        })
+        if (!isValid) {
+          console.error('[SigningService] Signature verification failed (transaction)', {
+            path: request.path,
+            privateKey: derivedPrivateKeyHex,
+            digest: signingDigest.toString('hex'),
+            r: signature.r.toString('hex'),
+            s: signature.s.toString('hex'),
+          })
+        }
+      }
 
       try {
         const recovered = this.secp256k1.recoverPubKey(
@@ -499,6 +623,44 @@ export class SigningService {
       format: 'der',
       metadata: {
         publicKey: wallet.publicKey,
+      },
+    }
+  }
+
+  /**
+   * Signs data using Solana wallet (ed25519)
+   */
+  private async signEd25519(request: SigningRequest): Promise<SignatureResult> {
+    if (!request.path || request.path.length === 0) {
+      throw new Error('Ed25519 signing requires a derivation path')
+    }
+
+    const config = await getWalletConfig()
+    const { privateKey } = deriveEd25519Key(config.seed, request.path)
+    const message = Buffer.from(request.data)
+    const signature = await ed25519.sign(message, privateKey)
+    const publicKey = await ed25519.getPublicKey(privateKey)
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      const debugInfo = {
+        path: request.path,
+        messageLength: message.length,
+        signature: Buffer.from(signature).toString('hex'),
+        publicKey: Buffer.from(publicKey).toString('hex'),
+      }
+      console.log('[SigningService] Ed25519 signing', debugInfo)
+      try {
+        appendFileSync(DEBUG_LOG_PATH, `[signEd25519] ${JSON.stringify(debugInfo)}\n`)
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      signature: Buffer.from(signature),
+      format: 'raw',
+      metadata: {
+        publicKey: Buffer.from(publicKey).toString('hex'),
       },
     }
   }
@@ -694,7 +856,7 @@ export class SigningService {
     const recovery = rawRecovery & 1
 
     if (process.env.DEBUG_SIGNING === '1') {
-      console.debug('[SigningService] secp256k1Sign debug:', {
+      console.log('[SigningService] secp256k1Sign debug:', {
         hash: hash.toString('hex'),
         privateKey: privateKey.toString('hex'),
         r: signature.r.toString('hex'),
@@ -787,6 +949,17 @@ export class SigningService {
     const prefix = Buffer.from('\x19Ethereum Signed Message:\n' + message.length.toString())
     const hashHex = keccak256(Buffer.concat([prefix, message]))
     return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
+  }
+
+  private keccakBuffer(data: Buffer): Buffer {
+    const hashHex = keccak256(data)
+    return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
+  }
+
+  private isPrefixedPersonalMessage(message: Buffer): boolean {
+    const prefix = Buffer.from('\x19Ethereum Signed Message:\n')
+    if (message.length <= prefix.length) return false
+    return message.slice(0, prefix.length).equals(prefix)
   }
 
   private hashEip712Payload(payload: Buffer): Buffer {

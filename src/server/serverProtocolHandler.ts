@@ -14,6 +14,7 @@ import {
 } from './serverRequestManager'
 import { parseSignRequestPayload, SignRequestSchema } from './signRequestParsers'
 import { EXTERNAL } from '../shared/constants'
+import { debug } from '../shared/debug'
 import {
   LatticeSecureEncryptedRequestType,
   LatticeResponseCode,
@@ -104,11 +105,6 @@ export class ProtocolHandler {
    */
   async handleSecureRequest(request: SecureRequest): Promise<SecureResponse> {
     try {
-      console.log(
-        `[ProtocolHandler] Processing request type(1:connect, 2:encrypted): ${request.type}`,
-      )
-      console.log(`[ProtocolHandler] Encrypted data length: ${request.data.length}`)
-
       // Decrypt the request data using the shared secret
       const decryptionResult = await this.decryptRequestData(request.data, request.ephemeralId)
       if (!decryptionResult) {
@@ -119,60 +115,57 @@ export class ProtocolHandler {
       }
 
       const { requestType, requestData } = decryptionResult
-      console.log(`[ProtocolHandler] requestData length: ${requestData.length}`)
-      console.log(`[ProtocolHandler] requestData (hex): ${requestData.toString('hex')}`)
-      console.log(`[ProtocolHandler] Processing secure request type: ${requestType}`)
 
       let response: SecureResponse
 
       switch (requestType) {
         case LatticeSecureEncryptedRequestType.finalizePairing:
-          console.log('[ProtocolHandler] Handling finalizePairing request')
+          debug.protocol('Handling finalizePairing request')
           response = await this.handlePairRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.getAddresses:
-          console.log('[ProtocolHandler] Handling getAddresses request')
+          debug.protocol('Handling getAddresses request')
           response = await this.handleGetAddressesRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.sign:
-          console.log('[ProtocolHandler] Handling sign request')
+          debug.protocol('Handling sign request')
           response = await this.handleSignRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.getWallets:
-          console.log('[ProtocolHandler] Handling getWallets request')
+          debug.protocol('Handling getWallets request')
           response = await this.handleGetWalletsRequest()
           break
 
         case LatticeSecureEncryptedRequestType.getKvRecords:
-          console.log('[ProtocolHandler] Handling getKvRecords request')
+          debug.protocol('Handling getKvRecords request')
           response = await this.handleGetKvRecordsRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.addKvRecords:
-          console.log('[ProtocolHandler] Handling addKvRecords request')
+          debug.protocol('Handling addKvRecords request')
           response = await this.handleAddKvRecordsRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.removeKvRecords:
-          console.log('[ProtocolHandler] Handling removeKvRecords request')
+          debug.protocol('Handling removeKvRecords request')
           response = await this.handleRemoveKvRecordsRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.fetchEncryptedData:
-          console.log('[ProtocolHandler] Handling fetchEncryptedData request')
+          debug.protocol('Handling fetchEncryptedData request')
           response = await this.handleFetchEncryptedDataRequest(requestData)
           break
 
         case LatticeSecureEncryptedRequestType.test:
-          console.log('[ProtocolHandler] Handling test request')
+          debug.protocol('Handling test request')
           response = await this.handleTestRequest(requestData)
           break
 
         default:
-          console.log(`[ProtocolHandler] Unsupported request type: ${requestType}`)
+          debug.protocol('Unsupported request type: %d', requestType)
           response = {
             code: LatticeResponseCode.invalidMsg,
             error: `Unsupported request type: ${requestType}`,
@@ -236,13 +229,13 @@ export class ProtocolHandler {
       if (tried.has(keyHex)) continue
       tried.add(keyHex)
 
-      console.log('[ProtocolHandler] Trying shared secret candidate:', keyHex)
+      debug.protocol('Trying shared secret candidate: %s', keyHex)
 
       try {
         const decryptedData = aes256_decrypt(encryptedData, candidate.secret)
 
-        console.log('[ProtocolHandler] Decrypted data length:', decryptedData.length)
-        console.log('[ProtocolHandler] Decrypted data (hex):', decryptedData.toString('hex'))
+        debug.protocol('Decrypted data length: %d', decryptedData.length)
+        debug.protocol('Decrypted data (hex): %s', decryptedData.toString('hex'))
 
         if (decryptedData.length < 5) {
           throw new Error('Decrypted data too short (need at least 5 bytes)')
@@ -251,7 +244,7 @@ export class ProtocolHandler {
         let offset = 0
         const requestType = decryptedData.readUInt8(offset)
         offset += 1
-        console.log('[ProtocolHandler] Extracted request type:', requestType)
+        debug.protocol('Extracted request type: %d', requestType)
 
         const requestDataSize: number =
           ProtocolConstants.msgSizes.secure.data.request.encrypted[
@@ -260,22 +253,22 @@ export class ProtocolHandler {
 
         const requestData = decryptedData.slice(offset, offset + requestDataSize)
         offset += requestDataSize
-        console.log('[ProtocolHandler] Extracted request data length:', requestData.length)
-        console.log('[ProtocolHandler] Extracted request data (hex):', requestData.toString('hex'))
+        debug.protocol('Extracted request data length: %d', requestData.length)
+        debug.protocol('Extracted request data (hex): %s', requestData.toString('hex'))
 
         const checksum = decryptedData.readUInt32LE(offset)
-        console.log('[ProtocolHandler] Extracted checksum:', checksum.toString(16))
+        debug.protocol('Extracted checksum: %s', checksum.toString(16))
 
         const dataToValidate = decryptedData.slice(0, offset)
         const calculatedChecksum = crc32.buf(dataToValidate) >>> 0
-        console.log('[ProtocolHandler] Calculated checksum:', calculatedChecksum.toString(16))
+        debug.protocol('Calculated checksum: %s', calculatedChecksum.toString(16))
 
         if (checksum !== calculatedChecksum) {
           throw new Error(
             `Checksum mismatch in decrypted request data: received=${checksum}, calculated=${calculatedChecksum}`,
           )
         }
-        console.log('[ProtocolHandler] Checksum validation passed')
+        debug.protocol('Checksum validation passed')
 
         this.sharedSecretCache.set(candidate.id, candidate.secret)
 
@@ -320,14 +313,16 @@ export class ProtocolHandler {
 
     // Build the response payload: [newEphemeralPub (65)] | [responseData] | [checksum (4)]
     const newEphemeralPub = responseEphemeralKeyPair.publicKey
-    console.log(`[ProtocolHandler] Response data(unpadded) length: ${responseData.length}`)
-    console.log(`[ProtocolHandler] Response data(unpadded) (hex): ${responseData.toString('hex')}`)
+    debug.protocol('Response data(unpadded) length: %d', responseData.length)
+    debug.protocol('Response data(unpadded) (hex): %s', responseData.toString('hex'))
     const responseDataSize: number =
       ProtocolConstants.msgSizes.secure.data.response.encrypted[
         requestType as keyof typeof ProtocolConstants.msgSizes.secure.data.response.encrypted
       ]
-    console.log(
-      `[ProtocolHandler] Expected responseDataSize for requestType ${requestType}: ${responseDataSize}`,
+    debug.protocol(
+      'Expected responseDataSize for requestType %d: %d',
+      requestType,
+      responseDataSize,
     )
 
     if (responseDataSize === undefined || responseDataSize < 0) {
@@ -351,19 +346,7 @@ export class ProtocolHandler {
       checksumBuffer, // 4 bytes checksum
     ])
 
-    console.log('[ProtocolHandler] New ephemeral:', newEphemeralPub.toString('hex'))
-    console.log('[ProtocolHandler] Response data length:', paddedResponseData.length)
-    console.log('[ProtocolHandler] Checksum:', checksum.toString(16))
-    console.log('[ProtocolHandler] Checksum buffer (hex):', checksumBuffer.toString('hex'))
-    console.log('[ProtocolHandler] Response payload length:', responsePayload.length)
-    console.log('[ProtocolHandler] Response payload structure:')
-    console.log('  - Ephemeral pub (0-64):', responsePayload.slice(0, 65).toString('hex'))
-    console.log(
-      '  - Response data (65-...):',
-      responsePayload.slice(65, 65 + paddedResponseData.length).toString('hex'),
-    )
-    console.log('  - Checksum (last 4 bytes):', responsePayload.slice(-4).toString('hex'))
-    console.log(`[ProtocolHandler] Full responsePayload: ${responsePayload.toString('hex')}`)
+    debug.protocol('New ephemeral: %s', newEphemeralPub.toString('hex'))
 
     // The SDK expects encrypted responses to be exactly 1728 bytes
     // Pad the response payload to fit in a 1728-byte encrypted buffer
@@ -376,17 +359,17 @@ export class ProtocolHandler {
     // Verify the checksum is preserved after copying
     const expectedChecksumPosition = 65 + paddedResponseData.length
     const actualChecksum = paddedPayload.readUInt32BE(expectedChecksumPosition)
-    console.log('[ProtocolHandler] Checksum verification:')
-    console.log('  - Expected position:', expectedChecksumPosition)
-    console.log('  - Expected checksum:', checksum.toString(16))
-    console.log('  - Actual checksum at position:', actualChecksum.toString(16))
-    console.log('  - Match:', actualChecksum === checksum ? 'YES' : 'NO')
+    debug.protocol('Checksum verification:')
+    debug.protocol('  - Expected position: %d', expectedChecksumPosition)
+    debug.protocol('  - Expected checksum: %s', checksum.toString(16))
+    debug.protocol('  - Actual checksum at position: %s', actualChecksum.toString(16))
+    debug.protocol('  - Match: %s', actualChecksum === checksum ? 'YES' : 'NO')
 
     // Encrypt the padded response payload
     const encryptedPayload = aes256_encrypt(paddedPayload, sharedSecret)
 
-    console.log('[ProtocolHandler] Padded payload length:', paddedPayload.length)
-    console.log('[ProtocolHandler] Encrypted response length:', encryptedPayload.length)
+    debug.protocol('Padded payload length: %d', paddedPayload.length)
+    debug.protocol('Encrypted response length: %d', encryptedPayload.length)
     return encryptedPayload
   }
 
@@ -419,14 +402,14 @@ export class ProtocolHandler {
    */
   async handleConnectRequest(data: Buffer): Promise<SecureResponse> {
     try {
-      console.log('[ProtocolHandler] Connect request data length:', data.length)
-      console.log('[ProtocolHandler] Connect request data (hex):', data.toString('hex'))
+      debug.protocol('Connect request data length: %d', data.length)
+      debug.protocol('Connect request data (hex): %s', data.toString('hex'))
 
       const request = this.parseConnectRequest(data)
-      console.log('[ProtocolHandler] Parsed connect request:', request)
+      debug.protocol('Parsed connect request: %O', request)
 
       const response = await this.simulator.connect(request)
-      console.log('[ProtocolHandler] Simulator connect response received.')
+      debug.protocol('Simulator connect response received.')
 
       return {
         code: response.code,
@@ -452,7 +435,7 @@ export class ProtocolHandler {
    * @private
    */
   private async handlePairRequest(data: Buffer): Promise<SecureResponse> {
-    console.log(`handlePairRequest, data: ${data.toString('hex')}`)
+    debug.protocol('handlePairRequest, data: %s', data.toString('hex'))
     const request = this.parsePairRequest(data)
     const response = await this.simulator.pair(request)
 
@@ -496,7 +479,7 @@ export class ProtocolHandler {
    */
   private async handleSignRequest(data: Buffer): Promise<SecureResponse> {
     const request = this.parseSignRequest(data)
-    console.log(`[ProtocolHandler] Sign request: ${JSON.stringify(request)}`)
+    debug.signing('Sign request: %O', request)
     const response = await this.simulator.sign(request)
 
     return {
@@ -540,12 +523,12 @@ export class ProtocolHandler {
       const { type, n, start } = this.parseGetKvRecordsRequest(data)
       const deviceId = this.simulator.getDeviceId()
 
-      console.log(`[ProtocolHandler] Requesting KV records from client for device: ${deviceId}`)
+      debug.protocol('Requesting KV records from client for device: %s', deviceId)
 
       // Request data from client-side storage
       const clientData = await requestKvRecords(deviceId, { type, n, start })
 
-      console.log('[ProtocolHandler] Received KV records from client:', clientData)
+      debug.protocol('Received KV records from client: %O', clientData)
 
       // Validate that we got the expected data structure
       if (!clientData || typeof clientData !== 'object') {
@@ -570,7 +553,7 @@ export class ProtocolHandler {
       console.error('[ProtocolHandler] Error handling KV records request:', error)
 
       // If client request fails, fall back to simulator data
-      console.log('[ProtocolHandler] Falling back to simulator data')
+      debug.protocol('Falling back to simulator data')
       const { type, n, start } = this.parseGetKvRecordsRequest(data)
       const response = await this.simulator.getKvRecords({ type, n, start })
 
@@ -995,11 +978,49 @@ export class ProtocolHandler {
     // Use the factory-based parser for structured parsing
     const parsedRequest = parseSignRequestPayload(reqPayload, hasExtraPayloads > 0, schema)
 
+    console.log('[ProtocolHandler] Parsed curve from parser:', parsedRequest.curve)
+
+    // Derive whether additional payload frames are required even if the flag is unset.
+    const declaredLength =
+      typeof (parsedRequest as any).messageLength === 'number'
+        ? ((parsedRequest as any).messageLength as number)
+        : null
+    const chunkLength = parsedRequest.data.length
+    const parserDetectedPrehash = Boolean((parsedRequest as any).isPrehashed)
+
+    let expectsExtraPayloads = hasExtraPayloads > 0
+
+    if (
+      !expectsExtraPayloads &&
+      !parserDetectedPrehash &&
+      declaredLength !== null &&
+      chunkLength < declaredLength
+    ) {
+      expectsExtraPayloads = true
+      debug.signing('Overriding hasExtraPayloads due to length mismatch', {
+        declaredLength,
+        chunkLength,
+        previousFlag: hasExtraPayloads,
+      })
+    }
+
+    debug.signing('Sign request multipart analysis', {
+      originalFlag: hasExtraPayloads,
+      expectsExtraPayloads,
+      parserDetectedPrehash,
+      declaredLength,
+      chunkLength,
+      schema,
+      curve: parsedRequest.curve,
+    })
+
     const signRequest: SignRequest = {
       ...parsedRequest,
-      hasExtraPayloads: hasExtraPayloads > 0,
+      hasExtraPayloads: expectsExtraPayloads,
       rawPayload: reqPayload,
     }
+
+    console.log('[ProtocolHandler] Final signRequest.curve:', signRequest.curve)
 
     if (schema === SignRequestSchema.EXTRA_DATA) {
       signRequest.nextCode = reqPayload.slice(0, 8)
@@ -1454,16 +1475,32 @@ export class ProtocolHandler {
 
   private serializeGenericSigningResponse(data: any, request: SignRequest): Buffer {
     const includePubkey = !request.omitPubkey
+    console.log('[ProtocolHandler] serializeGenericSigningResponse metadata snapshot', {
+      includePubkey,
+      metadata: data?.metadata,
+      signatureType: typeof data?.signature,
+      signatureLength:
+        data?.signature && (Buffer.isBuffer(data.signature) || typeof data.signature === 'string')
+          ? Buffer.isBuffer(data.signature)
+            ? data.signature.length
+            : (data.signature.length ?? null)
+          : null,
+    })
     const isEd25519 = request.curve === 1
     const isBls = request.curve === EXTERNAL.SIGNING.CURVES.BLS12_381_G2
 
     console.log('[ProtocolHandler] serializeGenericSigningResponse', {
       omitPubkey: request.omitPubkey,
       hasMetadata: !!data.metadata,
+      metadataKeys: data.metadata ? Object.keys(data.metadata) : 'none',
+      publicKey: data.metadata?.publicKey,
+      publicKeyCompressed: data.metadata?.publicKeyCompressed,
       signatureLength: (data.signature as any)?.length,
       curveType: request.curve,
       isEd25519,
       isBls,
+      dataKeys: Object.keys(data),
+      requestKeys: Object.keys(request),
     })
 
     if (isBls) {

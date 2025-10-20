@@ -8,12 +8,19 @@
 
 import { EXTERNAL } from '../shared/constants'
 import { buildEthereumSigningPreimage, decodeEthereumTxPayload } from './utils/ethereumTx'
+import { debug } from '../shared/debug'
 import type { SignRequest } from '../shared/types'
 
 const ETH_MSG_PROTOCOL = {
   SIGN_PERSONAL: 0,
   TYPED_DATA: 1,
 } as const
+
+/**
+ * Maximum number of message bytes that fit in the initial generic signing frame.
+ * Mirrors `fwConstants.genericSigning.baseDataSz` on firmware versions >= v0.14.0.
+ */
+export const GENERIC_SIGNING_BASE_CHUNK_SIZE = 1519
 
 /**
  * Schema constants mapping to different currencies/request types
@@ -46,8 +53,8 @@ export interface ISignRequestParser {
  */
 export class BitcoinSignRequestParser implements ISignRequestParser {
   parse(payload: Buffer, hasExtraPayloads: boolean, schema: number): SignRequest {
-    console.log('[BitcoinParser] Parsing Bitcoin transaction payload')
-    console.log(`[BitcoinParser] Payload length: ${payload.length}`)
+    debug.protocol('[BitcoinParser] Parsing Bitcoin transaction payload')
+    debug.protocol('[BitcoinParser] Payload length: %d', payload.length)
 
     let path: number[] = []
 
@@ -59,7 +66,7 @@ export class BitcoinSignRequestParser implements ISignRequestParser {
 
       // Extract change path from payload
       const changePathLength = payload.readUInt32LE(0)
-      console.log(`[BitcoinParser] Change path length: ${changePathLength}`)
+      debug.protocol('[BitcoinParser] Change path length: %d', changePathLength)
 
       if (
         changePathLength > 0 &&
@@ -71,7 +78,7 @@ export class BitcoinSignRequestParser implements ISignRequestParser {
           const pathElement = payload.readUInt32LE(4 + i * 4)
           path.push(pathElement)
         }
-        console.log(`[BitcoinParser] Extracted change path: [${path.join(', ')}]`)
+        debug.protocol('[BitcoinParser] Extracted change path: [%s]', path.join(', '))
       }
     } catch (error) {
       console.error('[BitcoinParser] Error extracting path from Bitcoin payload:', error)
@@ -80,7 +87,7 @@ export class BitcoinSignRequestParser implements ISignRequestParser {
     // If we couldn't extract a valid path, use default Bitcoin path
     if (path.length < 3) {
       path = [0x8000002c, 0x80000000, 0x80000000] // m/44'/0'/0' - default Bitcoin path
-      console.log(`[BitcoinParser] Using default Bitcoin path: [${path.join(', ')}]`)
+      debug.protocol('[BitcoinParser] Using default Bitcoin path: [%s]', path.join(', '))
     }
 
     return {
@@ -100,8 +107,8 @@ export class BitcoinSignRequestParser implements ISignRequestParser {
  */
 export class EthereumTransactionParser implements ISignRequestParser {
   parse(payload: Buffer, hasExtraPayloads: boolean, schema: number): SignRequest {
-    console.log('[EthereumParser] Parsing Ethereum transaction payload')
-    console.log(`[EthereumParser] Payload length: ${payload.length}`)
+    debug.protocol('[EthereumParser] Parsing Ethereum transaction payload')
+    debug.protocol('[EthereumParser] Payload length: %d', payload.length)
 
     // Extract encoding type from payload (similar to GenericSignRequestParser)
     let encoding: number = EXTERNAL.SIGNING.ENCODINGS.EVM // Default to EVM
@@ -155,8 +162,8 @@ export class EthereumTransactionParser implements ISignRequestParser {
  */
 export class EthereumMessageParser implements ISignRequestParser {
   parse(payload: Buffer, hasExtraPayloads: boolean, schema: number): SignRequest {
-    console.log('[EthereumMessageParser] Parsing Ethereum message payload')
-    console.log(`[EthereumMessageParser] Payload length: ${payload.length}`)
+    debug.protocol('[EthereumMessageParser] Parsing Ethereum message payload')
+    debug.protocol('[EthereumMessageParser] Payload length: %d', payload.length)
 
     const minimumLength = 1 + 24 + 1 + 2 // protocol + path + display + length
     if (payload.length < minimumLength) {
@@ -256,8 +263,8 @@ export class EthereumMessageParser implements ISignRequestParser {
  */
 export class SolanaSignRequestParser implements ISignRequestParser {
   parse(payload: Buffer, hasExtraPayloads: boolean, schema: number): SignRequest {
-    console.log('[SolanaParser] Parsing Solana transaction payload')
-    console.log(`[SolanaParser] Payload length: ${payload.length}`)
+    debug.protocol('[SolanaParser] Parsing Solana transaction payload')
+    debug.protocol('[SolanaParser] Payload length: %d', payload.length)
 
     const defaultSolPath = [0x8000002c, 0x800001f5, 0x80000000, 0x80000000]
 
@@ -336,8 +343,8 @@ export class SolanaSignRequestParser implements ISignRequestParser {
  */
 export class ExtraDataParser implements ISignRequestParser {
   parse(payload: Buffer, hasExtraPayloads: boolean, schema: number): SignRequest {
-    console.log('[ExtraDataParser] Parsing extra data payload')
-    console.log(`[ExtraDataParser] Payload length: ${payload.length}`)
+    debug.protocol('[ExtraDataParser] Parsing extra data payload')
+    debug.protocol('[ExtraDataParser] Payload length: %d', payload.length)
 
     return {
       path: [], // Will be determined from context
@@ -356,8 +363,8 @@ export class ExtraDataParser implements ISignRequestParser {
  */
 export class GenericSignRequestParser implements ISignRequestParser {
   parse(payload: Buffer, hasExtraPayloads: boolean, schema: number): SignRequest {
-    console.log('[GenericParser] Parsing generic/unknown payload')
-    console.log(`[GenericParser] Schema: ${schema}, Payload length: ${payload.length}`)
+    debug.protocol('[GenericParser] Parsing generic/unknown payload')
+    debug.protocol('[GenericParser] Schema: %d, Payload length: %d', schema, payload.length)
 
     let offset = 0
 
@@ -391,16 +398,49 @@ export class GenericSignRequestParser implements ISignRequestParser {
       offset += 2
     }
 
-    let message = payload.slice(offset)
-    if (messageLength !== null && messageLength <= message.length) {
-      message = message.slice(0, messageLength)
+    const rawChunk = payload.slice(offset)
+
+    // Prehashing detection: The SDK sends only the 32-byte hash when the payload is too large.
+    // We detect this by checking if:
+    // 1. hashType is not NONE (prehashing is possible)
+    // 2. messageLength is declared
+    // 3. The actual message is exactly 32 bytes (the hash size)
+    // 4. The declared messageLength is much larger than 32 (the original payload size)
+    let isPrehashed = false
+    if (
+      !hasExtraPayloads &&
+      hashType !== EXTERNAL.SIGNING.HASHES.NONE &&
+      messageLength !== null &&
+      messageLength > 32 &&
+      rawChunk.length >= 32
+    ) {
+      const remainder = rawChunk.slice(32)
+      const remainderHasData = remainder.some(byte => byte !== 0)
+      if (!remainderHasData) {
+        isPrehashed = true
+      }
+    }
+
+    const chunkCapacity = hasExtraPayloads
+      ? Math.min(GENERIC_SIGNING_BASE_CHUNK_SIZE, rawChunk.length)
+      : rawChunk.length
+    const desiredLength =
+      !isPrehashed && messageLength !== null
+        ? Math.min(messageLength, chunkCapacity)
+        : chunkCapacity
+    const message = isPrehashed ? rawChunk.slice(0, 32) : rawChunk.slice(0, desiredLength)
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.log('[GenericParser] Prehash detection:', {
+        hashType,
+        messageLength,
+        messageLen: rawChunk.length,
+        isPrehashed,
+        first64: rawChunk.toString('hex').slice(0, 64),
+      })
     }
 
     const inferredMessageLength = messageLength ?? message.length
-    const isPrehashed =
-      hashType !== EXTERNAL.SIGNING.HASHES.NONE &&
-      messageLength !== null &&
-      messageLength > message.length
 
     if (process.env.DEBUG_SIGNING === '1' && isPrehashed) {
       console.debug('[GenericParser] Detected prehashed payload', {
@@ -422,7 +462,8 @@ export class GenericSignRequestParser implements ISignRequestParser {
       isPrehashed,
     }
 
-    console.log('[GenericParser] Parsed sign request keys:', Object.keys(result))
+    debug.protocol('[GenericParser] Parsed sign request keys: %o', Object.keys(result))
+    debug.protocol('[GenericParser] Parsed curve value: %d (type: %s)', curve, typeof curve)
 
     return result
   }
@@ -458,7 +499,7 @@ export function createSignRequestParser(schema: number, payload: Buffer): ISignR
     }
 
     default:
-      console.log(`[SignRequestFactory] Unknown schema ${schema}, using generic parser`)
+      debug.protocol('[SignRequestFactory] Unknown schema %d, using generic parser', schema)
       return new GenericSignRequestParser()
   }
 }

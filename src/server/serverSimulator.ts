@@ -22,7 +22,7 @@ import {
 } from './serverDeviceEvents'
 import { requestWalletAddresses } from './serverRequestManager'
 import { wsManager } from './serverWebSocketManager'
-import { SignRequestSchema } from './signRequestParsers'
+import { SignRequestSchema, GENERIC_SIGNING_BASE_CHUNK_SIZE } from './signRequestParsers'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
 import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
@@ -936,7 +936,7 @@ export class ServerLatticeSimulator {
       return {
         encoding: request.encoding ?? EXTERNAL.SIGNING.ENCODINGS.EVM,
         hashType: request.hashType ?? defaultHashType,
-        curve: request.curve ?? EXTERNAL.SIGNING.CURVES.SECP256K1,
+        curve: request.curve ?? EXTERNAL.SIGNING.CURVES.SECP256K1, // Default to SECP256K1 if not set
         path,
         omitPubkey: request.omitPubkey ?? false,
         messageLength: meta.dataLength,
@@ -963,7 +963,7 @@ export class ServerLatticeSimulator {
       return {
         encoding: request.encoding ?? EXTERNAL.SIGNING.ENCODINGS.EVM,
         hashType: request.hashType ?? inferredHashType,
-        curve: request.curve ?? EXTERNAL.SIGNING.CURVES.SECP256K1,
+        curve: request.curve ?? EXTERNAL.SIGNING.CURVES.SECP256K1, // Default to SECP256K1 if not set
         path,
         omitPubkey: request.omitPubkey ?? false,
         messageLength,
@@ -1005,7 +1005,12 @@ export class ServerLatticeSimulator {
     offset += 2
 
     const baseChunk = payload.slice(offset)
-    const messageChunkLength = Math.min(messageLength, baseChunk.length)
+    const baseChunkCapacity = request.isPrehashed
+      ? Math.min(32, baseChunk.length)
+      : request.hasExtraPayloads
+        ? Math.min(GENERIC_SIGNING_BASE_CHUNK_SIZE, baseChunk.length)
+        : baseChunk.length
+    const messageChunkLength = Math.min(messageLength, baseChunkCapacity)
     const messageChunk = baseChunk.slice(0, messageChunkLength)
     const remainingChunk = baseChunk.slice(messageChunkLength)
 
@@ -1033,7 +1038,9 @@ export class ServerLatticeSimulator {
       const info = this.extractGenericRequestInfo(request)
 
       // Check if all data is already present in the first request
-      const isComplete = info.messageLength === info.messageChunk.length
+      const remainingHasData = info.remainingChunk && info.remainingChunk.some(byte => byte !== 0)
+      const isComplete =
+        info.messageLength === info.messageChunk.length || (info.isPrehashed && !remainingHasData)
 
       console.log('[Simulator] handleMultipartBaseRequest check:', {
         messageLength: info.messageLength,
@@ -1161,7 +1168,7 @@ export class ServerLatticeSimulator {
       remaining > 0 ? frame.slice(0, Math.min(frame.length, remaining)) : Buffer.alloc(0)
 
     if (process.env.DEBUG_SIGNING === '1') {
-      console.debug('[Simulator] Processing extra data frame', {
+      console.log('[Simulator] Processing extra data frame', {
         session: sessionKey,
         frameLength,
         messageChunkLength: messageChunk.length,
@@ -1184,16 +1191,19 @@ export class ServerLatticeSimulator {
       }
     }
 
-    if (request.hasExtraPayloads) {
+    const remainingBytes = Math.max(session.expectedLength - session.collectedLength, 0)
+
+    if (request.hasExtraPayloads && remainingBytes > 0) {
       const newNextCode = this.generateNextCode()
       session.nextCode = newNextCode
       this.multipartSignSessions.set(newNextCode.toString('hex'), session)
 
       if (process.env.DEBUG_SIGNING === '1') {
-        console.debug('[Simulator] Awaiting additional payload frames', {
+        console.log('[Simulator] Awaiting additional payload frames', {
           session: sessionKey,
           nextCode: newNextCode.toString('hex'),
           collectedLength: session.collectedLength,
+          remainingBytes,
           expectedLength: session.expectedLength,
         })
       }
@@ -1205,10 +1215,25 @@ export class ServerLatticeSimulator {
       })
     }
 
-    const message = Buffer.concat(session.messageChunks)
-    const effectiveLength = session.expectedLength
-      ? Math.min(session.expectedLength, message.length)
-      : message.length
+    if (request.hasExtraPayloads && remainingBytes === 0 && process.env.DEBUG_SIGNING === '1') {
+      console.log('[Simulator] Multipart session complete; ignoring stale hasExtraPayloads flag', {
+        session: sessionKey,
+        collectedLength: session.collectedLength,
+        expectedLength: session.expectedLength,
+        remainingBytes,
+      })
+    }
+
+    // For prehashed messages, only use the first chunk (the hash), not all chunks
+    const message =
+      session.isPrehashed && session.messageChunks.length > 0
+        ? session.messageChunks[0].slice(0, 32) // Use only the 32-byte hash
+        : Buffer.concat(session.messageChunks)
+    const effectiveLength = session.isPrehashed
+      ? 32 // Prehashed messages always use 32-byte hash
+      : session.expectedLength
+        ? Math.min(session.expectedLength, message.length)
+        : message.length
     const fullData = message.slice(0, effectiveLength)
 
     let signingPayload = fullData
@@ -1222,7 +1247,7 @@ export class ServerLatticeSimulator {
     }
 
     if (process.env.DEBUG_SIGNING === '1') {
-      console.debug('[Simulator] Finalizing multipart signing session', {
+      console.log('[Simulator] Finalizing multipart signing session', {
         session: sessionKey,
         collectedLength: session.collectedLength,
         expectedLength: session.expectedLength,
@@ -1248,10 +1273,26 @@ export class ServerLatticeSimulator {
 
     const response = await this.executeSigning(finalRequest)
 
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.log('[Simulator] executeSigning response for multipart session', {
+        hasData: !!response.data,
+        hasMetadata: !!response.data?.metadata,
+        metadataKeys: response.data?.metadata ? Object.keys(response.data.metadata) : 'none',
+        publicKey: response.data?.metadata?.publicKey,
+        publicKeyCompressed: response.data?.metadata?.publicKeyCompressed,
+        curve: response.data?.curve,
+        schema: response.data?.schema,
+        isPrehashed: session.isPrehashed,
+      })
+    }
+
     if (response.data) {
       response.data.schema = session.schema
       response.data.omitPubkey = session.omitPubkey
       response.data.path = session.path
+      response.data.curve = session.curve
+      response.data.encoding = session.encoding
+      response.data.hashType = session.hashType
     }
 
     return response
@@ -1260,6 +1301,7 @@ export class ServerLatticeSimulator {
   private async executeSigning(request: SignRequest): Promise<DeviceResponse<SignResponse>> {
     try {
       console.log('[Simulator] Using enhanced signing service for crypto signing')
+      console.log('[Simulator] executeSigning request.curve:', request.curve)
 
       const signingRequest = {
         path: request.path,

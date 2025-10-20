@@ -4,17 +4,30 @@ import { aes256_encrypt } from '@/shared/utils/crypto'
 import type { ServerLatticeSimulator } from '@/server/serverSimulator'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { LatticeResponseCode, LatticeSecureEncryptedRequestType } from '@/shared/types'
+import { requestKvRecords } from '@/server/serverRequestManager'
+
+// Mock the serverRequestManager module
+vi.mock('@/server/serverRequestManager', () => ({
+  requestKvRecords: vi.fn(),
+  requestAddKvRecords: vi.fn(),
+  requestRemoveKvRecords: vi.fn(),
+}))
 
 describe('Full Protocol Flow - Checksum Mismatch', () => {
   let protocolHandler: ProtocolHandler
   let mockSimulator: any
 
   beforeEach(() => {
+    // Make requestKvRecords throw so it falls back to simulator
+    vi.mocked(requestKvRecords).mockRejectedValue(new Error('Client request not available'))
+
     mockSimulator = {
       getKvRecords: vi.fn(),
       getWallets: vi.fn(),
       getSharedSecret: vi.fn(),
+      getEphemeralKeyPair: vi.fn(),
       updateEphemeralKeyPair: vi.fn(),
+      getDeviceId: vi.fn().mockReturnValue('test-device-id'),
       isConnected: true,
       isPaired: true,
     } as unknown as ServerLatticeSimulator
