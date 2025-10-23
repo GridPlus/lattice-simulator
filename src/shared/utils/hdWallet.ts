@@ -206,14 +206,14 @@ export function deriveBLS12381Key(
   }
 
   if (!Array.isArray(derivationPath) || derivationPath.length === 0) {
+    console.error('[deriveBLS12381Key] Invalid derivationPath', derivationPath)
     throw new Error('Derivation path is required for BLS12-381 derivation')
   }
 
-  const normalizedPath = derivationPath.map(index =>
-    index >= 0x80000000 ? index - 0x80000000 : index,
-  )
+  const pathString = formatDerivationPath(derivationPath)
+  console.log('[deriveBLS12381Key] Using path string', pathString)
 
-  const privateKey = deriveSeedTree(seed, normalizedPath)
+  const privateKey = deriveSeedTree(seed, pathString)
 
   return {
     privateKey: Buffer.from(privateKey),

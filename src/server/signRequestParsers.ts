@@ -23,6 +23,12 @@ const ETH_MSG_PROTOCOL = {
 export const GENERIC_SIGNING_BASE_CHUNK_SIZE = 1519
 
 /**
+ * Maximum number of message bytes that fit in the initial ETH_MSG frame.
+ * Mirrors `fwConstants.ethMaxMsgSz` on modern firmware (v0.14.0+).
+ */
+export const ETH_MESSAGE_BASE_CHUNK_SIZE = 1540
+
+/**
  * Schema constants mapping to different currencies/request types
  */
 export enum SignRequestSchema {
@@ -199,14 +205,27 @@ export class EthereumMessageParser implements ISignRequestParser {
       offset += 1
     }
 
-    const messageLength = payload.readUInt16LE(offset)
+    const declaredMessageLength = payload.readUInt16LE(offset)
     offset += 2
 
     const remaining = payload.slice(offset)
 
-    const expectedLength = messageLength || remaining.length
+    const expectedLength = declaredMessageLength || remaining.length
     const baseChunkLength = remaining.length
-    const chunkLength = Math.min(expectedLength, baseChunkLength)
+    let chunkLength = Math.min(expectedLength, baseChunkLength)
+    if (hasExtraPayloads) {
+      const baseLimit =
+        schema === SignRequestSchema.ETHEREUM_MESSAGE || schema === SignRequestSchema.EXTRA_DATA
+          ? ETH_MESSAGE_BASE_CHUNK_SIZE
+          : GENERIC_SIGNING_BASE_CHUNK_SIZE
+      chunkLength = Math.min(chunkLength, baseLimit)
+    }
+    console.log('[EthereumMessageParser] chunk sizing', {
+      expectedLength,
+      baseChunkLength,
+      chunkLength,
+      hasExtraPayloads,
+    })
     let messageChunk = remaining.slice(0, chunkLength)
 
     // Determine if this payload is prehashed (no extra frames but chunk shorter than original length)
@@ -214,6 +233,7 @@ export class EthereumMessageParser implements ISignRequestParser {
     if (!hasExtraPayloads && expectedLength > baseChunkLength) {
       isPrehashed = true
       messageChunk = remaining.slice(0, 32)
+      chunkLength = messageChunk.length
     }
 
     const encoding = EXTERNAL.SIGNING.ENCODINGS.EVM
@@ -223,34 +243,44 @@ export class EthereumMessageParser implements ISignRequestParser {
       hashType = EXTERNAL.SIGNING.HASHES.NONE
     }
 
+    // Extract decoder bytes (calldata decoder data) that come after the message
+    const rawDecoderBytes = isPrehashed ? Buffer.alloc(0) : remaining.slice(chunkLength)
+    const decoderBytes = rawDecoderBytes.length > 0 ? rawDecoderBytes : undefined
+
+    const dataBuffer = Buffer.from(messageChunk)
+    const reportedMessageLength = isPrehashed ? dataBuffer.length : declaredMessageLength
+
     const signRequest: SignRequest = {
       path: effectivePath,
       schema,
       curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
       encoding,
       hashType,
-      data: Buffer.from(messageChunk),
+      data: dataBuffer,
       rawPayload: payload,
       hasExtraPayloads,
-      messageLength,
+      messageLength: reportedMessageLength,
       displayHex: displayHexFlag === 1,
       protocol: protocolIdx === ETH_MSG_PROTOCOL.TYPED_DATA ? 'eip712' : 'signPersonal',
       isPrehashed,
+      decoderBytes,
     }
 
     console.log('[EthereumMessageParser] Parsed message request', {
       protocol: signRequest.protocol,
       path: effectivePath,
-      messageLength,
-      chunkLength: messageChunk.length,
+      declaredMessageLength,
+      messageLength: signRequest.messageLength,
+      chunkLength: dataBuffer.length,
       hasExtraPayloads,
       isPrehashed,
       displayHex: signRequest.displayHex,
-      sample: messageChunk.slice(0, Math.min(messageChunk.length, 32)).toString('hex'),
+      decoderBytesLength: decoderBytes?.length ?? 0,
+      sample: dataBuffer.slice(0, Math.min(dataBuffer.length, 32)).toString('hex'),
     })
 
-    if (isTypedData) {
-      signRequest.typedDataPayload = Buffer.from(messageChunk)
+    if (isTypedData && !isPrehashed) {
+      signRequest.typedDataPayload = Buffer.from(dataBuffer)
     }
 
     return signRequest

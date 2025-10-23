@@ -4,9 +4,6 @@
  */
 
 import { createHash } from 'crypto'
-import { appendFileSync } from 'fs'
-import { resolve } from 'path'
-import { SignTypedDataVersion, TypedDataUtils } from '@metamask/eth-sig-util'
 import {
   getPublicKey as blsGetPublicKey,
   sign as blsSign,
@@ -15,7 +12,7 @@ import {
 import * as ed25519 from '@noble/ed25519'
 import * as cbor from 'cbor'
 import { ec as EC } from 'elliptic'
-import { type Hex } from 'viem'
+import { hashTypedData, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { keccak256 } from 'viem/utils'
 import bdec from 'cbor-bigdecimal'
@@ -81,8 +78,6 @@ const toBuffer = (value: Buffer | Uint8Array | string): Buffer => {
   }
   return Buffer.from(value)
 }
-
-const DEBUG_LOG_PATH = resolve(__dirname, '../../signing-debug.log')
 
 /**
  * Signing request parameters
@@ -160,7 +155,6 @@ export class SigningService {
       }
       console.log('[SigningService] signData request', debugInfo)
       try {
-        appendFileSync(DEBUG_LOG_PATH, `[signData] ${JSON.stringify(debugInfo)}\n`)
       } catch {
         // ignore
       }
@@ -318,11 +312,6 @@ export class SigningService {
     // Use viem for Ethereum signing to match SDK behavior
 
     if (process.env.DEBUG_SIGNING === '1') {
-      const debugMessage = `[SigningService] Derived Ethereum signing material path=${derivationPath.join(
-        '/',
-      )} privateKey=${derivedPrivateKeyHex} address=${
-        wallet.address
-      } pubkey=${publicKeyUncompressed}\n`
       console.log('[SigningService] Derived Ethereum signing material', {
         path: derivationPath,
         privateKey: derivedPrivateKeyHex,
@@ -333,11 +322,6 @@ export class SigningService {
         messageLength: request.messageLength ?? request.data.length,
         payloadLength: request.data.length,
       })
-      try {
-        appendFileSync(DEBUG_LOG_PATH, debugMessage)
-      } catch {
-        // ignore write errors
-      }
     }
 
     console.log('[SigningService] Active Ethereum account:', {
@@ -352,6 +336,9 @@ export class SigningService {
 
       if (protocol === 'signPersonal') {
         const messageBuffer = Buffer.from(request.data)
+        if (messageBuffer.length === 0) {
+          throw new Error('Invalid Request: message payload cannot be empty')
+        }
         const messageHash = request.isPrehashed
           ? messageBuffer
           : this.isPrefixedPersonalMessage(messageBuffer)
@@ -402,9 +389,32 @@ export class SigningService {
 
       if (protocol === 'eip712') {
         const typedDataBuffer = Buffer.from(request.data)
-        const digest = request.isPrehashed
-          ? typedDataBuffer
-          : this.hashEip712Payload(typedDataBuffer)
+        let digest: Buffer
+
+        if (request.isPrehashed) {
+          if (typedDataBuffer.length < 32) {
+            throw new Error(
+              `Invalid prehashed EIP-712 payload: expected at least 32 bytes, received ${typedDataBuffer.length}`,
+            )
+          }
+          if (typedDataBuffer.length > 32) {
+            console.warn('[SigningService] Truncating prehashed EIP-712 payload to 32 bytes', {
+              originalLength: typedDataBuffer.length,
+            })
+          }
+          digest = Buffer.from(typedDataBuffer.subarray(0, 32))
+        } else {
+          digest = this.hashEip712Payload(typedDataBuffer)
+        }
+        console.log('[SigningService] EIP-712 branch', {
+          isPrehashed: request.isPrehashed ?? false,
+          payloadLength: typedDataBuffer.length,
+          digestLength: digest.length,
+          digest: digest.toString('hex'),
+        })
+        if (process.env.DEBUG_SIGNING === '1') {
+          console.log('[SigningService] EIP-712 digest:', digest.toString('hex'))
+        }
 
         const signature = this.secp256k1Sign(digest, privateKeyBuffer)
         const derSignature = this.formatDERSignature(signature.r, signature.s)
@@ -649,11 +659,6 @@ export class SigningService {
         publicKey: Buffer.from(publicKey).toString('hex'),
       }
       console.log('[SigningService] Ed25519 signing', debugInfo)
-      try {
-        appendFileSync(DEBUG_LOG_PATH, `[signEd25519] ${JSON.stringify(debugInfo)}\n`)
-      } catch {
-        // ignore
-      }
     }
 
     return {
@@ -951,92 +956,807 @@ export class SigningService {
     return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
   }
 
+  /**
+   * Checks if a message already contains the Ethereum personal message prefix
+   */
+  private isPrefixedPersonalMessage(message: Buffer): boolean {
+    const prefix = Buffer.from('\x19Ethereum Signed Message:\n')
+    if (message.length <= prefix.length) {
+      return false
+    }
+    return message.slice(0, prefix.length).equals(prefix)
+  }
+
+  /**
+   * Computes a keccak256 hash of a buffer and returns it as a Buffer
+   */
   private keccakBuffer(data: Buffer): Buffer {
     const hashHex = keccak256(data)
     return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
   }
 
-  private isPrefixedPersonalMessage(message: Buffer): boolean {
-    const prefix = Buffer.from('\x19Ethereum Signed Message:\n')
-    if (message.length <= prefix.length) return false
-    return message.slice(0, prefix.length).equals(prefix)
+  private convertMapsToObjects(value: any): any {
+    if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) {
+      return this.normalizeBinaryValue(value as Buffer | ArrayBufferView)
+    }
+
+    if (value instanceof Map) {
+      const obj: Record<string, any> = {}
+      for (const [key, entry] of Array.from(value.entries())) {
+        const normalizedKey =
+          typeof key === 'string'
+            ? key
+            : Buffer.isBuffer(key) || ArrayBuffer.isView(key)
+              ? this.normalizeBinaryValue(key as Buffer | ArrayBufferView)
+              : String(key)
+        obj[normalizedKey] = this.convertMapsToObjects(entry)
+      }
+      return obj
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(item => this.convertMapsToObjects(item))
+    }
+
+    if (value && typeof value === 'object') {
+      const obj: Record<string, any> = {}
+      for (const [key, entry] of Object.entries(value)) {
+        const normalizedKey =
+          typeof key === 'string'
+            ? key
+            : Buffer.isBuffer(key)
+              ? this.normalizeBinaryValue(key)
+              : String(key)
+        obj[normalizedKey] = this.convertMapsToObjects(entry)
+      }
+      return obj
+    }
+
+    return value
   }
 
-  private hashEip712Payload(payload: Buffer): Buffer {
-    const typedData = this.decodeEip712Payload(payload)
-    if (process.env.DEBUG_SIGNING === '1') {
-      console.log(
-        '[SigningService] Normalized EIP-712 data for hashing:',
-        JSON.stringify(typedData, null, 2),
+  private sanitizeTypedData(value: any): any {
+    if (!value || typeof value !== 'object') {
+      return value
+    }
+
+    if (value.types && typeof value.types === 'object') {
+      const sanitizedTypes: Record<string, any> = {}
+      for (const [typeName, entries] of Object.entries(value.types)) {
+        if (!Array.isArray(entries)) {
+          sanitizedTypes[typeName] = entries
+          continue
+        }
+
+        const sanitizedEntries = [] as Array<{ name: string; type: string; components?: any[] }>
+        for (const entry of entries) {
+          try {
+            const normalizedEntry = this.normalizeTypeEntry(entry)
+            if (normalizedEntry.name && normalizedEntry.type) {
+              sanitizedEntries.push(normalizedEntry)
+            }
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error)
+            console.warn('[SigningService] Skipping invalid EIP-712 type entry', {
+              typeName,
+              entry,
+              detail,
+            })
+          }
+        }
+
+        sanitizedTypes[typeName] = sanitizedEntries
+      }
+      value.types = sanitizedTypes
+
+      if (value.primaryType && typeof value.primaryType === 'string' && value.message) {
+        this.ensureStructTypeCoverage(value.primaryType, value.message, value.types)
+        this.coerceTypedValues(value.primaryType, value.message, value.types)
+      }
+
+      this.coerceTypedValues('EIP712Domain', value.domain, value.types)
+    }
+
+    return value
+  }
+
+  private normalizeTypeEntry(entry: any): { name: string; type: string; components?: any[] } {
+    if (!entry || typeof entry !== 'object') {
+      throw new Error(`Invalid EIP-712 type entry: ${JSON.stringify(entry)}`)
+    }
+
+    const normalized: { name: string; type: string; components?: any[] } = { name: '', type: '' }
+
+    const nameCandidate =
+      entry.name ??
+      entry.Name ??
+      (typeof entry.get === 'function' ? entry.get('name') : undefined) ??
+      entry[0] ??
+      entry['0']
+
+    const typeCandidate =
+      entry.type ??
+      entry.Type ??
+      (typeof entry.get === 'function' ? entry.get('type') : undefined) ??
+      entry[1] ??
+      entry['1']
+
+    const normalizedName = this.normalizeUnknownValueToString(nameCandidate)
+
+    const normalizedType =
+      this.normalizeUnknownValueToString(typeCandidate) ??
+      this.normalizeUnknownValueToString(
+        Object.entries(entry)
+          .filter(([key]) => key !== 'name' && key !== 'Name' && key !== 'components')
+          .map(([, value]) => value)[0],
+      )
+
+    if (!normalizedName || !normalizedType) {
+      const debugEntry = JSON.stringify(entry, (_key, entryValue) => {
+        if (Buffer.isBuffer(entryValue)) {
+          return `0x${entryValue.toString('hex')}`
+        }
+        if (ArrayBuffer.isView(entryValue)) {
+          const view = entryValue as ArrayBufferView
+          return `0x${Buffer.from(view.buffer, view.byteOffset, view.byteLength).toString('hex')}`
+        }
+        return entryValue
+      })
+      throw new Error(`Failed to normalize EIP-712 type entry: ${debugEntry}`)
+    }
+
+    const namePattern = /^[A-Za-z0-9_][A-Za-z0-9_]*$/
+    const typePattern = /^[A-Za-z][A-Za-z0-9_\[\]]*$/
+
+    if (!namePattern.test(normalizedName) || !typePattern.test(normalizedType)) {
+      throw new Error(`Invalid EIP-712 identifier: name=${normalizedName} type=${normalizedType}`)
+    }
+
+    normalized.name = normalizedName
+    normalized.type = normalizedType
+
+    if (entry.components && Array.isArray(entry.components)) {
+      normalized.components = entry.components.map((component: any) =>
+        this.normalizeTypeEntry(component),
       )
     }
-    const hash = TypedDataUtils.eip712Hash(typedData, SignTypedDataVersion.V4)
-    if (process.env.DEBUG_SIGNING === '1') {
-      console.log('[SigningService] Calculated EIP-712 hash:', Buffer.from(hash).toString('hex'))
-    }
-    return Buffer.from(hash)
+
+    return normalized
   }
 
-  private decodeEip712Payload(payload: Buffer): any {
-    try {
-      const decoded = cbor.decodeFirstSync(payload)
-      // Normalize the decoded data to match TypedDataUtils expectations
-      return this.normalizeEip712Data(decoded)
-    } catch (error) {
-      console.error('[SigningService] Failed to decode EIP-712 payload', error)
-      throw new Error('Failed to decode EIP-712 payload')
-    }
-  }
-
-  /**
-   * Normalizes CBOR-decoded EIP-712 data to match TypedDataUtils expectations.
-   * Converts BigNumber objects to numbers/strings that TypedDataUtils can hash correctly.
-   */
-  private normalizeEip712Data(obj: any): any {
-    if (typeof obj === 'bigint') {
-      const num = Number(obj)
-      return Number.isSafeInteger(num) ? num : obj.toString(10)
+  private ensureStructTypeCoverage(
+    typeName: string,
+    data: any,
+    types: Record<string, Array<{ name: string; type: string; components?: any[] }>>,
+  ): void {
+    if (!types?.[typeName] || !Array.isArray(types[typeName]) || !data) {
+      return
     }
 
-    if (obj && typeof obj === 'object' && obj.constructor && obj.constructor.name === 'BigNumber') {
-      const num = Number(obj.toString(10))
-      if (Number.isSafeInteger(num)) {
-        return num
+    const entries = types[typeName]
+    const existing = new Map(entries.map(entry => [entry.name, entry.type]))
+
+    if (Array.isArray(data)) {
+      const sample = data.find(item => item !== null && item !== undefined)
+      if (sample && typeof sample === 'object' && !Array.isArray(sample)) {
+        this.ensureStructTypeCoverage(typeName, sample, types)
       }
-      return obj.toString(10)
+      return
     }
 
-    if (Buffer.isBuffer(obj)) {
-      return `0x${obj.toString('hex')}`
+    if (typeof data !== 'object') {
+      return
     }
 
-    if (obj instanceof Uint8Array) {
-      return `0x${Buffer.from(obj).toString('hex')}`
+    for (const [key, fieldValue] of Object.entries(data)) {
+      const isObjectLike =
+        fieldValue !== null &&
+        typeof fieldValue === 'object' &&
+        !Buffer.isBuffer(fieldValue) &&
+        !ArrayBuffer.isView(fieldValue)
+
+      if (!existing.has(key) && typeName !== 'EIP712Domain' && isObjectLike) {
+        const inferred = this.inferEip712Type(fieldValue, key, typeName, types)
+        entries.push({ name: key, type: inferred })
+        existing.set(key, inferred)
+      }
+
+      const resolvedType = existing.get(key)
+      if (!resolvedType) {
+        continue
+      }
+
+      if (resolvedType === 'bool') {
+        if (typeof fieldValue !== 'boolean') {
+          data[key] =
+            fieldValue === true || fieldValue === 'true' || fieldValue === '1' || fieldValue === 1
+        }
+        continue
+      }
+
+      if (Array.isArray(fieldValue)) {
+        const elementType = resolvedType.endsWith('[]') ? resolvedType.slice(0, -2) : null
+        const sample = fieldValue.find(item => item !== null && item !== undefined)
+        if (elementType && sample && typeof sample === 'object' && !Array.isArray(sample)) {
+          this.ensureStructTypeCoverage(elementType, sample, types)
+        }
+        continue
+      }
+
+      if (fieldValue && typeof fieldValue === 'object' && !this.isPrimitiveType(resolvedType)) {
+        this.ensureStructTypeCoverage(resolvedType, fieldValue, types)
+      }
+    }
+  }
+
+  private inferEip712Type(
+    value: any,
+    fieldName: string,
+    parentType: string,
+    types?: Record<string, Array<{ name: string; type: string; components?: any[] }>>,
+  ): string {
+    if (value === null || value === undefined) {
+      return 'string'
     }
 
-    if (Array.isArray(obj)) {
-      return obj.map(item => this.normalizeEip712Data(item))
+    if (Array.isArray(value)) {
+      const sample = value.find(item => item !== null && item !== undefined)
+      const elementType = sample
+        ? this.inferEip712Type(sample, `${fieldName || 'item'}Item`, parentType, types)
+        : 'string'
+      return elementType.endsWith('[]') ? elementType : `${elementType}[]`
     }
 
-    if (obj && typeof obj === 'object') {
-      const normalized: Record<string, any> = {}
-      for (const [key, value] of Object.entries(obj)) {
-        normalized[key] = this.normalizeEip712Data(value)
+    if (typeof value === 'boolean') {
+      return 'bool'
+    }
+
+    if (typeof value === 'bigint') {
+      const valueString = value.toString()
+      return valueString.startsWith('-') ? 'int256' : 'uint256'
+    }
+
+    if (typeof value === 'number') {
+      if (!Number.isFinite(value)) {
+        return 'string'
+      }
+      if (Number.isInteger(value)) {
+        return value >= 0 ? 'uint256' : 'int256'
+      }
+      return 'string'
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (/^0x[0-9a-fA-F]{40}$/.test(trimmed)) {
+        return 'address'
+      }
+      if (/^0x[0-9a-fA-F]*$/.test(trimmed)) {
+        const byteLength = Math.ceil((trimmed.length - 2) / 2)
+        if (byteLength === 20) {
+          return 'address'
+        }
+        if (byteLength === 32) {
+          return 'bytes32'
+        }
+        if (byteLength > 0 && byteLength <= 32 && Number.isInteger(byteLength)) {
+          return `bytes${byteLength}`
+        }
+        return 'bytes'
+      }
+      if (/^-?\d+$/.test(trimmed)) {
+        return trimmed.startsWith('-') ? 'int256' : 'uint256'
+      }
+      return 'string'
+    }
+
+    if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) {
+      const length = Buffer.isBuffer(value) ? value.length : (value as ArrayBufferView).byteLength
+      if (length === 20) {
+        return 'address'
+      }
+      if (length === 32) {
+        return 'bytes32'
+      }
+      if (length > 0 && length <= 32) {
+        return `bytes${length}`
+      }
+      return 'bytes'
+    }
+
+    if (value && typeof value === 'object' && types) {
+      let structName = this.generateInferredStructName(parentType, fieldName, types)
+
+      if (types[structName] && !(types[structName] as any).__inferred) {
+        let counter = 1
+        let candidate = `${structName}${counter}`
+        while (types[candidate] && !(types[candidate] as any).__inferred) {
+          counter++
+          candidate = `${structName}${counter}`
+        }
+        structName = candidate
+      }
+
+      if (!types[structName]) {
+        const newType: Array<{ name: string; type: string; components?: any[] }> & {
+          __inferred?: boolean
+        } = []
+        Object.defineProperty(newType, '__inferred', {
+          value: true,
+          enumerable: false,
+        })
+        types[structName] = newType
+      }
+
+      this.ensureStructTypeCoverage(structName, value, types)
+      return structName
+    }
+
+    return 'string'
+  }
+
+  private generateInferredStructName(
+    parentType: string,
+    fieldName: string,
+    types: Record<string, Array<{ name: string; type: string; components?: any[] }>>,
+  ): string {
+    const parentSegment = this.formatIdentifierSegment(parentType) || 'Inferred'
+    const fieldSegment = this.formatIdentifierSegment(fieldName) || 'Field'
+    const baseName = `Inferred${parentSegment}${fieldSegment}`
+
+    if (!types[baseName] || (types[baseName] as any).__inferred) {
+      return baseName
+    }
+
+    let counter = 1
+    let candidate = `${baseName}${counter}`
+    while (types[candidate] && !(types[candidate] as any).__inferred) {
+      counter++
+      candidate = `${baseName}${counter}`
+    }
+    return candidate
+  }
+
+  private formatIdentifierSegment(value: string): string {
+    if (!value) {
+      return ''
+    }
+    const sanitized = value.replace(/[^A-Za-z0-9]+/g, ' ').trim()
+    if (!sanitized.length) {
+      return ''
+    }
+    return sanitized
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(segment => segment.charAt(0).toUpperCase() + segment.slice(1))
+      .join('')
+  }
+
+  private coerceTypedValues(
+    typeName: string,
+    data: any,
+    types: Record<string, Array<{ name: string; type: string; components?: any[] }>>,
+  ): void {
+    if (!data || typeof data !== 'object') {
+      return
+    }
+
+    const entries = types?.[typeName]
+    if (!entries) {
+      return
+    }
+
+    for (const entry of entries) {
+      const { name, type } = entry
+      if (!(name in data)) {
+        continue
+      }
+
+      const value = data[name]
+
+      if (type.endsWith('[]')) {
+        if (!Array.isArray(value)) {
+          continue
+        }
+        const elementType = type.slice(0, -2)
+        if (this.isPrimitiveType(elementType)) {
+          data[name] = value.map(item => this.coerceScalarValue(elementType, item))
+        } else {
+          data[name] = value.map(item => {
+            if (item && typeof item === 'object') {
+              this.coerceTypedValues(elementType, item, types)
+            }
+            return item
+          })
+        }
+        continue
+      }
+
+      if (this.isPrimitiveType(type)) {
+        data[name] = this.coerceScalarValue(type, value)
+      } else if (value && typeof value === 'object') {
+        this.coerceTypedValues(type, value, types)
+      }
+    }
+  }
+
+  private isPrimitiveType(type: string): boolean {
+    const base = type.toLowerCase().replace(/\[\]$/, '')
+    return (
+      base === 'address' ||
+      base === 'bool' ||
+      base === 'string' ||
+      base === 'bytes' ||
+      base.startsWith('bytes') ||
+      base.startsWith('uint') ||
+      base.startsWith('int')
+    )
+  }
+
+  private coerceScalarValue(type: string, value: any): any {
+    const baseType = type.toLowerCase()
+
+    if (baseType === 'bool') {
+      if (typeof value === 'boolean') return value
+      if (typeof value === 'number') return value !== 0
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase()
+        if (normalized === 'true') return true
+        if (normalized === 'false') return false
+        if (normalized === '1') return true
+        if (normalized === '0') return false
+      }
+      return Boolean(value)
+    }
+
+    if (baseType === 'string') {
+      if (value === undefined || value === null) return ''
+      const str = typeof value === 'string' ? value : String(value)
+      return str.replace(/\u0000+/g, '')
+    }
+
+    if (baseType === 'address') {
+      return this.normalizeAddress(value)
+    }
+
+    if (baseType === 'bytes') {
+      return this.ensureHexString(value)
+    }
+
+    if (baseType.startsWith('bytes')) {
+      const targetLength = parseInt(baseType.slice(5), 10)
+      if (Number.isFinite(targetLength) && targetLength > 0) {
+        const hex = this.ensureHexString(value)
+        const raw = hex.slice(2)
+        const padded = raw.padStart(targetLength * 2, '0')
+        return `0x${padded.slice(-targetLength * 2)}`
+      }
+      return this.ensureHexString(value)
+    }
+
+    if (baseType.startsWith('uint') || baseType.startsWith('int')) {
+      const bitsRaw = parseInt(baseType.replace(/^[a-z]+/i, ''), 10)
+      const bitWidth = Number.isInteger(bitsRaw) && bitsRaw > 0 ? bitsRaw : 256
+      if (process.env.DEBUG_SIGNING === '1') {
+        console.log('[SigningService] coerceScalarValue bits', {
+          type: baseType,
+          parsedBits: bitsRaw,
+          bitWidth,
+        })
+      }
+      const modulus = BigInt(1) << BigInt(bitWidth)
+      const halfModulus = modulus >> BigInt(1)
+
+      const toBigInt = (input: any): bigint => {
+        if (typeof input === 'bigint') return input
+        if (typeof input === 'number') {
+          if (!Number.isFinite(input)) {
+            return BigInt(0)
+          }
+          return BigInt(Math.trunc(input))
+        }
+        if (typeof input === 'boolean') return input ? BigInt(1) : BigInt(0)
+        if (typeof input === 'string') {
+          const trimmed = input.trim()
+          if (!trimmed.length) return BigInt(0)
+          try {
+            if (/^-?0x/i.test(trimmed)) {
+              return BigInt(trimmed)
+            }
+            return BigInt(trimmed)
+          } catch {
+            return BigInt(0)
+          }
+        }
+        if (ArrayBuffer.isView(input) || Buffer.isBuffer(input)) {
+          const hex = Buffer.isBuffer(input)
+            ? input.toString('hex')
+            : Buffer.from(input.buffer, input.byteOffset, input.byteLength).toString('hex')
+          if (!hex.length) {
+            return BigInt(0)
+          }
+          return BigInt(`0x${hex}`)
+        }
+        return BigInt(0)
+      }
+
+      const normalizeUnsigned = (input: bigint): bigint => {
+        if (modulus === BigInt(0)) {
+          return BigInt(0)
+        }
+        const wrapped = ((input % modulus) + modulus) % modulus
+        return wrapped
+      }
+
+      const normalizeSigned = (input: bigint): bigint => {
+        if (modulus === BigInt(0)) {
+          return BigInt(0)
+        }
+        let wrapped = ((input % modulus) + modulus) % modulus
+        if (wrapped >= halfModulus) {
+          wrapped -= modulus
+        }
+        return wrapped
+      }
+
+      const bigintValue = toBigInt(value)
+      if (baseType.startsWith('uint')) {
+        const normalized = normalizeUnsigned(bigintValue)
+        if (process.env.DEBUG_SIGNING === '1') {
+          console.log('[SigningService] coerceScalarValue uint', {
+            type: baseType,
+            originalDecimal: bigintValue.toString(),
+            normalizedDecimal: normalized.toString(),
+            originalHex: this.formatBigIntForLogging(bigintValue),
+            normalizedHex: this.formatBigIntForLogging(normalized),
+          })
+        }
+        return normalized
+      }
+      const normalized = normalizeSigned(bigintValue)
+      if (process.env.DEBUG_SIGNING === '1') {
+        console.log('[SigningService] coerceScalarValue int', {
+          type: baseType,
+          originalDecimal: bigintValue.toString(),
+          normalizedDecimal: normalized.toString(),
+          originalHex: this.formatBigIntForLogging(bigintValue),
+          normalizedHex: this.formatBigIntForLogging(normalized),
+        })
       }
       return normalized
     }
 
-    return obj
+    if (ArrayBuffer.isView(value) || Buffer.isBuffer(value)) {
+      return this.ensureHexString(value)
+    }
+
+    return value
   }
 
-  private isBigNumberLike(value: unknown): value is { toString(radix?: number): string } {
-    return (
-      !!value &&
-      typeof value === 'object' &&
-      typeof (value as any).toString === 'function' &&
-      ((value as any).constructor?.name === 'BigNumber' ||
-        (value as any).constructor?.name === 'BN')
+  private ensureHexString(value: any): string {
+    if (typeof value === 'string') {
+      if (/^0x[0-9a-fA-F]*$/.test(value)) {
+        const hex = value.slice(2)
+        const normalized = hex.length % 2 === 0 ? hex : `0${hex}`
+        return `0x${normalized.toLowerCase()}`
+      }
+      return `0x${Buffer.from(value, 'utf8').toString('hex')}`
+    }
+
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      let hex = BigInt(value).toString(16)
+      if (hex.length % 2) hex = `0${hex}`
+      return `0x${hex}`
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? '0x01' : '0x00'
+    }
+
+    if (Buffer.isBuffer(value)) {
+      return `0x${value.toString('hex')}`
+    }
+
+    if (ArrayBuffer.isView(value)) {
+      return `0x${Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString('hex')}`
+    }
+
+    if (value && typeof value === 'object' && 'toString' in value) {
+      return this.ensureHexString(value.toString())
+    }
+
+    return '0x'
+  }
+
+  private normalizeAddress(value: any): string {
+    const hex = this.ensureHexString(value)
+    const raw = hex.slice(2).padStart(40, '0').slice(-40)
+    return `0x${raw.toLowerCase()}`
+  }
+
+  private normalizeUnknownValueToString(value: any): string | null {
+    if (value === undefined || value === null) {
+      return null
+    }
+
+    if (typeof value === 'string') {
+      return value
+    }
+
+    if (typeof value === 'number' || typeof value === 'bigint') {
+      return value.toString()
+    }
+
+    if (Buffer.isBuffer(value) || ArrayBuffer.isView(value)) {
+      return this.normalizeBinaryValue(value as Buffer | ArrayBufferView)
+    }
+
+    if (typeof value === 'object' && typeof value.toString === 'function') {
+      const stringValue = value.toString()
+      if (typeof stringValue === 'string' && stringValue !== '[object Object]') {
+        return stringValue
+      }
+    }
+
+    return null
+  }
+
+  private normalizeBinaryValue(value: Buffer | ArrayBufferView): string {
+    const buffer = Buffer.isBuffer(value)
+      ? value
+      : Buffer.from(value.buffer, value.byteOffset, value.byteLength)
+    if (buffer.length === 0) {
+      return '0x'
+    }
+
+    const looksUtf16le =
+      buffer.length % 2 === 0 &&
+      buffer.length > 0 &&
+      buffer.every((byte, index) => (index % 2 === 1 ? byte === 0 : true))
+
+    if (looksUtf16le) {
+      const asciiBytes = Buffer.alloc(buffer.length / 2)
+      for (let i = 0; i < buffer.length; i += 2) {
+        asciiBytes[i / 2] = buffer[i]
+      }
+      const asciiCandidate = asciiBytes.toString('utf8')
+      if (this.isPrintableAscii(asciiCandidate)) {
+        return asciiCandidate.replace(/\u0000+/g, '')
+      }
+    }
+
+    const ascii = buffer.toString('utf8')
+    if (this.isPrintableAscii(ascii)) {
+      return ascii.replace(/\u0000+/g, '')
+    }
+
+    return `0x${buffer.toString('hex')}`
+  }
+
+  private isPrintableAscii(value: string): boolean {
+    if (!value.length) {
+      return false
+    }
+
+    for (let index = 0; index < value.length; index++) {
+      const code = value.charCodeAt(index)
+      const isPrintable =
+        (code >= 0x20 && code <= 0x7e) || code === 0x0a || code === 0x0d || code === 0x09
+      if (!isPrintable) {
+        return false
+      }
+    }
+
+    return true
+  }
+
+  /**
+   * Formats bigint values as hex strings for logging, preserving sign.
+   */
+  private formatBigIntForLogging(value: bigint): string {
+    if (value === BigInt(0)) {
+      return '0x0'
+    }
+    const hex = (value < BigInt(0) ? -value : value).toString(16)
+    return value < BigInt(0) ? `-0x${hex}` : `0x${hex}`
+  }
+
+  private hashEip712Payload(payload: Buffer): Buffer {
+    const decodedTypedData = this.removeNullTerminators(
+      this.sanitizeTypedData(this.convertMapsToObjects(this.decodeEip712Payload(payload))),
     )
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      const replacer = (_key: string, value: any) =>
+        typeof value === 'bigint' ? this.formatBigIntForLogging(value) : value
+      console.log(
+        '[SigningService] Decoded EIP-712 data for hashing:',
+        JSON.stringify(decodedTypedData, replacer, 2),
+      )
+    }
+
+    if (
+      !decodedTypedData.domain ||
+      !decodedTypedData.types ||
+      !decodedTypedData.primaryType ||
+      !decodedTypedData.message
+    ) {
+      throw new Error(
+        `Invalid EIP-712 structure: missing required fields. Domain: ${!!decodedTypedData.domain}, Types: ${!!decodedTypedData.types}, PrimaryType: ${!!decodedTypedData.primaryType}, Message: ${!!decodedTypedData.message}`,
+      )
+    }
+
+    const hash = hashTypedData({
+      domain: decodedTypedData.domain,
+      types: decodedTypedData.types,
+      primaryType: decodedTypedData.primaryType,
+      message: decodedTypedData.message,
+    })
+
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.log('[SigningService] Calculated EIP-712 hash:', hash)
+    }
+
+    return Buffer.from(hash.slice(2), 'hex')
+  }
+
+  private decodeEip712Payload(payload: Buffer): any {
+    try {
+      let decoded: any
+      try {
+        decoded = cbor.decodeFirstSync(payload)
+      } catch (error) {
+        try {
+          const [first] = cbor.decodeAllSync(payload)
+          if (first !== undefined) {
+            decoded = first
+          }
+        } catch {
+          // ignore and continue to next fallback
+        }
+
+        if (!decoded) {
+          let end = payload.length
+          while (end > 0 && payload[end - 1] === 0) {
+            end--
+          }
+          if (end > 0 && end !== payload.length) {
+            try {
+              decoded = cbor.decodeFirstSync(payload.slice(0, end))
+            } catch {
+              // ignore
+            }
+          }
+        }
+
+        if (!decoded) {
+          throw error
+        }
+      }
+      return decoded
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      console.error('[SigningService] Failed to decode EIP-712 payload', detail)
+      throw new Error(`Failed to decode EIP-712 payload: ${detail}`)
+    }
+  }
+
+  private removeNullTerminators(value: any): any {
+    if (typeof value === 'string') {
+      return value.replace(/\u0000+/g, '')
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(item => this.removeNullTerminators(item))
+    }
+
+    if (value && typeof value === 'object') {
+      for (const [key, entry] of Object.entries(value)) {
+        value[key] = this.removeNullTerminators(entry)
+      }
+    }
+
+    return value
   }
 
   /**

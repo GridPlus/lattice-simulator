@@ -138,13 +138,10 @@ export async function POST(request: NextRequest, { params }: { params: { deviceI
           const errorPayload = Buffer.from([response.code])
           const latticeResponse = buildLattice1Response(errorPayload, parsedMessage.messageId)
 
-          return NextResponse.json(
-            {
-              status: 400,
-              message: latticeResponse,
-            },
-            { status: 400 },
-          )
+          return NextResponse.json({
+            status: 200,
+            message: latticeResponse,
+          })
         }
 
         // Use the response data from the protocol handler
@@ -196,13 +193,10 @@ export async function POST(request: NextRequest, { params }: { params: { deviceI
           const errorPayload = Buffer.from([response.code])
           const latticeResponse = buildLattice1Response(errorPayload, parsedMessage.messageId)
 
-          return NextResponse.json(
-            {
-              status: 400,
-              message: latticeResponse,
-            },
-            { status: 400 },
-          )
+          return NextResponse.json({
+            status: 200,
+            message: latticeResponse,
+          })
         }
 
         // For secure requests, build the Lattice1 protocol response

@@ -1,42 +1,60 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SigningService } from '@/services/signingService'
+import { SIGNING_SCHEMA, EXTERNAL } from '@/shared/constants'
+import type { EthereumWalletAccount, WalletAccount } from '@/shared/types/wallet'
 
-class BigNumberLike {
-  private readonly value: bigint
-
-  constructor(value: bigint) {
-    this.value = value
+const buildWalletAccounts = (): Map<string, WalletAccount> => {
+  const derivationPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
+  const account: EthereumWalletAccount = {
+    id: 'eth-internal-test',
+    accountIndex: 0,
+    derivationPath,
+    derivationPathString: "m/44'/60'/0'/0/0",
+    type: 'internal',
+    coinType: 'ETH',
+    isActive: true,
+    name: 'Test ETH Account',
+    createdAt: Date.now(),
+    address: '0x0000000000000000000000000000000000000000',
+    publicKey: '',
+    privateKey: undefined,
   }
-
-  toString(base?: number): string {
-    return this.value.toString(base ?? 10)
-  }
+  return new Map([[account.id, account]])
 }
-
-Object.defineProperty(BigNumberLike, 'name', { value: 'BigNumber' })
 
 describe('SigningService EIP-712 hashing', () => {
   const service = new SigningService()
 
-  it('normalizes values that mimic bignumber.js instances', () => {
-    const payload = {
-      types: {
-        EIP712Domain: [],
-        Example: [{ name: 'value', type: 'uint256' }],
-      },
-      primaryType: 'Example',
-      domain: {},
-      message: {
-        value: new BigNumberLike(BigInt('12345678901234567890')),
-      },
+  it('signs prehashed EIP-712 digests without attempting CBOR decoding', async () => {
+    const digest = Buffer.alloc(32, 0x11)
+    const digestWithPadding = Buffer.concat([digest, Buffer.alloc(12, 0x22)])
+
+    const signSpy = vi.spyOn(service as any, 'secp256k1Sign')
+
+    try {
+      const walletAccounts = buildWalletAccounts()
+      const response = await service.signData(
+        {
+          path: [0x8000002c, 0x8000003c, 0x80000000, 0, 0],
+          data: digestWithPadding,
+          curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
+          encoding: EXTERNAL.SIGNING.ENCODINGS.EVM,
+          hashType: EXTERNAL.SIGNING.HASHES.NONE,
+          schema: SIGNING_SCHEMA.ETH_MSG,
+          protocol: 'eip712',
+          isPrehashed: true,
+        },
+        walletAccounts,
+      )
+
+      expect(response.signature.length).toBeGreaterThan(0)
+      expect(signSpy).toHaveBeenCalled()
+      const [hashArg] = signSpy.mock.calls[0]
+      expect(Buffer.isBuffer(hashArg)).toBe(true)
+      expect((hashArg as Buffer).length).toBe(32)
+      expect((hashArg as Buffer).equals(digest)).toBe(true)
+    } finally {
+      signSpy.mockRestore()
     }
-
-    const normalized = (
-      service as unknown as {
-        normalizeEip712Data(data: any): any
-      }
-    ).normalizeEip712Data(payload)
-
-    expect(normalized.message.value).toBe('12345678901234567890')
   })
 })

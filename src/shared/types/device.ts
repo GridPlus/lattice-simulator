@@ -248,6 +248,7 @@ export interface SignRequest {
   displayHex?: boolean
   isPrehashed?: boolean
   typedDataPayload?: Buffer
+  decoderBytes?: Buffer
 }
 
 export interface SignResponse {

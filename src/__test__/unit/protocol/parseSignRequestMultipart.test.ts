@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { SignRequestSchema } from '@/server/signRequestParsers'
 import { EXTERNAL } from '@/shared/constants'
-import type { ServerLatticeSimulator } from '@/server/serverSimulator'
 import type { SignRequest } from '@/shared/types'
+import type { ServerLatticeSimulator } from '@/server/serverSimulator'
 
 describe('ProtocolHandler parseSignRequest - multipart detection', () => {
   let handler: ProtocolHandler
@@ -80,5 +80,62 @@ describe('ProtocolHandler parseSignRequest - multipart detection', () => {
     expect(parsed.hasExtraPayloads).toBe(true)
     expect(parsed.messageLength).toBe(declaredLength)
     expect(parsed.data.length).toBe(chunkLength)
+  })
+
+  it('should detect prehashed typed data payloads with no decoder bytes', () => {
+    const hasExtraPayloadsFlag = 0
+    const schema = SignRequestSchema.ETHEREUM_MESSAGE
+    const walletUid = Buffer.alloc(32, 0x22)
+
+    const signerPath = [0x8000002c, 0x8000003c, 0x80000000, 0, 0]
+    const declaredLength = 96
+    const digest = Buffer.alloc(32, 0x11)
+    const decoderPadding = Buffer.from([0xaa, 0xbb, 0xcc])
+
+    const basePayload = Buffer.alloc(
+      1 + // protocol index
+        4 + // path length
+        5 * 4 + // path entries
+        2 + // message length
+        digest.length +
+        decoderPadding.length,
+    )
+
+    let offset = 0
+    basePayload.writeUInt8(1, offset) // ETH_MSG_PROTOCOL.TYPED_DATA
+    offset += 1
+    basePayload.writeUInt32LE(signerPath.length, offset)
+    offset += 4
+    for (let i = 0; i < 5; i++) {
+      basePayload.writeUInt32LE(signerPath[i] ?? 0, offset)
+      offset += 4
+    }
+    basePayload.writeUInt16LE(declaredLength, offset)
+    offset += 2
+    digest.copy(basePayload, offset)
+    offset += digest.length
+    decoderPadding.copy(basePayload, offset)
+
+    const envelope = Buffer.alloc(2 + walletUid.length + basePayload.length)
+    offset = 0
+    envelope.writeUInt8(hasExtraPayloadsFlag, offset)
+    offset += 1
+    envelope.writeUInt8(schema, offset)
+    offset += 1
+    walletUid.copy(envelope, offset)
+    offset += walletUid.length
+    basePayload.copy(envelope, offset)
+
+    const parsed = (
+      handler as unknown as { parseSignRequest: (data: Buffer) => SignRequest }
+    ).parseSignRequest(envelope)
+
+    expect(parsed.protocol).toBe('eip712')
+    expect(parsed.isPrehashed).toBe(true)
+    expect(parsed.data.length).toBe(32)
+    expect(parsed.data.equals(digest)).toBe(true)
+    expect(parsed.decoderBytes).toBeUndefined()
+    expect(parsed.messageLength).toBe(32)
+    expect(parsed.hashType).toBe(EXTERNAL.SIGNING.HASHES.NONE)
   })
 })
