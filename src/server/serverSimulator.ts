@@ -3,8 +3,7 @@
  */
 
 import { randomBytes, createHash, createCipheriv, pbkdf2Sync } from 'crypto'
-import { writeFileSync } from 'fs'
-import { resolve as resolvePath } from 'path'
+import { Hash } from 'ox'
 import { getPublicKey as blsGetPublicKey } from '@noble/bls12-381'
 import { HDKey } from '@scure/bip32'
 import { mnemonicToSeedSync } from '@scure/bip39'
@@ -121,6 +120,7 @@ interface MultipartSignSession {
   ethMeta?: DecodedEthereumTxPayload
   protocol?: 'signPersonal' | 'eip712'
   isPrehashed?: boolean
+  messagePrehash?: Buffer
 }
 
 /**
@@ -1004,26 +1004,76 @@ export class ServerLatticeSimulator {
     const omitPubkeyFlag = payload.readUInt8(offset)
     offset += 1
 
-    if (payload.length < offset + 2) {
-      throw new Error('Malformed signing request payload')
+    const lengthFieldOffset = offset
+    const lengthFieldBytes =
+      payload.length >= lengthFieldOffset + 2
+        ? payload.slice(lengthFieldOffset, lengthFieldOffset + 2)
+        : null
+
+    let declaredMessageLength =
+      request.messageLength !== undefined ? request.messageLength : undefined
+    if (payload.length >= offset + 2) {
+      declaredMessageLength = payload.readUInt16LE(offset)
+      offset += 2
     }
 
-    const messageLength = payload.readUInt16LE(offset)
-    offset += 2
-
     const baseChunk = payload.slice(offset)
-    const baseChunkCapacity = request.isPrehashed
-      ? Math.min(32, baseChunk.length)
-      : request.hasExtraPayloads
-        ? Math.min(GENERIC_SIGNING_BASE_CHUNK_SIZE, baseChunk.length)
-        : baseChunk.length
-    const messageChunkLength = Math.min(messageLength, baseChunkCapacity)
-    const messageChunk = baseChunk.slice(0, messageChunkLength)
+    const baseChunkCapacity = request.hasExtraPayloads
+      ? Math.min(GENERIC_SIGNING_BASE_CHUNK_SIZE, baseChunk.length)
+      : baseChunk.length
+
+    const requestChunk =
+      request.data && request.data.length > 0 ? Buffer.from(request.data) : null
+    const candidateChunk =
+      requestChunk && requestChunk.length <= baseChunkCapacity
+        ? requestChunk
+        : baseChunk.slice(0, baseChunkCapacity)
+
+    const remainder =
+      candidateChunk.length > 32 ? candidateChunk.slice(32) : Buffer.alloc(0)
+    const remainderHasData = remainder.some(byte => byte !== 0)
+
+    const overlapsLengthField =
+      !!lengthFieldBytes &&
+      candidateChunk.length >= lengthFieldBytes.length &&
+      candidateChunk.slice(0, lengthFieldBytes.length).equals(lengthFieldBytes)
+
+    let isPrehashed =
+      request.isPrehashed ??
+      (hashType !== EXTERNAL.SIGNING.HASHES.NONE &&
+        candidateChunk.length >= 32 &&
+        !remainderHasData &&
+        overlapsLengthField)
+
+    if (isPrehashed && candidateChunk.length < 32) {
+      isPrehashed = false
+    }
+
+    const messageChunkLength = isPrehashed
+      ? Math.min(candidateChunk.length, 32)
+      : Math.min(
+          declaredMessageLength ?? candidateChunk.length,
+          candidateChunk.length,
+        )
+    const messageChunk = candidateChunk.slice(0, messageChunkLength)
     const remainingChunk = baseChunk.slice(messageChunkLength)
 
-    const isPrehashed =
-      request.isPrehashed ??
-      (hashType !== EXTERNAL.SIGNING.HASHES.NONE && messageLength > messageChunk.length)
+    if (process.env.DEBUG_SIGNING === '1') {
+      console.log('[Simulator] Generic base chunk debug', {
+        baseChunkLength: baseChunk.length,
+        baseChunkStart: baseChunk.slice(0, 32).toString('hex'),
+        candidateLength: candidateChunk.length,
+        candidateStart: candidateChunk.slice(0, 32).toString('hex'),
+        requestDataLength: request.data ? request.data.length : null,
+        messageChunkLength,
+        remainingChunkLength: remainingChunk.length,
+        remainingChunkStart: remainingChunk.slice(0, 32).toString('hex'),
+      })
+    }
+
+    const messageLength = isPrehashed
+      ? messageChunkLength
+      : declaredMessageLength ?? messageChunk.length
 
     return {
       encoding,
@@ -1035,6 +1085,18 @@ export class ServerLatticeSimulator {
       messageChunk,
       remainingChunk,
       isPrehashed,
+      messagePrehash: isPrehashed ? Buffer.from(messageChunk) : undefined,
+      detectionMeta:
+        process.env.DEBUG_SIGNING === '1'
+          ? {
+              overlapsLengthField,
+              remainderHasData,
+              candidateChunkLength: candidateChunk.length,
+              candidatePreview: candidateChunk.slice(0, 8).toString('hex'),
+              lengthFieldBytes: lengthFieldBytes ? lengthFieldBytes.toString('hex') : null,
+              postDigestSample: candidateChunk.slice(32, 48).toString('hex'),
+            }
+          : undefined,
     }
   }
 
@@ -1044,21 +1106,26 @@ export class ServerLatticeSimulator {
     try {
       const info = this.extractGenericRequestInfo(request)
 
+      if (process.env.DEBUG_SIGNING === '1') {
+        console.log('[Simulator] Generic request info snapshot', {
+          hasExtraPayloads: request.hasExtraPayloads ?? false,
+          rawDataLength: request.data ? request.data.length : null,
+          parsedMessageLength: info.messageLength,
+          messageChunkLength: info.messageChunk.length,
+          remainingChunkLength: info.remainingChunk.length,
+          isPrehashed: info.isPrehashed ?? false,
+          hasMessagePrehash: !!info.messagePrehash,
+          schema: request.schema,
+          hashType: request.hashType,
+          detection: info.detectionMeta ?? undefined,
+        })
+      }
+
       // Check if all data is already present in the first request
       const remainingHasData = info.remainingChunk && info.remainingChunk.some(byte => byte !== 0)
       const isComplete =
         (!request.hasExtraPayloads && info.messageLength === info.messageChunk.length) ||
         (info.isPrehashed && !remainingHasData)
-
-      console.log('[Simulator] handleMultipartBaseRequest check:', {
-        messageLength: info.messageLength,
-        chunkLength: info.messageChunk.length,
-        isComplete,
-        schema: request.schema,
-        protocol: request.protocol ?? info.protocol,
-        isPrehashed: request.isPrehashed ?? info.isPrehashed,
-        hasExtraPayloads: request.hasExtraPayloads,
-      })
 
       if (isComplete) {
         // Data is complete, sign immediately instead of creating multipart session
@@ -1076,6 +1143,12 @@ export class ServerLatticeSimulator {
           }
         }
 
+        const prehashDigest = info.messagePrehash
+          ? Buffer.from(info.messagePrehash.slice(0, 32))
+          : info.isPrehashed
+            ? Buffer.from(info.messageChunk.slice(0, 32))
+            : undefined
+
         const finalRequest: SignRequest = {
           data: signingPayload,
           path: (request.path && request.path.length > 0 ? request.path : info.path) as WalletPath,
@@ -1087,6 +1160,7 @@ export class ServerLatticeSimulator {
           protocol: request.protocol ?? info.protocol,
           isPrehashed: request.isPrehashed ?? info.isPrehashed,
           messageLength: info.messageLength,
+          messagePrehash: prehashDigest,
         }
 
         return await this.executeSigning(finalRequest)
@@ -1105,7 +1179,10 @@ export class ServerLatticeSimulator {
         const availableOverflow = Math.max(info.messageLength - collectedLength, 0)
         const overflowLength = Math.max(0, Math.min(availableOverflow, info.remainingChunk.length))
 
-        if (overflowLength > 0) {
+        if (
+          overflowLength > 0 &&
+          info.remainingChunk.slice(0, overflowLength).some(byte => byte !== 0)
+        ) {
           const overflowSegment = Buffer.from(info.remainingChunk.slice(0, overflowLength))
           messageSegments.push({
             offset: collectedLength,
@@ -1131,6 +1208,11 @@ export class ServerLatticeSimulator {
         ethMeta: info.ethMeta,
         protocol: request.protocol ?? info.protocol,
         isPrehashed: request.isPrehashed ?? info.isPrehashed,
+        messagePrehash: info.messagePrehash
+          ? Buffer.from(info.messagePrehash.slice(0, 32))
+          : info.isPrehashed
+            ? Buffer.from(info.messageChunk.slice(0, 32))
+            : undefined,
       }
 
       if (process.env.DEBUG_SIGNING === '1') {
@@ -1286,25 +1368,6 @@ export class ServerLatticeSimulator {
       fullData = Buffer.concat(orderedChunks)
     }
 
-    if (process.env.DEBUG_SIGNING === '1') {
-      try {
-        const dumpPath = resolvePath(process.cwd(), `session-${sessionKey}.bin`)
-        writeFileSync(dumpPath, fullData)
-        console.log('[Simulator] dumped multipart payload', dumpPath)
-        console.log('[Simulator] multipart payload hex', fullData.toString('hex'))
-        console.log(
-          '[Simulator] message chunk lengths',
-          session.messageChunks.map(chunk => chunk.data.length),
-        )
-        console.log(
-          '[Simulator] decoder chunk lengths',
-          session.decoderChunks.map(chunk => chunk.length),
-        )
-      } catch {
-        // ignore file write errors during debugging
-      }
-    }
-
     let signingPayload = fullData
     let hashType = session.hashType
 
@@ -1327,6 +1390,10 @@ export class ServerLatticeSimulator {
       })
     }
 
+    const messagePrehash = session.isPrehashed
+      ? session.messagePrehash ?? Buffer.from(fullData.slice(0, 32))
+      : undefined
+
     const finalRequest: SignRequest = {
       data: signingPayload,
       path: session.path,
@@ -1338,6 +1405,7 @@ export class ServerLatticeSimulator {
       protocol: session.protocol,
       isPrehashed: session.isPrehashed,
       messageLength: session.expectedLength,
+      messagePrehash,
     }
 
     const response = await this.executeSigning(finalRequest)
@@ -1372,25 +1440,32 @@ export class ServerLatticeSimulator {
       console.log('[Simulator] Using enhanced signing service for crypto signing')
       console.log('[Simulator] executeSigning request.curve:', request.curve)
 
-      const sanitizedData =
-        request.schema === SignRequestSchema.ETHEREUM_MESSAGE && request.isPrehashed
-          ? Buffer.from(request.data.slice(0, 32))
-          : Buffer.from(request.data)
+    const sanitizedData =
+      request.schema === SignRequestSchema.ETHEREUM_MESSAGE && request.isPrehashed
+        ? Buffer.from(request.data.slice(0, 32))
+        : Buffer.from(request.data)
+    let responsePrehash =
+      request.messagePrehash && request.messagePrehash.length >= 32
+        ? Buffer.from(request.messagePrehash.slice(0, 32))
+        : request.isPrehashed && sanitizedData.length >= 32
+          ? Buffer.from(sanitizedData.slice(0, 32))
+          : undefined
 
-      const signingRequest = {
-        path: request.path,
-        data: sanitizedData,
-        curve: request.curve,
-        encoding: request.encoding,
-        hashType: request.hashType,
-        schema: request.schema,
-        isTransaction: request.schema !== SignRequestSchema.ETHEREUM_MESSAGE,
-        omitPubkey: request.omitPubkey,
-        rawPayload: request.rawPayload,
-        protocol: request.protocol,
-        messageLength: request.messageLength,
-        isPrehashed: request.isPrehashed,
-      }
+    const signingRequest = {
+      path: request.path,
+      data: sanitizedData,
+      curve: request.curve,
+      encoding: request.encoding,
+      hashType: request.hashType,
+      schema: request.schema,
+      isTransaction: request.schema !== SignRequestSchema.ETHEREUM_MESSAGE,
+      omitPubkey: request.omitPubkey,
+      rawPayload: request.rawPayload,
+      protocol: request.protocol,
+      messageLength: request.messageLength,
+      isPrehashed: request.isPrehashed,
+      messagePrehash: request.messagePrehash,
+    }
 
       if (!signingService.validateSigningRequest(signingRequest)) {
         return createDeviceResponse<SignResponse>(
@@ -1416,10 +1491,22 @@ export class ServerLatticeSimulator {
         metadata: signatureResult.metadata,
       })
 
+      if (!responsePrehash) {
+        if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
+          responsePrehash = Buffer.from(createHash('sha256').update(sanitizedData).digest())
+        } else if (request.hashType === EXTERNAL.SIGNING.HASHES.KECCAK256) {
+          responsePrehash = Buffer.from(Hash.keccak256(sanitizedData))
+        }
+      }
+
       const response: SignResponse = {
         signature: signatureResult.signature,
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
+        messagePrehash:
+          responsePrehash && responsePrehash.length >= 32
+            ? Buffer.from(responsePrehash.slice(0, 32))
+            : undefined,
         schema: request.schema,
         omitPubkey: request.omitPubkey,
         curve: request.curve,

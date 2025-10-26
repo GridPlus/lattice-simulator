@@ -247,6 +247,7 @@ export interface SignRequest {
   messageLength?: number
   displayHex?: boolean
   isPrehashed?: boolean
+  messagePrehash?: Buffer
   typedDataPayload?: Buffer
   decoderBytes?: Buffer
 }
@@ -270,4 +271,5 @@ export interface SignResponse {
   encoding?: number
   hashType?: number
   path?: WalletPath
+  messagePrehash?: Buffer
 }

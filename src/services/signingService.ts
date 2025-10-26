@@ -15,6 +15,7 @@ import { ec as EC } from 'elliptic'
 import { hashTypedData, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { keccak256 } from 'viem/utils'
+import { Hash } from 'ox'
 import bdec from 'cbor-bigdecimal'
 import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '../shared/constants'
 import { detectCoinTypeFromPath } from '../shared/utils'
@@ -298,12 +299,9 @@ export class SigningService {
     wallet.privateKey = derivedPrivateKeyHex
 
     const privateKeyBuffer = Buffer.from((wallet.privateKey as string).slice(2), 'hex')
-    const publicKeyUncompressed = this.secp256k1
-      .keyFromPrivate(privateKeyBuffer)
-      .getPublic(false, 'hex')
-    const publicKeyCompressed = this.secp256k1
-      .keyFromPrivate(privateKeyBuffer)
-      .getPublic(true, 'hex')
+    const keyPair = this.secp256k1.keyFromPrivate(privateKeyBuffer)
+    const publicKeyUncompressed = keyPair.getPublic(false, 'hex')
+    const publicKeyCompressed = keyPair.getPublic(true, 'hex')
 
     wallet.publicKey = publicKeyUncompressed
 
@@ -502,8 +500,8 @@ export class SigningService {
           console.log('[SigningService] Using prehashed transaction data directly')
         } else {
           // Normal transaction - hash it
-          const txHashHex = keccak256(txData)
-          signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+          const txHashBuf = Buffer.from(Hash.keccak256(txData))
+          signingDigest = txHashBuf
           signablePayload = txData
         }
       } else {
@@ -522,15 +520,18 @@ export class SigningService {
           signingDigest = Buffer.from(request.data).slice(0, 32)
         } else {
           // Use the appropriate hash function based on hashType
-          let txHashHex: string
+          let txHashBuf: Buffer | null = null
           if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
             const hash = createHash('sha256').update(request.data).digest()
-            txHashHex = `0x${hash.toString('hex')}`
+            txHashBuf = Buffer.from(hash)
           } else {
             // Default to keccak256 for KECCAK256 and other hash types
-            txHashHex = keccak256(request.data)
+            const dataBuffer = Buffer.isBuffer(request.data)
+              ? request.data
+              : Buffer.from(request.data)
+            txHashBuf = Buffer.from(Hash.keccak256(dataBuffer))
           }
-          signingDigest = Buffer.from(txHashHex.replace(/^0x/, ''), 'hex')
+          signingDigest = txHashBuf ?? Buffer.alloc(0)
         }
       }
 
@@ -952,8 +953,7 @@ export class SigningService {
    */
   private hashMessage(message: Buffer): Buffer {
     const prefix = Buffer.from('\x19Ethereum Signed Message:\n' + message.length.toString())
-    const hashHex = keccak256(Buffer.concat([prefix, message]))
-    return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
+    return Buffer.from(Hash.keccak256(Buffer.concat([prefix, message])))
   }
 
   /**
@@ -971,8 +971,7 @@ export class SigningService {
    * Computes a keccak256 hash of a buffer and returns it as a Buffer
    */
   private keccakBuffer(data: Buffer): Buffer {
-    const hashHex = keccak256(data)
-    return Buffer.from(hashHex.replace(/^0x/, ''), 'hex')
+    return Buffer.from(Hash.keccak256(data))
   }
 
   private convertMapsToObjects(value: any): any {

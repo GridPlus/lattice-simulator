@@ -924,7 +924,6 @@ export class ProtocolHandler {
     const pathDepth_IterIdx = data.readUInt8(offset)
     offset += 1
 
-    const iterIdx = (pathDepth_IterIdx >> 4) & 0x0f
     const pathLength = pathDepth_IterIdx & 0x0f
 
     // Parse startPath (20 bytes = 5 × 4-byte values)
@@ -943,10 +942,6 @@ export class ProtocolHandler {
     const countVal_flagVal = data.readUInt8(offset)
     const n = countVal_flagVal & 0x0f
     const flag = (countVal_flagVal >> 4) & 0x0f
-
-    console.log(
-      `[ProtocolHandler] Parsed getAddresses: pathLength=${pathLength}, iterIdx=${iterIdx}, startPath=[${startPath.join(',')}], n=${n}, flag=${flag}`,
-    )
 
     return { startPath, n, flag }
   }
@@ -977,8 +972,6 @@ export class ProtocolHandler {
 
     // Use the factory-based parser for structured parsing
     const parsedRequest = parseSignRequestPayload(reqPayload, hasExtraPayloads > 0, schema)
-
-    console.log('[ProtocolHandler] Parsed curve from parser:', parsedRequest.curve)
 
     // Derive whether additional payload frames are required even if the flag is unset.
     const declaredLength =
@@ -1501,7 +1494,12 @@ export class ProtocolHandler {
       isBls,
       dataKeys: Object.keys(data),
       requestKeys: Object.keys(request),
+      messagePrehash: data.messagePrehash ? data.messagePrehash.toString('hex') : 'undefined',
     })
+
+    const messagePrehashSection = data.messagePrehash
+      ? Buffer.from(data.messagePrehash).slice(0, 32)
+      : null
 
     if (isBls) {
       const pubkeySection = includePubkey ? this.getBlsPubkeyBuffer(data) : Buffer.alloc(48)
@@ -1512,7 +1510,9 @@ export class ProtocolHandler {
         signatureLength: signatureSection.length,
       })
 
-      return Buffer.concat([pubkeySection, signatureSection])
+      return messagePrehashSection
+        ? Buffer.concat([pubkeySection, signatureSection, messagePrehashSection])
+        : Buffer.concat([pubkeySection, signatureSection])
     }
 
     // For Ed25519, pubkey is 32 bytes; for secp256k1, it's 65 bytes
@@ -1537,9 +1537,15 @@ export class ProtocolHandler {
       pubkeyLength: pubkeySection.length,
       finalLength: signatureSection.length,
       finalPrefix: signatureSection.slice(0, 5).toString('hex'),
+      pubkeyFirstByte: pubkeySection[0],
+      pubkeyPrefix: pubkeySection.slice(0, 4).toString('hex'),
     })
 
-    return Buffer.concat([pubkeySection, signatureSection])
+    const responseBuffer = messagePrehashSection
+      ? Buffer.concat([pubkeySection, signatureSection, messagePrehashSection])
+      : Buffer.concat([pubkeySection, signatureSection])
+
+    return responseBuffer
   }
 
   private buildEmptyPubkeySection(): Buffer {
