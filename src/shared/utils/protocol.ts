@@ -249,7 +249,11 @@ export function detectCoinTypeFromPath(path: WalletPath): WalletCoinType | 'UNKN
 
   // Check against known coin types (hardened values)
   if (coinType === 0x80000000 + 60) return 'ETH' // ETH
-  if (coinType === 0x80000000 + 0) return 'BTC' // BTC
+  if (
+    coinType === 0x80000000 + 0 || // BTC mainnet
+    coinType === 0x80000000 + 1 // BTC testnet/signet/regtest
+  )
+    return 'BTC'
   if (coinType === 0x80000000 + 501) return 'SOL' // SOL
 
   return 'UNKNOWN'
