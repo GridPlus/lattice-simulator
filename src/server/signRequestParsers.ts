@@ -8,6 +8,7 @@
 
 import { EXTERNAL } from '../shared/constants'
 import { buildEthereumSigningPreimage, decodeEthereumTxPayload } from './utils/ethereumTx'
+import { parseBitcoinSignPayload } from '../shared/bitcoin'
 import { debug } from '../shared/debug'
 import type { SignRequest } from '../shared/types'
 
@@ -62,47 +63,35 @@ export class BitcoinSignRequestParser implements ISignRequestParser {
     debug.protocol('[BitcoinParser] Parsing Bitcoin transaction payload')
     debug.protocol('[BitcoinParser] Payload length: %d', payload.length)
 
-    let path: number[] = []
+    let parsedPayload
 
     try {
-      // Bitcoin payload structure: [changePathLength(4)] + [changePath...] + [numPrevOuts(4)] + [prevOuts...]
-      if (payload.length < 4) {
-        throw new Error('Payload too short for Bitcoin transaction')
-      }
-
-      // Extract change path from payload
-      const changePathLength = payload.readUInt32LE(0)
-      debug.protocol('[BitcoinParser] Change path length: %d', changePathLength)
-
-      if (
-        changePathLength > 0 &&
-        changePathLength <= 10 &&
-        payload.length >= 4 + changePathLength * 4
-      ) {
-        // Read the change path elements
-        for (let i = 0; i < changePathLength; i++) {
-          const pathElement = payload.readUInt32LE(4 + i * 4)
-          path.push(pathElement)
-        }
-        debug.protocol('[BitcoinParser] Extracted change path: [%s]', path.join(', '))
-      }
+      parsedPayload = parseBitcoinSignPayload(payload)
     } catch (error) {
-      console.error('[BitcoinParser] Error extracting path from Bitcoin payload:', error)
+      console.error('[BitcoinParser] Failed to parse Bitcoin payload:', error)
     }
 
-    // If we couldn't extract a valid path, use default Bitcoin path
-    if (path.length < 3) {
-      path = [0x8000002c, 0x80000000, 0x80000000] // m/44'/0'/0' - default Bitcoin path
-      debug.protocol('[BitcoinParser] Using default Bitcoin path: [%s]', path.join(', '))
+    let path: number[] = []
+    if (parsedPayload?.inputs?.length) {
+      path = [...parsedPayload.inputs[0].signerPath]
+      debug.protocol('[BitcoinParser] Using first input signer path: [%s]', path.join(', '))
+    } else if (parsedPayload?.change?.path?.length) {
+      path = [...parsedPayload.change.path]
+      debug.protocol('[BitcoinParser] Using change path: [%s]', path.join(', '))
+    } else {
+      path = [0x8000002c, 0x80000000, 0x80000000]
+      debug.protocol('[BitcoinParser] Falling back to default Bitcoin path: [%s]', path.join(', '))
     }
 
     return {
       path,
       schema,
-      curve: 0, // Bitcoin uses secp256k1
-      encoding: 0, // Standard encoding
-      hashType: 0, // Standard hash type
+      curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
+      encoding: EXTERNAL.SIGNING.ENCODINGS.NONE,
+      hashType: EXTERNAL.SIGNING.HASHES.NONE,
       data: payload,
+      rawPayload: payload,
+      bitcoin: parsedPayload,
     }
   }
 }

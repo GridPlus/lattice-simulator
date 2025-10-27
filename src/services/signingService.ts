@@ -10,13 +10,21 @@ import {
   utils as blsUtils,
 } from '@noble/bls12-381'
 import * as ed25519 from '@noble/ed25519'
+import * as bitcoin from 'bitcoinjs-lib'
 import * as cbor from 'cbor'
 import { ec as EC } from 'elliptic'
+import { Hash } from 'ox'
+import * as ecc from 'tiny-secp256k1'
 import { hashTypedData, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { keccak256 } from 'viem/utils'
-import { Hash } from 'ox'
 import bdec from 'cbor-bigdecimal'
+import { BITCOIN_NETWORKS } from './bitcoinWallet'
+import {
+  BITCOIN_VERSION_MAP,
+  encodeChangePubkeyHash,
+  parseBitcoinSignPayload,
+  type ParsedBitcoinSignPayload,
+} from '../shared/bitcoin'
 import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '../shared/constants'
 import { detectCoinTypeFromPath } from '../shared/utils'
 import {
@@ -26,6 +34,7 @@ import {
   formatDerivationPath,
 } from '../shared/utils/hdWallet'
 import { getWalletConfig } from '../shared/walletConfig'
+import type { SignResponse } from '../shared/types/device'
 import type {
   WalletAccount,
   EthereumWalletAccount,
@@ -44,18 +53,27 @@ if (!ed25519.hashes.sha512) {
 
 bdec(cbor)
 
+let bitcoinLibInitialized = false
+
+const ensureBitcoinLib = () => {
+  if (!bitcoinLibInitialized) {
+    bitcoin.initEccLib(ecc as any)
+    bitcoinLibInitialized = true
+  }
+}
+
 /**
  * Signature result with metadata
  */
 export interface SignatureResult {
   /** The signature bytes */
-  signature: Buffer
+  signature?: Buffer
   /** Recovery ID for ECDSA signatures (Ethereum) */
   recovery?: number
   /** Full recovery identifier (includes parity & compression bits) */
   recoveryId?: number
   /** Signature format */
-  format: 'der' | 'raw' | 'compact'
+  format: 'der' | 'raw' | 'compact' | 'btc'
   /** Additional signature data */
   metadata?: {
     /** Ethereum address that signed (for ETH) */
@@ -67,6 +85,8 @@ export interface SignatureResult {
     /** Compressed public key representation */
     publicKeyCompressed?: string
   }
+  /** Bitcoin-specific signing data */
+  bitcoin?: SignResponse['bitcoin']
 }
 
 const isBuffer = (data: Buffer | Uint8Array | string): data is Buffer => Buffer.isBuffer(data)
@@ -106,6 +126,8 @@ export interface SigningRequest {
   messageLength?: number
   /** Indicates the payload was prehashed by the client */
   isPrehashed?: boolean
+  /** Parsed Bitcoin transaction data */
+  bitcoin?: ParsedBitcoinSignPayload
 }
 
 /**
@@ -602,38 +624,189 @@ export class SigningService {
 
   /**
    * Signs data using Bitcoin wallet (secp256k1)
+   *
+   * TODO: This is a simplified implementation that needs to be enhanced to:
+   * 1. Parse the Bitcoin transaction payload to extract inputs, outputs, fees
+   * 2. Compute correct sighashes for each input based on type (legacy/p2wpkh/p2sh-p2wpkh)
+   * 3. Sign each input with the correct derived key from the input's signer path
+   * 4. Return multiple signatures (one per input)
+   *
+   * Current limitation: Only signs with a single key, doesn't compute proper Bitcoin sighashes
    */
   private async signBitcoin(
     request: SigningRequest,
     wallet: BitcoinWalletAccount,
   ): Promise<SignatureResult> {
-    if (!wallet.privateKey) {
-      throw new Error('Bitcoin wallet has no private key for signing')
+    ensureBitcoinLib()
+
+    const rawPayload = request.rawPayload ?? request.data
+    let parsed: ParsedBitcoinSignPayload | undefined = request.bitcoin
+
+    if (!parsed) {
+      parsed = parseBitcoinSignPayload(rawPayload)
     }
 
-    // For Bitcoin, typically sign the hash of the transaction
-    const hash = createHash('sha256').update(request.data).digest()
-    const doubleHash = createHash('sha256').update(hash).digest()
-
-    // Convert WIF private key to hex if needed
-    let privateKeyHex = wallet.privateKey
-    if (
-      privateKeyHex.startsWith('L') ||
-      privateKeyHex.startsWith('K') ||
-      privateKeyHex.startsWith('5')
-    ) {
-      // This is WIF format, would need proper decoding
-      // For now, assume it's already hex
-      privateKeyHex = wallet.privateKey
+    if (!parsed || parsed.inputs.length === 0) {
+      throw new Error('Unable to parse Bitcoin transaction inputs from payload')
     }
 
-    const signature = this.secp256k1Sign(doubleHash, Buffer.from(privateKeyHex, 'hex'))
+    const config = await getWalletConfig()
+    const networkKey = parsed.network
+    const network = BITCOIN_NETWORKS[networkKey]
+
+    const toSafeNumber = (value: bigint) => {
+      if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
+        throw new Error('Bitcoin value exceeds safe JavaScript integer range')
+      }
+      return Number(value)
+    }
+
+    const tx = new bitcoin.Transaction()
+    tx.version = 2
+
+    const derivedKeyCache = new Map<
+      string,
+      { privateKey: Buffer; publicKeyCompressed: Buffer; publicKeyUncompressed: Buffer }
+    >()
+
+    const deriveKeyForPath = (path: number[]) => {
+      const cacheKey = path.join('/')
+      if (!derivedKeyCache.has(cacheKey)) {
+        const derived = deriveHDKey(config.seed, path)
+        if (!derived.privateKey || !derived.publicKey) {
+          throw new Error(`Failed to derive Bitcoin key for path ${formatDerivationPath(path)}`)
+        }
+        const privateKey = Buffer.from(derived.privateKey)
+        const keyPair = this.secp256k1.keyFromPrivate(privateKey)
+        const publicKeyCompressed = Buffer.from(keyPair.getPublic(true, 'hex'), 'hex')
+        const publicKeyUncompressed = Buffer.from(keyPair.getPublic(false, 'hex'), 'hex')
+        derivedKeyCache.set(cacheKey, { privateKey, publicKeyCompressed, publicKeyUncompressed })
+      }
+      return derivedKeyCache.get(cacheKey)!
+    }
+
+    // Prepare transaction inputs (reverse hash for little-endian serialization)
+    parsed.inputs.forEach(input => {
+      const txHashLE = Buffer.from(input.txHash).reverse()
+      tx.addInput(txHashLE, input.index)
+    })
+
+    // Build recipient output
+    const recipientVersionInfo = BITCOIN_VERSION_MAP[parsed.recipient.version]
+    if (!recipientVersionInfo) {
+      throw new Error(
+        `Unsupported Bitcoin recipient version byte 0x${parsed.recipient.version.toString(16)}`,
+      )
+    }
+
+    const recipientNetwork = BITCOIN_NETWORKS[recipientVersionInfo.network]
+    let recipientPayment: bitcoin.Payment | undefined
+
+    if (recipientVersionInfo.type === 'p2pkh') {
+      recipientPayment = bitcoin.payments.p2pkh({
+        hash: parsed.recipient.pubkeyHash,
+        network: recipientNetwork,
+      })
+    } else if (recipientVersionInfo.type === 'p2sh-p2wpkh') {
+      recipientPayment = bitcoin.payments.p2sh({
+        hash: parsed.recipient.pubkeyHash,
+        network: recipientNetwork,
+      })
+    } else {
+      recipientPayment = bitcoin.payments.p2wpkh({
+        hash: parsed.recipient.pubkeyHash,
+        network: recipientNetwork,
+      })
+    }
+
+    if (!recipientPayment.output) {
+      throw new Error('Failed to construct recipient output script for Bitcoin transaction')
+    }
+
+    tx.addOutput(recipientPayment.output, toSafeNumber(parsed.recipient.value))
+
+    // Optionally add change output
+    let changePubkeyHash: Buffer | undefined
+    if (parsed.change.value > BigInt(0)) {
+      if (!parsed.change.path || parsed.change.path.length === 0) {
+        throw new Error('Missing change path for Bitcoin transaction with change output')
+      }
+      const changeKey = deriveKeyForPath(parsed.change.path)
+
+      let changePayment: bitcoin.Payment | undefined
+      if (parsed.change.addressType === 'p2pkh') {
+        changePayment = bitcoin.payments.p2pkh({
+          pubkey: changeKey.publicKeyCompressed,
+          network,
+        })
+      } else if (parsed.change.addressType === 'p2sh-p2wpkh') {
+        const p2wpkh = bitcoin.payments.p2wpkh({
+          pubkey: changeKey.publicKeyCompressed,
+          network,
+        })
+        changePayment = bitcoin.payments.p2sh({
+          redeem: p2wpkh,
+          network,
+        })
+      } else {
+        changePayment = bitcoin.payments.p2wpkh({
+          pubkey: changeKey.publicKeyCompressed,
+          network,
+        })
+      }
+
+      if (!changePayment?.output) {
+        throw new Error('Failed to construct change output script for Bitcoin transaction')
+      }
+
+      tx.addOutput(changePayment.output, toSafeNumber(parsed.change.value))
+      changePubkeyHash = changePayment.hash
+    }
+
+    const bitcoinSignatures: NonNullable<SignResponse['bitcoin']>['signatures'] = []
+    const sighashType = bitcoin.Transaction.SIGHASH_ALL
+
+    parsed.inputs.forEach((input, index) => {
+      const keyMaterial = deriveKeyForPath(input.signerPath)
+      const scriptForSignature = bitcoin.payments.p2pkh({
+        pubkey: keyMaterial.publicKeyCompressed,
+        network,
+      }).output
+
+      if (!scriptForSignature) {
+        throw new Error('Failed to construct script for Bitcoin input signature')
+      }
+
+      let digest: Buffer
+      if (input.scriptType === 'p2pkh') {
+        digest = tx.hashForSignature(index, scriptForSignature, sighashType)
+      } else {
+        digest = tx.hashForWitnessV0(index, scriptForSignature, Number(input.value), sighashType)
+      }
+
+      const signatureParts = this.secp256k1Sign(digest, keyMaterial.privateKey)
+      const derSignature = this.formatDERSignature(signatureParts.r, signatureParts.s)
+
+      bitcoinSignatures.push({
+        inputIndex: index,
+        signature: derSignature,
+        publicKey: keyMaterial.publicKeyCompressed,
+        sighashType,
+        signerPath: [...input.signerPath],
+      })
+    })
+
+    if (!wallet.publicKey && bitcoinSignatures.length > 0) {
+      wallet.publicKey = bitcoinSignatures[0].publicKey.toString('hex')
+    }
 
     return {
-      signature: this.formatDERSignature(signature.r, signature.s),
-      format: 'der',
-      metadata: {
-        publicKey: wallet.publicKey,
+      format: 'btc',
+      bitcoin: {
+        changePubkeyHash: encodeChangePubkeyHash(changePubkeyHash),
+        changeAddressType: parsed.change.addressType,
+        network: parsed.network,
+        signatures: bitcoinSignatures,
       },
     }
   }

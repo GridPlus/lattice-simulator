@@ -23,13 +23,25 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
     it('should serialize Bitcoin signatures in correct SDK format', () => {
       // Test data matching real SignResponse structure for Bitcoin
       const btcSignatureData = {
-        signature: Buffer.from(
-          '304402201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef02201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
-          'hex',
-        ),
-        recovery: 0,
-        metadata: {
-          publicKey: '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+        bitcoin: {
+          changePubkeyHash: Buffer.from('11'.repeat(20), 'hex'),
+          changeAddressType: 'p2wpkh' as const,
+          network: 'mainnet' as const,
+          signatures: [
+            {
+              inputIndex: 0,
+              signature: Buffer.from(
+                '304402201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef02201234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+                'hex',
+              ),
+              publicKey: Buffer.from(
+                '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+                'hex',
+              ),
+              sighashType: 0x01,
+              signerPath: [],
+            },
+          ],
         },
       }
 
@@ -44,9 +56,8 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       expect(Buffer.isBuffer(result)).toBe(true)
 
       // Verify SDK expected format:
-      // [changeRecipient PKH (20)] + [signatures (760)] + [pubkeys (n * 33)]
-      // For single signature: 20 + 760 + 1 * 33 = 813 bytes
-      const expectedSize = 20 + 760 + 1 * 33
+      // [changeRecipient PKH (20)] + [signatures (740)] + [pubkeys (10 * 33)] = 1090 bytes
+      const expectedSize = 20 + 740 + 33 * 10
       expect(result.length).toBe(expectedSize)
 
       // Verify structure offsets
@@ -54,28 +65,40 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
 
       // Change recipient PKH (20 bytes) - should be zeros (placeholder)
       const pkhSection = result.slice(offset, offset + 20)
-      expect(pkhSection.every((byte: number) => byte === 0)).toBe(true) // Placeholder implementation
+      expect(pkhSection).toEqual(Buffer.from('11'.repeat(20), 'hex'))
       offset += 20
 
-      // Signatures section (760 bytes = 74 * ~10 max signatures)
-      const sigsSection = result.slice(offset, offset + 760)
-      expect(sigsSection.length).toBe(760)
+      // Signatures section (740 bytes = 74 * 10 max signatures)
+      const sigsSection = result.slice(offset, offset + 740)
+      expect(sigsSection.length).toBe(740)
 
       // First signature should start with 0x30 (DER format)
       expect(sigsSection[0]).toBe(0x30)
 
-      // Public key at SDK expected position: pubStart = 0 * 33 + 760 = 760
-      const pubkeyOffset = 0 * 33 + 760 // = 760
+      // Public key at SDK expected position: pkhLen + sigsLen = 20 + 740 = 760
+      const pubkeyOffset = 20 + 740
       const pubkey = result.slice(pubkeyOffset, pubkeyOffset + 33)
-      expect(pubkey).toEqual(Buffer.from(btcSignatureData.metadata.publicKey, 'hex'))
+      expect(pubkey).toEqual(Buffer.from(btcSignatureData.bitcoin.signatures[0].publicKey))
     })
 
     it('should handle invalid Bitcoin signatures gracefully', () => {
       const invalidBtcData = {
-        signature: Buffer.from('1234567890abcdef', 'hex'), // Invalid signature (doesn't start with 0x30)
-        recovery: 0,
-        metadata: {
-          publicKey: '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+        bitcoin: {
+          changePubkeyHash: Buffer.alloc(20),
+          changeAddressType: 'p2pkh' as const,
+          network: 'mainnet' as const,
+          signatures: [
+            {
+              inputIndex: 0,
+              signature: Buffer.from('1234567890abcdef', 'hex'),
+              publicKey: Buffer.from(
+                '02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5',
+                'hex',
+              ),
+              sighashType: 0x01,
+              signerPath: [],
+            },
+          ],
         },
       }
 
@@ -86,11 +109,11 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       )
 
       // Should still create properly sized response
-      const expectedSize = 20 + 760 + 1 * 33
+      const expectedSize = 20 + 740 + 33 * 10
       expect(result.length).toBe(expectedSize)
 
       // Invalid signature should be zeroed out
-      const sigsSection = result.slice(20, 20 + 760)
+      const sigsSection = result.slice(20, 20 + 740)
       const firstSigSection = sigsSection.slice(0, 74)
       expect(firstSigSection.every((byte: number) => byte === 0)).toBe(true)
     })
@@ -314,13 +337,25 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
     it('should match exact format expected by SDK decodeSignResponse for Bitcoin', () => {
       // This test ensures our format exactly matches what the SDK's decodeSignResponse expects
       const btcData = {
-        signature: Buffer.from(
-          '304402201111111111111111111111111111111111111111111111111111111111111111022022222222222222222222222222222222222222222222222222222222222222',
-          'hex',
-        ),
-        recovery: 0,
-        metadata: {
-          publicKey: '033333333333333333333333333333333333333333333333333333333333333333',
+        bitcoin: {
+          changePubkeyHash: Buffer.from('22'.repeat(20), 'hex'),
+          changeAddressType: 'p2sh-p2wpkh' as const,
+          network: 'testnet' as const,
+          signatures: [
+            {
+              inputIndex: 0,
+              signature: Buffer.from(
+                '304402201111111111111111111111111111111111111111111111111111111111111111022022222222222222222222222222222222222222222222222222222222222222',
+                'hex',
+              ),
+              publicKey: Buffer.from(
+                '033333333333333333333333333333333333333333333333333333333333333333',
+                'hex',
+              ),
+              sighashType: 0x01,
+              signerPath: [],
+            },
+          ],
         },
       }
 
@@ -328,19 +363,19 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       const result = (protocolHandler as any).serializeSignResponse(btcData, mockBitcoinRequest)
 
       // Verify the exact layout SDK expects
-      expect(result.length).toBe(20 + 760 + 33) // PKH + sigs + one pubkey
+      expect(result.length).toBe(20 + 740 + 33 * 10)
 
       // PKH section (should be zeros as placeholder)
       const pkh = result.slice(0, 20)
-      expect(pkh.every((byte: number) => byte === 0)).toBe(true)
+      expect(pkh).toEqual(Buffer.from('22'.repeat(20), 'hex'))
 
       // Signature section
       const sigSection = result.slice(20, 780)
       expect(sigSection[0]).toBe(0x30) // First sig starts with DER tag
 
       // Pubkey section at SDK expected position: pubStart = 0 * 33 + 760 = 760
-      const pubkeySection = result.slice(760, 793) // First pubkey: 33 bytes at position 760
-      expect(pubkeySection).toEqual(Buffer.from(btcData.metadata.publicKey, 'hex'))
+      const pubkeySection = result.slice(20 + 740, 20 + 740 + 33)
+      expect(pubkeySection).toEqual(Buffer.from(btcData.bitcoin.signatures[0].publicKey))
     })
 
     it('should match exact format expected by SDK decodeSignResponse for Ethereum', () => {

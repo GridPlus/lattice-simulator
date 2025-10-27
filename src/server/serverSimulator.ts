@@ -3,12 +3,12 @@
  */
 
 import { randomBytes, createHash, createCipheriv, pbkdf2Sync } from 'crypto'
-import { Hash } from 'ox'
 import { getPublicKey as blsGetPublicKey } from '@noble/bls12-381'
 import { HDKey } from '@scure/bip32'
 import { mnemonicToSeedSync } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english'
 import elliptic from 'elliptic'
+import { Hash } from 'ox'
 import { keccak256 } from 'viem/utils'
 import {
   emitPairingModeStarted,
@@ -1022,15 +1022,13 @@ export class ServerLatticeSimulator {
       ? Math.min(GENERIC_SIGNING_BASE_CHUNK_SIZE, baseChunk.length)
       : baseChunk.length
 
-    const requestChunk =
-      request.data && request.data.length > 0 ? Buffer.from(request.data) : null
+    const requestChunk = request.data && request.data.length > 0 ? Buffer.from(request.data) : null
     const candidateChunk =
       requestChunk && requestChunk.length <= baseChunkCapacity
         ? requestChunk
         : baseChunk.slice(0, baseChunkCapacity)
 
-    const remainder =
-      candidateChunk.length > 32 ? candidateChunk.slice(32) : Buffer.alloc(0)
+    const remainder = candidateChunk.length > 32 ? candidateChunk.slice(32) : Buffer.alloc(0)
     const remainderHasData = remainder.some(byte => byte !== 0)
 
     const overlapsLengthField =
@@ -1051,10 +1049,7 @@ export class ServerLatticeSimulator {
 
     const messageChunkLength = isPrehashed
       ? Math.min(candidateChunk.length, 32)
-      : Math.min(
-          declaredMessageLength ?? candidateChunk.length,
-          candidateChunk.length,
-        )
+      : Math.min(declaredMessageLength ?? candidateChunk.length, candidateChunk.length)
     const messageChunk = candidateChunk.slice(0, messageChunkLength)
     const remainingChunk = baseChunk.slice(messageChunkLength)
 
@@ -1073,7 +1068,7 @@ export class ServerLatticeSimulator {
 
     const messageLength = isPrehashed
       ? messageChunkLength
-      : declaredMessageLength ?? messageChunk.length
+      : (declaredMessageLength ?? messageChunk.length)
 
     return {
       encoding,
@@ -1391,7 +1386,7 @@ export class ServerLatticeSimulator {
     }
 
     const messagePrehash = session.isPrehashed
-      ? session.messagePrehash ?? Buffer.from(fullData.slice(0, 32))
+      ? (session.messagePrehash ?? Buffer.from(fullData.slice(0, 32)))
       : undefined
 
     const finalRequest: SignRequest = {
@@ -1440,32 +1435,33 @@ export class ServerLatticeSimulator {
       console.log('[Simulator] Using enhanced signing service for crypto signing')
       console.log('[Simulator] executeSigning request.curve:', request.curve)
 
-    const sanitizedData =
-      request.schema === SignRequestSchema.ETHEREUM_MESSAGE && request.isPrehashed
-        ? Buffer.from(request.data.slice(0, 32))
-        : Buffer.from(request.data)
-    let responsePrehash =
-      request.messagePrehash && request.messagePrehash.length >= 32
-        ? Buffer.from(request.messagePrehash.slice(0, 32))
-        : request.isPrehashed && sanitizedData.length >= 32
-          ? Buffer.from(sanitizedData.slice(0, 32))
-          : undefined
+      const sanitizedData =
+        request.schema === SignRequestSchema.ETHEREUM_MESSAGE && request.isPrehashed
+          ? Buffer.from(request.data.slice(0, 32))
+          : Buffer.from(request.data)
+      let responsePrehash =
+        request.messagePrehash && request.messagePrehash.length >= 32
+          ? Buffer.from(request.messagePrehash.slice(0, 32))
+          : request.isPrehashed && sanitizedData.length >= 32
+            ? Buffer.from(sanitizedData.slice(0, 32))
+            : undefined
 
-    const signingRequest = {
-      path: request.path,
-      data: sanitizedData,
-      curve: request.curve,
-      encoding: request.encoding,
-      hashType: request.hashType,
-      schema: request.schema,
-      isTransaction: request.schema !== SignRequestSchema.ETHEREUM_MESSAGE,
-      omitPubkey: request.omitPubkey,
-      rawPayload: request.rawPayload,
-      protocol: request.protocol,
-      messageLength: request.messageLength,
-      isPrehashed: request.isPrehashed,
-      messagePrehash: request.messagePrehash,
-    }
+      const signingRequest = {
+        path: request.path,
+        data: sanitizedData,
+        curve: request.curve,
+        encoding: request.encoding,
+        hashType: request.hashType,
+        schema: request.schema,
+        isTransaction: request.schema !== SignRequestSchema.ETHEREUM_MESSAGE,
+        omitPubkey: request.omitPubkey,
+        rawPayload: request.rawPayload,
+        protocol: request.protocol,
+        messageLength: request.messageLength,
+        isPrehashed: request.isPrehashed,
+        messagePrehash: request.messagePrehash,
+        bitcoin: request.bitcoin,
+      }
 
       if (!signingService.validateSigningRequest(signingRequest)) {
         return createDeviceResponse<SignResponse>(
@@ -1486,7 +1482,8 @@ export class ServerLatticeSimulator {
 
       console.log('[Simulator] Enhanced signing completed:', {
         signatureFormat: signatureResult.format,
-        signatureLength: signatureResult.signature.length,
+        signatureLength: signatureResult.signature ? signatureResult.signature.length : 0,
+        bitcoinSignatureCount: signatureResult.bitcoin?.signatures.length ?? 0,
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
       })
@@ -1503,6 +1500,7 @@ export class ServerLatticeSimulator {
         signature: signatureResult.signature,
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
+        bitcoin: signatureResult.bitcoin,
         messagePrehash:
           responsePrehash && responsePrehash.length >= 32
             ? Buffer.from(responsePrehash.slice(0, 32))
@@ -2552,6 +2550,7 @@ export class ServerLatticeSimulator {
         schema: request.schema,
         coinType: coinType as any,
         transactionType,
+        bitcoin: request.bitcoin,
       },
       metadata,
     }
@@ -2652,6 +2651,7 @@ export class ServerLatticeSimulator {
         hashType: signingRequest.data.hashType,
         schema: signingRequest.data.schema,
         isTransaction: signingRequest.data.transactionType === 'transaction',
+        bitcoin: signingRequest.data.bitcoin,
       }
 
       // Validate signing request
@@ -2678,8 +2678,9 @@ export class ServerLatticeSimulator {
 
       console.log(`[Simulator] Enhanced signing completed for request ${requestId}:`, {
         signatureFormat: signatureResult.format,
-        signatureLength: signatureResult.signature.length,
-        signature: signatureResult.signature.toString('hex'),
+        signatureLength: signatureResult.signature ? signatureResult.signature.length : 0,
+        signature: signatureResult.signature?.toString('hex') ?? null,
+        bitcoinSignatureCount: signatureResult.bitcoin?.signatures.length ?? 0,
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
       })
@@ -2691,6 +2692,7 @@ export class ServerLatticeSimulator {
         signature: signatureResult.signature,
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
+        bitcoin: signatureResult.bitcoin,
       }
 
       const deviceResponse = createDeviceResponse(true, LatticeResponseCode.success, response)

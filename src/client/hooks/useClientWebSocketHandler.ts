@@ -506,18 +506,17 @@ export function useServerRequestHandler(deviceId: string) {
         // Create approved transaction record
         const signature = data.response.data.signature
         const recovery = data.response.data.recovery
+        const bitcoinResponse = data.response.data.bitcoin
+        const bitcoinSignatureEntry = bitcoinResponse?.signatures?.[0]
 
         if (signature) {
           console.log(`[ClientWebSocketHandler] Signature: ${JSON.stringify(signature)}`)
-
-          // Normalize Buffer objects using utility function
 
           const actualSignature = normalizeBuffer(signature)
           console.log(
             `[ClientWebSocketHandler] Converted signature to Buffer: ${actualSignature.toString('hex')}`,
           )
 
-          // Also normalize the originalRequest data fields
           const normalizedRequest = {
             ...originalRequest,
             data: {
@@ -533,6 +532,33 @@ export function useServerRequestHandler(deviceId: string) {
           )
           console.log(
             `[ClientWebSocketHandler] Created approved transaction record for: ${data.requestId}`,
+          )
+        } else if (bitcoinSignatureEntry?.signature) {
+          console.log(
+            `[ClientWebSocketHandler] Handling Bitcoin signature set with ${bitcoinResponse?.signatures.length ?? 0} entries`,
+          )
+
+          const normalizedRequest = {
+            ...originalRequest,
+            data: {
+              ...originalRequest.data,
+              data: normalizeBuffer(originalRequest.data.data),
+            },
+          }
+
+          const primarySignature = normalizeBuffer(bitcoinSignatureEntry.signature)
+
+          transactionStore.createApprovedTransaction(
+            normalizedRequest as SigningRequest,
+            primarySignature,
+            undefined,
+            {
+              description: `Bitcoin transaction signed (${bitcoinResponse?.signatures.length ?? 0} inputs)`,
+            },
+          )
+
+          console.log(
+            `[ClientWebSocketHandler] Stored primary Bitcoin signature for request ${data.requestId}`,
           )
         } else {
           console.warn(

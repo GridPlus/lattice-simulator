@@ -47,7 +47,7 @@ describe('SigningService EIP-712 hashing', () => {
         walletAccounts,
       )
 
-      expect(response.signature.length).toBeGreaterThan(0)
+      expect(response.signature?.length).toBeGreaterThan(0)
       expect(signSpy).toHaveBeenCalled()
       const [hashArg] = signSpy.mock.calls[0]
       expect(Buffer.isBuffer(hashArg)).toBe(true)

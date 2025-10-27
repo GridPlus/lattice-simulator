@@ -3,6 +3,7 @@
  */
 
 import type { LatticeResponseCode } from './protocol'
+import type { BitcoinScriptTypeName, ParsedBitcoinSignPayload } from '../bitcoin'
 
 export type WalletPath = number[]
 
@@ -56,6 +57,8 @@ export interface SigningRequest extends PendingRequest {
     coinType: 'ETH' | 'BTC' | 'SOL'
     /** Type of data being signed */
     transactionType: 'transaction' | 'message'
+    /** Parsed Bitcoin transaction data */
+    bitcoin?: ParsedBitcoinSignPayload
   }
   /** Additional transaction metadata for display */
   metadata?: {
@@ -250,6 +253,7 @@ export interface SignRequest {
   messagePrehash?: Buffer
   typedDataPayload?: Buffer
   decoderBytes?: Buffer
+  bitcoin?: ParsedBitcoinSignPayload
 }
 
 export interface SignResponse {
@@ -272,4 +276,16 @@ export interface SignResponse {
   hashType?: number
   path?: WalletPath
   messagePrehash?: Buffer
+  bitcoin?: {
+    changePubkeyHash?: Buffer
+    changeAddressType: BitcoinScriptTypeName
+    network: 'mainnet' | 'testnet'
+    signatures: Array<{
+      inputIndex: number
+      signature: Buffer
+      publicKey: Buffer
+      sighashType: number
+      signerPath: WalletPath
+    }>
+  }
 }

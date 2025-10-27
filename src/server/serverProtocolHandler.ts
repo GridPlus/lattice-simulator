@@ -1368,51 +1368,71 @@ export class ProtocolHandler {
     // Handle Bitcoin transaction format (schema 0)
     if (resolvedSchema === 0) {
       console.log('[ProtocolHandler] Processing Bitcoin transaction')
-      // Bitcoin transaction response format: [PKH (20)] + [signatures (760)] + [pubkeys (n * 33)]
-      console.log('[ProtocolHandler] Constructing full Bitcoin transaction response format')
-
       const derSigLen = 74
       const compressedPubLength = 33
       const pkhLen = 20
-      const sigsLen = 760
+      const maxSignatures = 10
+      const sigsLen = derSigLen * maxSignatures
 
-      // For Bitcoin, we only have a single signature from SignResponse
-      // We need to create the full format expected by SDK
-      const responseSize = pkhLen + sigsLen + compressedPubLength // 1 pubkey
+      let signatures = data.bitcoin?.signatures ?? []
+      if ((!signatures || signatures.length === 0) && Buffer.isBuffer(data.signature)) {
+        const pubkeyBuffer = data.metadata?.publicKey
+          ? Buffer.from(data.metadata.publicKey, 'hex')
+          : undefined
+        signatures = [
+          {
+            inputIndex: 0,
+            signature: data.signature,
+            publicKey: pubkeyBuffer,
+            sighashType: 0x01,
+            signerPath: [],
+          },
+        ]
+      }
+      const signatureCount = Math.min(signatures.length, maxSignatures)
+      const responseSize = pkhLen + sigsLen + compressedPubLength * maxSignatures
       const response = Buffer.alloc(responseSize)
 
-      let offset = 0
-
-      // Add change recipient PKH (20 bytes) - fill with zeros as placeholder
-      response.fill(0, offset, offset + pkhLen)
-      offset += pkhLen
-
-      // Add signature to signatures section (760 bytes)
-      // Place the single signature at the first slot
-      if (
-        Buffer.isBuffer(data.signature) &&
-        data.signature.length > 0 &&
-        data.signature[0] === 0x30
-      ) {
-        // Copy DER signature to first signature slot
-        data.signature.copy(response, offset, 0, Math.min(data.signature.length, derSigLen))
-      }
-      offset += sigsLen // Skip entire signature section
-
-      // Add pubkey at SDK expected position
-      // SDK calculates: pubStart = 0 * compressedPubLength + sigsLen = 760
-      const pubkeyOffset = 0 * compressedPubLength + sigsLen // = 760
-      if (data.metadata?.publicKey) {
-        const pubkeyBuf = Buffer.from(data.metadata.publicKey, 'hex')
-        pubkeyBuf.copy(response, pubkeyOffset, 0, Math.min(pubkeyBuf.length, compressedPubLength))
+      // Populate change PKH section
+      if (data.bitcoin?.changePubkeyHash && data.bitcoin.changePubkeyHash.length === pkhLen) {
+        data.bitcoin.changePubkeyHash.copy(response, 0, 0, pkhLen)
       } else {
-        // Fill with zeros if no public key available
-        response.fill(0, pubkeyOffset, pubkeyOffset + compressedPubLength)
+        response.fill(0, 0, pkhLen)
       }
 
-      console.log(
-        `[ProtocolHandler] Created Bitcoin transaction response: ${response.length} bytes with 1 signature and 1 pubkey placeholder`,
-      )
+      // Populate signature slots
+      const signatureEntries = signatures.slice(0, signatureCount)
+
+      signatureEntries.forEach((sigEntry: any, index: number) => {
+        if (Buffer.isBuffer(sigEntry.signature) && sigEntry.signature[0] === 0x30) {
+          const sigOffset = pkhLen + index * derSigLen
+          sigEntry.signature.copy(
+            response,
+            sigOffset,
+            0,
+            Math.min(sigEntry.signature.length, derSigLen),
+          )
+        }
+      })
+
+      // Populate public keys section
+      signatureEntries.forEach((sigEntry: any, index: number) => {
+        const pubkeyOffset = pkhLen + sigsLen + index * compressedPubLength
+        if (Buffer.isBuffer(sigEntry.publicKey)) {
+          sigEntry.publicKey.copy(
+            response,
+            pubkeyOffset,
+            0,
+            Math.min(sigEntry.publicKey.length, compressedPubLength),
+          )
+        }
+      })
+
+      console.log('[ProtocolHandler] Created Bitcoin transaction response', {
+        totalLength: response.length,
+        signatureCount,
+      })
+
       return response
     }
 
