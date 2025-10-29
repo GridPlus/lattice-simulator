@@ -2209,13 +2209,22 @@ export class ServerLatticeSimulator {
         // In a real implementation, type would be used to filter records
         return true
       })
-      .map(([key, value], index) => ({
-        id: start + index,
-        type: type,
-        caseSensitive: false,
-        key: key,
-        val: value,
-      }))
+      .map(([key, value]) => {
+        // Find the actual ID for this key from kvRecordIdToKey
+        let recordId = -1
+        Array.from(this.kvRecordIdToKey.entries()).forEach(([id, storedKey]) => {
+          if (storedKey === key) {
+            recordId = id
+          }
+        })
+        return {
+          id: recordId,
+          type: type,
+          caseSensitive: false,
+          key: key,
+          val: value,
+        }
+      })
 
     // Apply pagination
     const total = allRecords.length

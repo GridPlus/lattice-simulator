@@ -16,6 +16,7 @@ import {
   requestAddKvRecords,
   requestRemoveKvRecords,
 } from './serverRequestManager'
+import { wsManager } from './serverWebSocketManager'
 import { parseSignRequestPayload, SignRequestSchema } from './signRequestParsers'
 import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
 import { debug } from '../shared/debug'
@@ -541,10 +542,28 @@ export class ProtocolHandler {
    * @private
    */
   private async handleGetKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    try {
-      const { type, n, start } = this.parseGetKvRecordsRequest(data)
-      const deviceId = this.simulator.getDeviceId()
+    const { type, n, start } = this.parseGetKvRecordsRequest(data)
+    const deviceId = this.simulator.getDeviceId()
 
+    // Check if we should use simulator directly (CI mode or no browser client)
+    const isCI = process.env.CI === '1'
+    const hasClientConnection = wsManager.hasConnections(deviceId)
+
+    if (isCI || !hasClientConnection) {
+      debug.protocol(
+        'Using simulator directly for KV records (CI=%s, hasConnection=%s)',
+        isCI,
+        hasClientConnection,
+      )
+      const response = await this.simulator.getKvRecords({ type, n, start })
+      return {
+        code: response.code,
+        data: response.data ? this.serializeKvRecordsResponse(response.data) : undefined,
+        error: response.error,
+      }
+    }
+
+    try {
       debug.protocol('Requesting KV records from client for device: %s', deviceId)
 
       // Request data from client-side storage
@@ -576,7 +595,6 @@ export class ProtocolHandler {
 
       // If client request fails, fall back to simulator data
       debug.protocol('Falling back to simulator data')
-      const { type, n, start } = this.parseGetKvRecordsRequest(data)
       const response = await this.simulator.getKvRecords({ type, n, start })
 
       return {
@@ -597,10 +615,28 @@ export class ProtocolHandler {
    * @private
    */
   private async handleAddKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    try {
-      const records = this.parseAddKvRecordsRequest(data)
-      const deviceId = this.simulator.getDeviceId()
+    const records = this.parseAddKvRecordsRequest(data)
+    const deviceId = this.simulator.getDeviceId()
 
+    // Check if we should use simulator directly (CI mode or no browser client)
+    const isCI = process.env.CI === '1'
+    const hasClientConnection = wsManager.hasConnections(deviceId)
+
+    if (isCI || !hasClientConnection) {
+      debug.protocol(
+        'Using simulator directly for add KV records (CI=%s, hasConnection=%s)',
+        isCI,
+        hasClientConnection,
+      )
+      const response = await this.simulator.addKvRecords(records)
+      return {
+        code: response.code,
+        data: response.success ? Buffer.alloc(0) : undefined,
+        error: response.error,
+      }
+    }
+
+    try {
       console.log(
         `[ProtocolHandler] Requesting to add KV records via client for device: ${deviceId}`,
       )
@@ -619,7 +655,6 @@ export class ProtocolHandler {
       console.error('[ProtocolHandler] Error handling add KV records request:', error)
 
       // Fall back to simulator
-      const records = this.parseAddKvRecordsRequest(data)
       const response = await this.simulator.addKvRecords(records)
 
       return {
@@ -640,10 +675,28 @@ export class ProtocolHandler {
    * @private
    */
   private async handleRemoveKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
-    try {
-      const { type, ids } = this.parseRemoveKvRecordsRequest(data)
-      const deviceId = this.simulator.getDeviceId()
+    const { type, ids } = this.parseRemoveKvRecordsRequest(data)
+    const deviceId = this.simulator.getDeviceId()
 
+    // Check if we should use simulator directly (CI mode or no browser client)
+    const isCI = process.env.CI === '1'
+    const hasClientConnection = wsManager.hasConnections(deviceId)
+
+    if (isCI || !hasClientConnection) {
+      debug.protocol(
+        'Using simulator directly for remove KV records (CI=%s, hasConnection=%s)',
+        isCI,
+        hasClientConnection,
+      )
+      const response = await this.simulator.removeKvRecords(type, ids)
+      return {
+        code: response.code,
+        data: response.success ? Buffer.alloc(0) : undefined,
+        error: response.error,
+      }
+    }
+
+    try {
       console.log(
         `[ProtocolHandler] Requesting to remove KV records via client for device: ${deviceId}, type: ${type}, ids: ${ids}`,
       )
@@ -662,7 +715,6 @@ export class ProtocolHandler {
       console.error('[ProtocolHandler] Error handling remove KV records request:', error)
 
       // Fall back to simulator
-      const { type, ids } = this.parseRemoveKvRecordsRequest(data)
       const response = await this.simulator.removeKvRecords(type, ids)
 
       return {
