@@ -5,15 +5,19 @@
 
 import { createHash } from 'crypto'
 import { wordlist } from '@scure/bip39/wordlists/english'
+import BIP32Factory, { type BIP32Interface } from 'bip32'
+import * as bitcoin from 'bitcoinjs-lib'
 import crc32 from 'crc-32'
 import elliptic from 'elliptic'
+import { privateToAddress } from 'ethereumjs-util'
+import * as ecc from 'tiny-secp256k1'
 import {
   requestKvRecords,
   requestAddKvRecords,
   requestRemoveKvRecords,
 } from './serverRequestManager'
 import { parseSignRequestPayload, SignRequestSchema } from './signRequestParsers'
-import { EXTERNAL } from '../shared/constants'
+import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
 import { debug } from '../shared/debug'
 import {
   LatticeSecureEncryptedRequestType,
@@ -23,17 +27,35 @@ import {
   type PairRequest,
   type GetAddressesRequest,
   type SignRequest,
+  type WalletPath,
 } from '../shared/types'
 import { aes256_decrypt, aes256_encrypt, generateKeyPair } from '../shared/utils/crypto'
+import { formatDerivationPath } from '../shared/utils/hdWallet'
+import { detectCoinTypeFromPath } from '../shared/utils/protocol'
 import type { ServerLatticeSimulator } from './serverSimulator'
 
 const secp256k1 = new elliptic.ec('secp256k1')
+let bitcoinInitialized = false
+const bip32 = BIP32Factory(ecc)
+
+const initBitcoinLibs = () => {
+  if (!bitcoinInitialized) {
+    bitcoin.initEccLib(ecc)
+    bitcoinInitialized = true
+  }
+}
 const GP_ERRORS = {
   SUCCESS: 0,
   EINVAL: 0xffffffff + 1 - 22,
+  ENODEV: 0xffffffff + 1 - 19,
+  EAGAIN: 0xffffffff + 1 - 11,
+  EWALLET: 0xffffffff + 1 - 113,
+  FAILURE: 0xffffffff + 1 - 128,
 }
 
 const WalletJobType = {
+  GET_ADDRESSES: 1,
+  SIGN_TX: 2,
   LOAD_SEED: 3,
   EXPORT_SEED: 4,
   DELETE_SEED: 5,
@@ -712,7 +734,319 @@ export class ProtocolHandler {
       })
 
       switch (jobType) {
+        case WalletJobType.GET_ADDRESSES: {
+          const walletUidHex = payload.slice(0, 32).toString('hex').toLowerCase()
+          const walletType = this.getWalletTypeFromUid(walletUidHex)
+
+          if (!walletType) {
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EWALLET)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+
+          let offset = 40
+          const pathDepth = payload.readUInt32LE(offset)
+          offset += 4
+          const pathIdx: number[] = []
+          for (let i = 0; i < 5; i++) {
+            pathIdx.push(payload.readUInt32LE(offset))
+            offset += 4
+          }
+          const iterIdx = payload.readUInt32LE(offset)
+          offset += 4
+          const count = payload.readUInt32LE(offset)
+          offset += 4
+          const flag = payload.readUInt8(offset)
+
+          const path = pathIdx.slice(0, pathDepth)
+
+          if (count < 1 || count > 10 || iterIdx < 0 || iterIdx >= path.length) {
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EINVAL)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+
+          let coinType = detectCoinTypeFromPath(path as WalletPath)
+          if (coinType === 'UNKNOWN') {
+            const purpose = path[0]
+            const coin = path[1]
+            const looksLikeEvm = purpose === HARDENED_OFFSET + 44 && coin >= HARDENED_OFFSET + 60
+            if (!looksLikeEvm) {
+              const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EINVAL)
+              return {
+                code: LatticeResponseCode.success,
+                data: responsePayload,
+              }
+            }
+            coinType = 'ETH'
+          }
+
+          try {
+            const exportResponse = await this.simulator.exportSeed()
+            if (!exportResponse.success || !exportResponse.data) {
+              throw new Error('Failed to fetch seed for address derivation')
+            }
+            const masterSeed = Buffer.from(exportResponse.data.seed)
+            const bip32Master = bip32.fromSeed(masterSeed)
+
+            const addresses: string[] = []
+            const publicKeys: Buffer[] = []
+
+            for (let i = 0; i < count; i++) {
+              const derivedPath = [...path]
+              derivedPath[iterIdx] = (derivedPath[iterIdx] || 0) + i
+              const { address, publicKey } = this.deriveWalletJobAddress(
+                derivedPath,
+                bip32Master,
+                coinType,
+              )
+              addresses.push(this.normalizeAddress(address))
+              if (publicKey) {
+                publicKeys.push(publicKey)
+              }
+            }
+
+            const resultData = this.encodeGetAddressesJobResult({
+              addresses,
+              publicKeys,
+              flag,
+            })
+
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.SUCCESS, resultData)
+
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          } catch (error) {
+            console.error('[ProtocolHandler] Failed to derive wallet job addresses:', error)
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EINVAL)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+        }
+
+        case WalletJobType.SIGN_TX: {
+          const walletUidHex = payload.slice(0, 32).toString('hex').toLowerCase()
+          const walletType = this.getWalletTypeFromUid(walletUidHex)
+
+          console.log('[ProtocolHandler] SIGN_TX parsing start', {
+            payloadLength: payload.length,
+            walletUidHex,
+            walletType,
+          })
+
+          // SIGN_TX can only be used with the active (external) wallet
+          if (walletType !== 'external') {
+            console.log(
+              '[ProtocolHandler] SIGN_TX: Wallet UID not active external wallet, returning EWALLET',
+            )
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EWALLET)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+
+          // Parse SIGN_TX request
+          let offset = 40 // Skip wallet UID (32) + callback (4) + jobType (4)
+          const numRequests = payload.readUInt32LE(offset)
+          offset += 4
+
+          console.log('[ProtocolHandler] SIGN_TX request', {
+            walletUidHex,
+            walletType,
+            numRequests,
+            availableBytes: payload.length - offset,
+          })
+
+          // Validate numRequests
+          if (numRequests === 0 || numRequests > 10) {
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EINVAL)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+
+          // Parse signature requests
+          const signatureRequests = []
+          for (let i = 0; i < numRequests; i++) {
+            const dataToSign = payload.slice(offset, offset + 32)
+            offset += 32
+
+            const pathDepth = payload.readUInt32LE(offset)
+            offset += 4
+            const purpose = payload.readUInt32LE(offset)
+            offset += 4
+            const coin = payload.readUInt32LE(offset)
+            offset += 4
+            const account = payload.readUInt32LE(offset)
+            offset += 4
+            const change = payload.readUInt32LE(offset)
+            offset += 4
+            const addr = payload.readUInt32LE(offset)
+            offset += 4
+
+            console.log(`[ProtocolHandler] SIGN_TX parsing request ${i}:`, {
+              pathDepth,
+              purpose,
+              coin,
+              account,
+              change,
+              addr,
+              dataToSignHex: dataToSign.toString('hex'),
+            })
+
+            // Validate pathDepth (must be 3-5 for BIP32 paths)
+            if (pathDepth < 3 || pathDepth > 5) {
+              console.log('[ProtocolHandler] SIGN_TX: Invalid pathDepth, returning EINVAL')
+              const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EINVAL)
+              return {
+                code: LatticeResponseCode.success,
+                data: responsePayload,
+              }
+            }
+
+            signatureRequests.push({
+              dataToSign,
+              path: { pathDepth, purpose, coin, account, change, addr },
+            })
+          }
+
+          // Sign each request
+          try {
+            console.log('[ProtocolHandler] SIGN_TX: Starting signing process')
+            const exportResponse = await this.simulator.exportSeed()
+            if (!exportResponse.success || !exportResponse.data) {
+              console.log('[ProtocolHandler] SIGN_TX: Failed to export seed')
+              throw new Error('No seed available for signing')
+            }
+            const masterSeed = Buffer.from(exportResponse.data.seed)
+            const bip32Root = BIP32Factory(ecc).fromSeed(masterSeed)
+
+            const outputs = []
+            for (const req of signatureRequests) {
+              // Build derivation path
+              const path = [req.path.purpose, req.path.coin, req.path.account]
+              if (req.path.pathDepth >= 4) path.push(req.path.change)
+              if (req.path.pathDepth >= 5) path.push(req.path.addr)
+
+              console.log('[ProtocolHandler] SIGN_TX: Deriving key for path', path)
+              // Convert path indices to BIP32 notation
+              // Indices >= HARDENED_OFFSET should show as (index - HARDENED_OFFSET)'
+              const pathStr = path
+                .map(idx => {
+                  return idx >= HARDENED_OFFSET ? `${idx - HARDENED_OFFSET}'` : `${idx}`
+                })
+                .join('/')
+              const derivedKey = bip32Root.derivePath(`m/${pathStr}`)
+
+              if (!derivedKey.privateKey) {
+                throw new Error('Failed to derive private key')
+              }
+
+              // Sign the 32-byte hash
+              const ec = new elliptic.ec('secp256k1')
+              const keyPair = ec.keyFromPrivate(derivedKey.privateKey)
+              const signature = keyPair.sign(req.dataToSign, { canonical: true })
+
+              // Encode as DER and pad to 74 bytes
+              const derSig = Buffer.from(signature.toDER())
+              const paddedSig = Buffer.alloc(74)
+              derSig.copy(paddedSig, 0)
+
+              // Get uncompressed public key
+              const uncompressedPubKey = Buffer.from(keyPair.getPublic().encode('array', false))
+
+              outputs.push({
+                path: req.path,
+                publicKey: uncompressedPubKey,
+                signature: paddedSig,
+              })
+            }
+
+            // Build response
+            const numOutputs = outputs.length
+            const outputSize = 6 * 4 + 65 + 74 // path (6×4) + pubkey (65) + sig (74) = 163 bytes
+            const resultData = Buffer.alloc(4 + numOutputs * outputSize)
+
+            let resOffset = 0
+            resultData.writeUInt32LE(numOutputs, resOffset)
+            resOffset += 4
+
+            for (const output of outputs) {
+              resultData.writeUInt32LE(output.path.pathDepth, resOffset)
+              resOffset += 4
+              resultData.writeUInt32LE(output.path.purpose, resOffset)
+              resOffset += 4
+              resultData.writeUInt32LE(output.path.coin, resOffset)
+              resOffset += 4
+              resultData.writeUInt32LE(output.path.account, resOffset)
+              resOffset += 4
+              resultData.writeUInt32LE(output.path.change, resOffset)
+              resOffset += 4
+              resultData.writeUInt32LE(output.path.addr, resOffset)
+              resOffset += 4
+              output.publicKey.copy(resultData, resOffset)
+              resOffset += 65
+              output.signature.copy(resultData, resOffset)
+              resOffset += 74
+            }
+
+            console.log('[ProtocolHandler] SIGN_TX: Signing completed successfully', {
+              numOutputs: outputs.length,
+            })
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.SUCCESS, resultData)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          } catch (error) {
+            console.error('[ProtocolHandler] SIGN_TX: Failed to sign transactions:', error)
+            const responsePayload = this.buildWalletJobResponse(GP_ERRORS.EINVAL)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+        }
+
         case WalletJobType.EXPORT_SEED: {
+          const walletUidHex = payload.slice(0, 32).toString('hex')
+          console.log('[ProtocolHandler] Wallet job UID', walletUidHex)
+          const activeWallets = this.simulator.getActiveWallets()
+          const knownUids = [activeWallets?.internal?.uid, activeWallets?.external?.uid]
+            .map(uid => {
+              if (!uid) return null
+              if (Buffer.isBuffer(uid)) return uid.toString('hex').toLowerCase()
+              if (typeof uid === 'string') return uid.toLowerCase()
+              return null
+            })
+            .filter((uid): uid is string => !!uid)
+
+          const walletUidLower = walletUidHex.toLowerCase()
+          const matchesKnown = knownUids.some(knownUid => {
+            if (!knownUid) return false
+            return walletUidLower.startsWith(knownUid) || knownUid.startsWith(walletUidLower)
+          })
+
+          if (!matchesKnown) {
+            const responsePayload = Buffer.alloc(6)
+            responsePayload.writeUInt32LE((0xffffffff + 1 - 19) >>> 0, 0)
+            responsePayload.writeUInt16LE(0, 4)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+
           const exportResponse = await this.simulator.exportSeed()
 
           if (!exportResponse.success || !exportResponse.data) {
@@ -743,8 +1077,28 @@ export class ProtocolHandler {
         }
 
         case WalletJobType.DELETE_SEED: {
+          const walletUidHex = payload.slice(0, 32).toString('hex').toLowerCase()
+          const walletType = this.getWalletTypeFromUid(walletUidHex)
+
           const iface = payload.readUInt8(40)
-          console.log('[ProtocolHandler] Handling delete seed job', { iface })
+          console.log('[ProtocolHandler] Handling delete seed job', {
+            iface,
+            walletUidHex,
+            walletType,
+          })
+
+          // Validate wallet UID is known
+          if (!walletType) {
+            console.log('[ProtocolHandler] DELETE_SEED: Unknown wallet UID, returning EINVAL')
+            const responsePayload = Buffer.alloc(6)
+            responsePayload.writeUInt32LE(GP_ERRORS.EINVAL >>> 0, 0)
+            responsePayload.writeUInt16LE(0, 4)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
+
           const deleteResponse = await this.simulator.deleteSeed()
 
           if (!deleteResponse.success) {
@@ -774,6 +1128,18 @@ export class ProtocolHandler {
 
           const exportability = payload.readUInt8(offset)
           offset += 1
+
+          // Validate exportability (must be 0, 1, or 2)
+          if (exportability > 2) {
+            console.log('[ProtocolHandler] LOAD_SEED: Invalid exportability, returning EINVAL')
+            const responsePayload = Buffer.alloc(6)
+            responsePayload.writeUInt32LE(GP_ERRORS.EINVAL >>> 0, 0)
+            responsePayload.writeUInt16LE(0, 4)
+            return {
+              code: LatticeResponseCode.success,
+              data: responsePayload,
+            }
+          }
 
           let mnemonic: string | undefined
 
@@ -811,6 +1177,17 @@ export class ProtocolHandler {
           })
 
           if (!loadResponse.success) {
+            // If seed already exists, return GP_FAILURE
+            if (loadResponse.error && loadResponse.error.includes('already has a seed')) {
+              const responsePayload = Buffer.alloc(6)
+              responsePayload.writeUInt32LE(GP_ERRORS.FAILURE >>> 0, 0)
+              responsePayload.writeUInt16LE(0, 4)
+              return {
+                code: LatticeResponseCode.success,
+                data: responsePayload,
+              }
+            }
+
             return {
               code: loadResponse.code,
               error: loadResponse.error || 'Failed to load seed',
@@ -851,6 +1228,136 @@ export class ProtocolHandler {
         error: error instanceof Error ? error.message : 'Failed to process test request',
       }
     }
+  }
+
+  private getWalletTypeFromUid(walletUidHex: string): 'internal' | 'external' | null {
+    const activeWallets = this.simulator.getActiveWallets()
+    const normalized = walletUidHex.toLowerCase()
+
+    const normalize = (uid: string | Buffer | undefined): string | null => {
+      if (!uid) return null
+      if (Buffer.isBuffer(uid)) return uid.toString('hex').toLowerCase()
+      if (typeof uid === 'string') return uid.toLowerCase()
+      return null
+    }
+
+    const matches = (candidate: string | null) => {
+      if (!candidate) return false
+      if (candidate === normalized) return true
+      const trimmedCandidate = candidate.replace(/0+$/, '')
+      const trimmedNormalized = normalized.replace(/0+$/, '')
+      return trimmedCandidate.length > 0 && trimmedCandidate === trimmedNormalized
+    }
+
+    const internalUid = normalize(activeWallets?.internal?.uid as any)
+    if (matches(internalUid)) {
+      return 'internal'
+    }
+
+    const externalUid = normalize(activeWallets?.external?.uid as any)
+    if (matches(externalUid)) {
+      return 'external'
+    }
+
+    return null
+  }
+
+  private buildWalletJobResponse(resultCode: number, resultData?: Buffer): Buffer {
+    const resultLength = resultData?.length ?? 0
+    const responsePayload = Buffer.alloc(6 + resultLength)
+    responsePayload.writeUInt32LE(resultCode >>> 0, 0)
+    responsePayload.writeUInt16LE(resultLength, 4)
+    if (resultData) {
+      resultData.copy(responsePayload, 6)
+    }
+    return responsePayload
+  }
+
+  private encodeGetAddressesJobResult({
+    addresses,
+  }: {
+    addresses: string[]
+    publicKeys?: Buffer[]
+    flag?: number
+  }): Buffer {
+    const count = Math.min(addresses.length, 10)
+    const addrStrLen = ProtocolConstants.addrStrLen
+    const payload = Buffer.alloc(1 + 1 + 2 + count * addrStrLen, 0)
+    let offset = 0
+
+    // pubOnly flag reserved for firmware use. We currently always return formatted addresses.
+    payload.writeUInt8(0, offset)
+    offset += 1
+    payload.writeUInt8(count, offset)
+    offset += 1
+    // Reserved shim bytes
+    offset += 2
+
+    for (let i = 0; i < count; i++) {
+      const address = addresses[i] ?? ''
+      const addrBuf = Buffer.from(address, 'utf8')
+      addrBuf.copy(payload, offset, 0, Math.min(addrBuf.length, addrStrLen - 1))
+      offset += addrStrLen
+    }
+
+    return payload
+  }
+
+  private deriveWalletJobAddress(
+    path: number[],
+    bip32Master: BIP32Interface,
+    coinType: 'BTC' | 'ETH' | 'SOL',
+  ): { address: string; publicKey?: Buffer } {
+    const pathString = formatDerivationPath(path as WalletPath)
+    const node = bip32Master.derivePath(pathString)
+
+    if (!node.privateKey || !node.publicKey) {
+      throw new Error('Derived node missing key material')
+    }
+
+    const publicKey = Buffer.from(node.publicKey)
+
+    if (coinType === 'BTC') {
+      initBitcoinLibs()
+      const purpose = path[0]
+      const network =
+        path.length > 1 && path[1] === HARDENED_OFFSET + 1
+          ? bitcoin.networks.testnet
+          : bitcoin.networks.bitcoin
+
+      let payment
+      if (purpose === HARDENED_OFFSET + 84) {
+        payment = bitcoin.payments.p2wpkh({ pubkey: publicKey, network })
+      } else if (purpose === HARDENED_OFFSET + 49) {
+        const redeem = bitcoin.payments.p2wpkh({ pubkey: publicKey, network })
+        payment = bitcoin.payments.p2sh({ redeem, network })
+      } else {
+        payment = bitcoin.payments.p2pkh({ pubkey: publicKey, network })
+      }
+
+      if (!payment?.address) {
+        throw new Error('Failed to derive bitcoin address')
+      }
+
+      console.error('[ProtocolHandler] Derived BTC address', {
+        path: pathString,
+        address: payment.address,
+        publicKey: publicKey.toString('hex'),
+      })
+
+      return { address: payment.address, publicKey }
+    }
+
+    // Default to Ethereum-style derivation for ETH and other EVM chains
+    const addr = `0x${privateToAddress(Buffer.from(node.privateKey)).toString('hex')}`
+    return { address: addr, publicKey }
+  }
+
+  private normalizeAddress(address: string): string {
+    if (address && address.startsWith('0x')) {
+      return address.toLowerCase()
+    }
+    return address
   }
 
   // Request parsing methods (simplified for simulation)
@@ -925,6 +1432,7 @@ export class ProtocolHandler {
     offset += 1
 
     const pathLength = pathDepth_IterIdx & 0x0f
+    const rawIterIdx = (pathDepth_IterIdx >> 4) & 0x0f
 
     // Parse startPath (20 bytes = 5 × 4-byte values)
     const startPath: number[] = []
@@ -943,7 +1451,11 @@ export class ProtocolHandler {
     const n = countVal_flagVal & 0x0f
     const flag = (countVal_flagVal >> 4) & 0x0f
 
-    return { startPath, n, flag }
+    // When iterIdx is 0, it means "use default behavior" which is to iterate on the last index
+    // This matches the Lattice firmware behavior
+    const iterIdx = rawIterIdx === 0 ? pathLength - 1 : rawIterIdx
+
+    return { startPath, n, flag, iterIdx }
   }
 
   private parseSignRequest(data: Buffer): SignRequest {

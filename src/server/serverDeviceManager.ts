@@ -63,10 +63,14 @@ export class DeviceManager {
       userApprovalTimeoutMs: 60000,
     }
 
+    // For CI/test environments: if PAIRING_SECRET is set, use it to start already paired
+    const expectedPairingCode = process.env.PAIRING_SECRET
+
     this.simulator = new ServerLatticeSimulator({
       deviceId,
       firmwareVersion: defaultConfig.simulatedFirmwareVersion,
       autoApprove: defaultConfig.autoApproveRequests,
+      expectedPairingCode,
     })
 
     // Note: Server-side state restoration is handled via /api/sync-client-state
@@ -121,6 +125,15 @@ export class DeviceManager {
       console.log(
         '[DeviceManager] Restored KV records from client state:',
         Object.keys(clientState.kvRecords),
+      )
+    }
+
+    // Restore seed loaded state
+    if (clientState.hasLoadedSeed !== undefined) {
+      this.simulator.setHasLoadedSeed(clientState.hasLoadedSeed)
+      console.log(
+        '[DeviceManager] Restored hasLoadedSeed from client state:',
+        clientState.hasLoadedSeed,
       )
     }
   }

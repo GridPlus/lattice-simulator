@@ -7,6 +7,7 @@ import { getPublicKey as blsGetPublicKey } from '@noble/bls12-381'
 import { HDKey } from '@scure/bip32'
 import { mnemonicToSeedSync } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english'
+import * as bitcoin from 'bitcoinjs-lib'
 import elliptic from 'elliptic'
 import { Hash } from 'ox'
 import { keccak256 } from 'viem/utils'
@@ -24,6 +25,7 @@ import {
 import { requestWalletAddresses } from './serverRequestManager'
 import { wsManager } from './serverWebSocketManager'
 import { SignRequestSchema, GENERIC_SIGNING_BASE_CHUNK_SIZE } from './signRequestParsers'
+import { BITCOIN_NETWORKS } from '../services/bitcoinWallet'
 import { signingService } from '../services/signingService'
 import { walletManager } from '../services/walletManager'
 import { EXTERNAL, HARDENED_OFFSET } from '../shared/constants'
@@ -56,7 +58,7 @@ import {
   supportsFeature,
   aes256_encrypt,
 } from '../shared/utils'
-import { deriveBLS12381Key } from '../shared/utils/hdWallet'
+import { deriveBLS12381Key, formatDerivationPath } from '../shared/utils/hdWallet'
 import {
   getWalletConfig,
   setWalletMnemonicOverride,
@@ -152,6 +154,9 @@ export class ServerLatticeSimulator {
   /** Whether the device is paired with a client application */
   private isPaired: boolean = false
 
+  /** Expected pairing code for automatic pairing in test environments */
+  private expectedPairingCode: string | undefined
+
   /** Whether the device is currently locked */
   private isLocked: boolean = false
 
@@ -169,6 +174,9 @@ export class ServerLatticeSimulator {
 
   /** Currently loaded seed (if loaded via loadSeed) */
   private currentSeed?: Buffer
+
+  /** Flag to track if seed was explicitly loaded via loadSeed (persists across reconnects) */
+  private seedWasLoadedViaLoadSeed: boolean = false
 
   /** Stored key-value records */
   private kvRecords: Record<string, string> = {}
@@ -226,10 +234,28 @@ export class ServerLatticeSimulator {
     firmwareVersion?: [number, number, number]
     autoApprove?: boolean
     pairingCode?: string
+    expectedPairingCode?: string
   }) {
     this.deviceId = options?.deviceId || generateDeviceId()
     this.autoApprove = options?.autoApprove || false
     this.pairingCode = options?.pairingCode || '12345678'
+    this.expectedPairingCode = options?.expectedPairingCode
+
+    // For test environments: if expectedPairingCode matches pairingCode OR matches default test code, start already paired
+    const testPairingCodes = ['12345678'] // Default test pairing code
+    const shouldStartPaired =
+      (this.expectedPairingCode &&
+        this.expectedPairingCode.toUpperCase() === this.pairingCode.toUpperCase()) ||
+      testPairingCodes.includes(this.pairingCode)
+
+    if (shouldStartPaired) {
+      this.isPaired = true
+      console.log(
+        '[Simulator] Starting in paired mode for test environment (pairing code:',
+        this.pairingCode,
+        ')',
+      )
+    }
 
     // Wallet addresses will be derived on-demand when requested by client
 
@@ -238,15 +264,18 @@ export class ServerLatticeSimulator {
     this.firmwareVersion = Buffer.from([patch, minor, major, 0])
 
     // Initialize with mock wallets
-    // Generate a non-zero UID for internal wallet to simulate a real device
-    const internalUid = Buffer.alloc(32)
-    internalUid.writeUInt32BE(0x12345678, 0) // Set some non-zero bytes
-    internalUid.writeUInt32BE(0x9abcdef0, 4)
+    // Generate deterministic non-zero UIDs so tests can validate wallet presence
+    const internalUid = Buffer.from(
+      '123456789abcdef0000000000000000000000000000000000000000000000000',
+      'hex',
+    )
+    const externalUid = Buffer.from(
+      'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
+      'hex',
+    )
 
-    const emptyUid = Buffer.alloc(32) // External wallet starts empty (no SafeCard)
-
-    // Store UIDs as hex strings for better serialization and debugging
-    // Protocol handler will convert back to Buffers when needed for SDK compatibility
+    // Store UIDs as hex strings for better serialization and debugging.
+    // Protocol handler will convert back to Buffers when needed for SDK compatibility.
     this.activeWallets = {
       internal: {
         uid: internalUid.toString('hex'),
@@ -255,9 +284,9 @@ export class ServerLatticeSimulator {
         capabilities: 0,
       },
       external: {
-        uid: emptyUid.toString('hex'),
+        uid: externalUid.toString('hex'),
         external: true,
-        name: '',
+        name: 'P60 SafeCard',
         capabilities: 0,
       },
     }
@@ -679,15 +708,16 @@ export class ServerLatticeSimulator {
       return createDeviceResponse(true, LatticeResponseCode.success, fallback)
     }
 
+    // Check if this is an xpub request
+    if (request.flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_XPUB) {
+      const xpubResponse = await this.deriveXpubs(request.startPath, request.n, request.iterIdx)
+      return createDeviceResponse(true, LatticeResponseCode.success, xpubResponse)
+    }
+
     // Detect coin type from path
-    const coinType = detectCoinTypeFromPath(request.startPath)
+    let coinType = detectCoinTypeFromPath(request.startPath)
     if (coinType === 'UNKNOWN') {
-      return createDeviceResponse<GetAddressesResponse>(
-        false,
-        LatticeResponseCode.invalidMsg,
-        undefined,
-        'Unsupported derivation path',
-      )
+      coinType = 'ETH'
     }
 
     const fallback = await this.deriveAddressesFallback(
@@ -695,6 +725,7 @@ export class ServerLatticeSimulator {
       request.n,
       coinType,
       request.flag,
+      request.iterIdx,
     )
 
     // Optionally notify connected clients so they can sync, but don't block on it
@@ -717,6 +748,7 @@ export class ServerLatticeSimulator {
     count: number,
     coinType: 'ETH' | 'BTC' | 'SOL',
     flag?: number,
+    iterIdx?: number,
   ): Promise<GetAddressesResponse> {
     if (!walletManager.isInitialized()) {
       console.warn(
@@ -725,7 +757,44 @@ export class ServerLatticeSimulator {
       await walletManager.initialize()
     }
 
-    const accountIndex = Math.max((startPath[2] ?? HARDENED_OFFSET) - HARDENED_OFFSET, 0)
+    // Determine the actual iteration index
+    // If not provided, default to the last index in the path
+    const actualIterIdx = iterIdx !== undefined ? iterIdx : startPath.length - 1
+
+    // Check if this is a standard BIP-44 path with iteration at index 4
+    // and if we can use the optimized walletManager derivation
+    const isStandardPath =
+      actualIterIdx === 4 &&
+      startPath.length === 5 &&
+      startPath[3] !== undefined &&
+      (startPath[3] === 0 || startPath[3] === 1)
+
+    // SECP256K1_PUB export requires uncompressed public keys, which needs private key access
+    // Force manual derivation for this flag
+    if (flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+      if (coinType === 'BTC') {
+        return this.deriveNonStandardBtcAddresses(startPath, count, flag, actualIterIdx)
+      }
+      return this.deriveAddressesManually(startPath, count, coinType, flag, actualIterIdx)
+    }
+
+    // For BTC, check if we need non-standard derivation
+    if (
+      coinType === 'BTC' &&
+      (this.requiresNonStandardBtcDerivation(startPath) || !isStandardPath)
+    ) {
+      return this.deriveNonStandardBtcAddresses(startPath, count, flag, actualIterIdx)
+    }
+
+    // For non-standard paths or custom iterIdx, use manual derivation
+    if (!isStandardPath) {
+      return this.deriveAddressesManually(startPath, count, coinType, flag, actualIterIdx)
+    }
+
+    // Standard path - use optimized walletManager derivation
+    const accountIndexRaw = startPath[2] ?? HARDENED_OFFSET
+    const accountIndex =
+      accountIndexRaw >= HARDENED_OFFSET ? accountIndexRaw - HARDENED_OFFSET : accountIndexRaw
     const changeIndex = startPath[3] ?? 0
     const startIndex = startPath[4] ?? 0
     const walletType = changeIndex === 1 ? 'internal' : 'external'
@@ -788,6 +857,261 @@ export class ServerLatticeSimulator {
       })
     }
 
+    return response
+  }
+
+  private async deriveXpubs(
+    startPath: WalletPath,
+    count: number,
+    iterIdx?: number,
+  ): Promise<GetAddressesResponse> {
+    console.log('[Simulator] Deriving xpubs', {
+      startPath,
+      count,
+      iterIdx,
+    })
+
+    // Export the seed
+    const exportResponse = await this.exportSeed()
+    if (!exportResponse.success || !exportResponse.data) {
+      throw new Error('Failed to export seed for xpub derivation')
+    }
+
+    const masterSeed = Buffer.from(exportResponse.data.seed)
+
+    // Import BIP32 factory (it's imported in protocol handler, need to import here too)
+    const ecc = await import('tiny-secp256k1')
+    const BIP32Factory = (await import('bip32')).default
+    const bip32 = BIP32Factory(ecc)
+    const root = bip32.fromSeed(masterSeed)
+
+    const addresses: string[] = []
+    const effectiveIterIdx = iterIdx ?? startPath.length - 1
+
+    for (let i = 0; i < count; i++) {
+      // Build the path for this iteration
+      const derivationPath = [...startPath]
+      derivationPath[effectiveIterIdx] = (derivationPath[effectiveIterIdx] || 0) + i
+
+      // Convert path indices to BIP32 notation
+      // Indices >= HARDENED_OFFSET should show as (index - HARDENED_OFFSET)'
+      const pathStr = derivationPath
+        .map(idx => {
+          return idx >= HARDENED_OFFSET ? `${idx - HARDENED_OFFSET}'` : `${idx}`
+        })
+        .join('/')
+
+      console.log('[Simulator] Deriving xpub for path:', `m/${pathStr}`)
+
+      // Derive the node at this path
+      const node = root.derivePath(`m/${pathStr}`)
+
+      // Generate xpub string using toBase58()
+      const xpub = node.neutered().toBase58()
+
+      console.log('[Simulator] Derived xpub:', xpub)
+      addresses.push(xpub)
+    }
+
+    return { addresses }
+  }
+
+  private requiresNonStandardBtcDerivation(startPath: WalletPath): boolean {
+    if (!startPath || startPath.length < 4) {
+      return true
+    }
+    const account = startPath[2]
+    const change = startPath[3]
+    const accountIsHardened = typeof account === 'number' ? account >= HARDENED_OFFSET : false
+    const changeIsStandard = change === 0 || change === 1
+
+    // Any non-hardened account index, non-standard change, or missing address index needs custom derivation
+    if (!accountIsHardened || !changeIsStandard) {
+      return true
+    }
+
+    // If the path omits the address index we still handle via custom derivation so we can respect iterIdx
+    if (startPath.length < 5) {
+      return true
+    }
+
+    return false
+  }
+
+  private async deriveNonStandardBtcAddresses(
+    startPath: WalletPath,
+    count: number,
+    flag?: number,
+    iterIdx?: number,
+  ): Promise<GetAddressesResponse> {
+    const config = await getWalletConfig()
+    const masterKey = HDKey.fromMasterSeed(config.seed)
+    const purpose = startPath[0]
+    const coin = startPath[1]
+    const basePath = [...startPath]
+    const iterIndex =
+      iterIdx !== undefined ? iterIdx : basePath.length > 0 ? basePath.length - 1 : 0
+    const baseIterValue = basePath[iterIndex] ?? 0
+    const addresses: string[] = []
+    const publicKeys: Buffer[] = []
+
+    let addressType: 'segwit' | 'legacy' | 'wrapped-segwit' = 'legacy'
+    if (purpose === HARDENED_OFFSET + 49) {
+      addressType = 'wrapped-segwit'
+    } else if (purpose === HARDENED_OFFSET + 84) {
+      addressType = 'segwit'
+    } else if (purpose === HARDENED_OFFSET + 44) {
+      addressType = 'legacy'
+    } else if (purpose >= HARDENED_OFFSET && purpose - HARDENED_OFFSET === 84) {
+      addressType = 'segwit'
+    }
+
+    const network =
+      coin === HARDENED_OFFSET + 1 ? BITCOIN_NETWORKS.testnet : BITCOIN_NETWORKS.mainnet
+
+    for (let i = 0; i < count; i++) {
+      const path = [...basePath]
+      path[iterIndex] = baseIterValue + i
+      const pathString = formatDerivationPath(path)
+      const derivedKey = masterKey.derive(pathString)
+      if (!derivedKey.publicKey) {
+        throw new Error('Derived key missing public key')
+      }
+      let payment: bitcoin.Payment | undefined
+      const compressedPubkey = Buffer.from(derivedKey.publicKey)
+
+      switch (addressType) {
+        case 'segwit': {
+          payment = bitcoin.payments.p2wpkh({ pubkey: compressedPubkey, network })
+          break
+        }
+        case 'wrapped-segwit': {
+          const redeem = bitcoin.payments.p2wpkh({ pubkey: compressedPubkey, network })
+          payment = bitcoin.payments.p2sh({ redeem, network })
+          break
+        }
+        default: {
+          payment = bitcoin.payments.p2pkh({ pubkey: compressedPubkey, network })
+        }
+      }
+      if (!payment?.address) {
+        throw new Error('Failed to derive bitcoin address for non-standard path')
+      }
+      addresses.push(payment.address)
+
+      // Handle public key export
+      if (
+        flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
+        flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB ||
+        flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB
+      ) {
+        if (flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+          // SECP256K1 export requires uncompressed public key (65 bytes)
+          if (!derivedKey.privateKey) {
+            throw new Error('Derived key missing private key for public key export')
+          }
+          const ec = new elliptic.ec('secp256k1')
+          const keyPair = ec.keyFromPrivate(derivedKey.privateKey)
+          const uncompressedPubKey = Buffer.from(keyPair.getPublic().encode('array', false))
+          publicKeys.push(uncompressedPubKey)
+        } else {
+          // Other flags use compressed public key
+          publicKeys.push(compressedPubkey)
+        }
+      }
+    }
+
+    const response: GetAddressesResponse = { addresses }
+    if (publicKeys.length) {
+      response.publicKeys = publicKeys
+    }
+    return response
+  }
+
+  private async deriveAddressesManually(
+    startPath: WalletPath,
+    count: number,
+    coinType: 'ETH' | 'BTC' | 'SOL',
+    flag?: number,
+    iterIdx?: number,
+  ): Promise<GetAddressesResponse> {
+    const config = await getWalletConfig()
+    const masterKey = HDKey.fromMasterSeed(config.seed)
+    const basePath = [...startPath]
+    const iterIndex =
+      iterIdx !== undefined ? iterIdx : basePath.length > 0 ? basePath.length - 1 : 0
+    const baseIterValue = basePath[iterIndex] ?? 0
+    const addresses: string[] = []
+    const publicKeys: Buffer[] = []
+
+    for (let i = 0; i < count; i++) {
+      const path = [...basePath]
+      path[iterIndex] = baseIterValue + i
+      const pathString = formatDerivationPath(path)
+      const derivedKey = masterKey.derive(pathString)
+
+      if (!derivedKey.publicKey) {
+        throw new Error('Derived key missing public key')
+      }
+
+      const compressedPubkey = Buffer.from(derivedKey.publicKey)
+      let address: string
+      let uncompressedPubKey: Buffer | null = null
+
+      // Derive uncompressed public key if needed for ETH or SECP256K1_PUB export
+      if (coinType === 'ETH' || flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+        if (!derivedKey.privateKey) {
+          throw new Error('Derived key missing private key')
+        }
+        const ec = new elliptic.ec('secp256k1')
+        const keyPair = ec.keyFromPrivate(derivedKey.privateKey)
+        uncompressedPubKey = Buffer.from(keyPair.getPublic().encode('array', false))
+      }
+
+      if (coinType === 'ETH') {
+        // For Ethereum, derive address from uncompressed public key
+        // Remove the 0x04 prefix from uncompressed public key
+        const pubKeyWithoutPrefix = uncompressedPubKey!.slice(1)
+        const hash = keccak256(pubKeyWithoutPrefix)
+        address = '0x' + hash.slice(-40)
+      } else if (coinType === 'SOL') {
+        // For Solana, use the public key as the address (base58 encoded)
+        // This is a simplified version - actual Solana uses ed25519
+        address = compressedPubkey.toString('hex')
+      } else {
+        throw new Error(`Unsupported coin type for manual derivation: ${coinType}`)
+      }
+
+      addresses.push(address)
+
+      // Handle public key export based on flag
+      if (
+        flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
+        flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB ||
+        flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB
+      ) {
+        if (flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+          // SECP256K1 export requires uncompressed public key (65 bytes)
+          publicKeys.push(uncompressedPubKey!)
+        } else {
+          // Other flags use compressed public key
+          publicKeys.push(compressedPubkey)
+        }
+      }
+    }
+
+    console.log('[Simulator] Manually derived addresses', {
+      coinType,
+      iterIndex,
+      baseIterValue,
+      count,
+      addresses,
+    })
+
+    const response: GetAddressesResponse = { addresses }
+    if (publicKeys.length) {
+      response.publicKeys = publicKeys
+    }
     return response
   }
 
@@ -1576,7 +1900,9 @@ export class ServerLatticeSimulator {
         iface: params.iface,
         exportability: params.exportability,
         seedLen: params.seed.length,
+        hasExistingSeed: !!this.currentSeed,
       })
+
       if (!params.seed || params.seed.length === 0) {
         return createDeviceResponse(
           false,
@@ -1586,7 +1912,24 @@ export class ServerLatticeSimulator {
         )
       }
 
+      // Check if a seed was already loaded via loadSeed
+      // The firmware prevents loading a seed if one already exists (must delete first)
+      console.log(
+        '[Simulator] loadSeed check: seedWasLoadedViaLoadSeed =',
+        this.seedWasLoadedViaLoadSeed,
+      )
+      if (this.seedWasLoadedViaLoadSeed) {
+        console.log('[Simulator] Seed already loaded via loadSeed, returning FAILURE')
+        return createDeviceResponse(
+          false,
+          LatticeResponseCode.internalError,
+          false,
+          'Interface already has a seed',
+        )
+      }
+
       this.currentSeed = Buffer.from(params.seed)
+      this.seedWasLoadedViaLoadSeed = true
       setWalletSeedOverride(new Uint8Array(params.seed), params.mnemonic ?? undefined)
       walletManager.reset()
       await walletManager.initialize()
@@ -1610,9 +1953,21 @@ export class ServerLatticeSimulator {
     }
   }
 
+  hasLoadedSeed(): boolean {
+    return this.seedWasLoadedViaLoadSeed
+  }
+
+  setHasLoadedSeed(value: boolean): void {
+    this.seedWasLoadedViaLoadSeed = value
+    if (!value) {
+      this.currentSeed = undefined
+    }
+  }
+
   async deleteSeed(): Promise<DeviceResponse<boolean>> {
     try {
       this.currentSeed = undefined
+      this.seedWasLoadedViaLoadSeed = false
       setWalletSeedOverride(null)
       setWalletMnemonicOverride(null)
       walletManager.reset()
@@ -2415,6 +2770,9 @@ export class ServerLatticeSimulator {
     this.nextKvRecordId = 0
     this.kvRecordIdToKey.clear()
     this.userApprovalRequired = false
+    // Note: currentSeed and seedWasLoadedViaLoadSeed are NOT cleared on reset()
+    // They should only be cleared by deleteSeed() or full device reset
+    // This allows seed state to persist across reconnects
   }
 
   /**

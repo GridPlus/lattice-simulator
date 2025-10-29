@@ -227,6 +227,7 @@ export interface GetAddressesRequest {
   startPath: WalletPath
   n: number
   flag?: number
+  iterIdx?: number
 }
 
 export interface GetAddressesResponse {
