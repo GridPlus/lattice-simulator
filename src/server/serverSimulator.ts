@@ -58,12 +58,14 @@ import {
   supportsFeature,
   aes256_encrypt,
 } from '../shared/utils'
+import { resolveTinySecp } from '../shared/utils/ecc'
 import { deriveBLS12381Key, formatDerivationPath } from '../shared/utils/hdWallet'
 import {
   getWalletConfig,
   setWalletMnemonicOverride,
   setWalletSeedOverride,
 } from '../shared/walletConfig'
+import type { Network } from 'bitcoinjs-lib'
 
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'
 
@@ -100,6 +102,71 @@ function decodeBase58(value: string): Buffer {
   }
 
   return Buffer.from(digits.reverse())
+}
+
+type ExtendedKeyType = 'xpub' | 'ypub' | 'zpub'
+type ExtendedKeyNetwork = 'mainnet' | 'testnet'
+
+const BTC_EXTENDED_KEY_VERSIONS = {
+  mainnet: {
+    xpub: { public: 0x0488b21e, private: 0x0488ade4 },
+    ypub: { public: 0x049d7cb2, private: 0x049d7878 },
+    zpub: { public: 0x04b24746, private: 0x04b2430c },
+  },
+  testnet: {
+    xpub: { public: 0x043587cf, private: 0x04358394 },
+    ypub: { public: 0x044a5262, private: 0x044a4e28 },
+    zpub: { public: 0x045f1cf6, private: 0x045f18bc },
+  },
+} as const
+
+function normalizePathIndex(value?: number): number | undefined {
+  if (typeof value !== 'number') {
+    return undefined
+  }
+  return value >= HARDENED_OFFSET ? value - HARDENED_OFFSET : value
+}
+
+function determineExtendedKeyType(purpose?: number): ExtendedKeyType {
+  const normalizedPurpose = normalizePathIndex(purpose)
+  if (normalizedPurpose === 49) {
+    return 'ypub'
+  }
+  if (normalizedPurpose === 84) {
+    return 'zpub'
+  }
+  return 'xpub'
+}
+
+function determineExtendedKeyNetwork(coinType?: number): ExtendedKeyNetwork {
+  const normalizedCoinType = normalizePathIndex(coinType)
+  return normalizedCoinType === 1 ? 'testnet' : 'mainnet'
+}
+
+function getExtendedKeyMetadataForPath(path: WalletPath): {
+  keyType: ExtendedKeyType
+  networkName: ExtendedKeyNetwork
+  network: Network
+} {
+  const keyType = determineExtendedKeyType(path[0])
+  const networkName = determineExtendedKeyNetwork(path[1])
+  const baseNetwork =
+    networkName === 'testnet' ? bitcoin.networks.testnet : bitcoin.networks.bitcoin
+  const versions = BTC_EXTENDED_KEY_VERSIONS[networkName][keyType]
+  const network: Network = {
+    ...baseNetwork,
+    bip32: {
+      ...baseNetwork.bip32,
+      public: versions.public,
+      private: versions.private,
+    },
+  }
+
+  return {
+    keyType,
+    networkName,
+    network,
+  }
 }
 
 interface MessageChunkSegment {
@@ -880,9 +947,10 @@ export class ServerLatticeSimulator {
     const masterSeed = Buffer.from(exportResponse.data.seed)
 
     // Import BIP32 factory (it's imported in protocol handler, need to import here too)
-    const ecc = await import('tiny-secp256k1')
-    const BIP32Factory = (await import('bip32')).default
-    const bip32 = BIP32Factory(ecc)
+    const tinySecp = await import('tiny-secp256k1')
+    const ecc = resolveTinySecp(tinySecp as any)
+    const { BIP32Factory } = await import('bip32')
+    const bip32 = BIP32Factory(ecc as any)
     const root = bip32.fromSeed(masterSeed)
 
     const addresses: string[] = []
@@ -901,16 +969,19 @@ export class ServerLatticeSimulator {
         })
         .join('/')
 
-      console.log('[Simulator] Deriving xpub for path:', `m/${pathStr}`)
+      const { keyType, networkName, network } = getExtendedKeyMetadataForPath(derivationPath)
+
+      console.log('[Simulator] Deriving', keyType, 'for path:', `m/${pathStr}`, `(${networkName})`)
 
       // Derive the node at this path
       const node = root.derivePath(`m/${pathStr}`)
+      node.network = network
 
       // Generate xpub string using toBase58()
-      const xpub = node.neutered().toBase58()
+      const extendedKey = node.neutered().toBase58()
 
-      console.log('[Simulator] Derived xpub:', xpub)
-      addresses.push(xpub)
+      console.log('[Simulator] Derived', keyType, extendedKey)
+      addresses.push(extendedKey)
     }
 
     return { addresses }

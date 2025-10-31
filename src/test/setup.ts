@@ -1,23 +1,26 @@
 import { cleanup } from '@testing-library/react'
 import { afterEach, beforeAll } from 'vitest'
 import '@testing-library/jest-dom'
+import { resolveTinySecp } from '../shared/utils/ecc'
 
 // Initialize Bitcoin crypto libraries for tests running in Node.js environment
 beforeAll(async () => {
   // Only initialize Bitcoin libraries if we're in a Node.js environment
   if (typeof window === 'undefined') {
     try {
-      const [bitcoin, ECPair, ecc] = await Promise.all([
+      const [bitcoin, ECPair, tinySecp] = await Promise.all([
         import('bitcoinjs-lib'),
         import('ecpair'),
         import('tiny-secp256k1'),
       ])
 
+      const ecc = resolveTinySecp(tinySecp as any)
+
       // Initialize bitcoinjs-lib with secp256k1 implementation
-      bitcoin.initEccLib(ecc)
+      bitcoin.initEccLib(ecc as any)
 
       // Initialize ECPair factory
-      ECPair.default(ecc)
+      ECPair.default(ecc as any)
     } catch (error) {
       console.error('Failed to initialize Bitcoin crypto libraries in test setup:', error)
     }

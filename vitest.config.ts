@@ -17,9 +17,11 @@ export default defineConfig({
         'src/test/setup.ts',
       ],
     },
-    // Use Node.js environment for Bitcoin wallet tests
+    // Use Node.js environment for Bitcoin-related tests (requires tiny-secp256k1 initialization)
     environmentMatchGlobs: [
       ['**/bitcoinWallet.test.ts', 'node'],
+      ['**/signingService.bitcoin.test.ts', 'node'],
+      ['**/serverSimulator.xpub.test.ts', 'node'],
     ],
   },
   resolve: {

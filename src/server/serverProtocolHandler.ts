@@ -10,7 +10,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import crc32 from 'crc-32'
 import elliptic from 'elliptic'
 import { privateToAddress } from 'ethereumjs-util'
-import * as ecc from 'tiny-secp256k1'
+import * as tinySecp from 'tiny-secp256k1'
 import {
   requestKvRecords,
   requestAddKvRecords,
@@ -31,17 +31,20 @@ import {
   type WalletPath,
 } from '../shared/types'
 import { aes256_decrypt, aes256_encrypt, generateKeyPair } from '../shared/utils/crypto'
+import { resolveTinySecp } from '../shared/utils/ecc'
 import { formatDerivationPath } from '../shared/utils/hdWallet'
 import { detectCoinTypeFromPath } from '../shared/utils/protocol'
 import type { ServerLatticeSimulator } from './serverSimulator'
 
 const secp256k1 = new elliptic.ec('secp256k1')
 let bitcoinInitialized = false
-const bip32 = BIP32Factory(ecc)
+const ecc = resolveTinySecp(tinySecp)
+let bip32: ReturnType<typeof BIP32Factory> | null = null
 
 const initBitcoinLibs = () => {
   if (!bitcoinInitialized) {
-    bitcoin.initEccLib(ecc)
+    bitcoin.initEccLib(ecc as any)
+    bip32 = BIP32Factory(ecc as any)
     bitcoinInitialized = true
   }
 }
@@ -838,12 +841,13 @@ export class ProtocolHandler {
           }
 
           try {
+            initBitcoinLibs()
             const exportResponse = await this.simulator.exportSeed()
             if (!exportResponse.success || !exportResponse.data) {
               throw new Error('Failed to fetch seed for address derivation')
             }
             const masterSeed = Buffer.from(exportResponse.data.seed)
-            const bip32Master = bip32.fromSeed(masterSeed)
+            const bip32Master = bip32!.fromSeed(masterSeed)
 
             const addresses: string[] = []
             const publicKeys: Buffer[] = []
@@ -981,7 +985,7 @@ export class ProtocolHandler {
               throw new Error('No seed available for signing')
             }
             const masterSeed = Buffer.from(exportResponse.data.seed)
-            const bip32Root = BIP32Factory(ecc).fromSeed(masterSeed)
+            const bip32Root = BIP32Factory(ecc as any).fromSeed(masterSeed)
 
             const outputs = []
             for (const req of signatureRequests) {

@@ -5,7 +5,8 @@
 
 import * as bitcoin from 'bitcoinjs-lib'
 import ECPair, { type ECPairInterface } from 'ecpair'
-import * as ecc from 'tiny-secp256k1'
+import * as tinySecp from 'tiny-secp256k1'
+import { resolveTinySecp } from '../shared/utils/ecc'
 import { deriveMultipleKeys, getDerivationInfo } from '../shared/utils/hdWallet'
 import type {
   BitcoinWalletAccount,
@@ -18,6 +19,7 @@ import type { HDKey } from '@scure/bip32'
 // Lazy initialization to avoid SSR issues
 let isInitialized = false
 let ECPairFactory: ReturnType<typeof ECPair>
+const ecc = resolveTinySecp(tinySecp)
 
 function initializeBitcoinLibs() {
   if (isInitialized) {
@@ -26,10 +28,10 @@ function initializeBitcoinLibs() {
 
   try {
     // Initialize bitcoinjs-lib with secp256k1 implementation
-    bitcoin.initEccLib(ecc)
+    bitcoin.initEccLib(ecc as any)
 
     // Initialize ECPair factory with secp256k1
-    ECPairFactory = ECPair(ecc)
+    ECPairFactory = ECPair(ecc as any)
 
     isInitialized = true
   } catch (error) {

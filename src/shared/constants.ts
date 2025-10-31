@@ -80,6 +80,11 @@ export const DERIVATION_PATHS = {
   LEDGER_LEGACY: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0],
 } as const
 
+// String derivations for Bitcoin extended keys
+export const BTC_LEGACY_XPUB_PATH = "44'/0'/0'"
+export const BTC_WRAPPED_SEGWIT_YPUB_PATH = "49'/0'/0'"
+export const BTC_SEGWIT_ZPUB_PATH = "84'/0'/0'"
+
 // Address sizes
 export const ADDRESS_SIZES = {
   BTC: 20, // 20 byte pubkeyhash

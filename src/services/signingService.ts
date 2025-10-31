@@ -14,7 +14,7 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as cbor from 'cbor'
 import { ec as EC } from 'elliptic'
 import { Hash } from 'ox'
-import * as ecc from 'tiny-secp256k1'
+import * as tinySecp from 'tiny-secp256k1'
 import { hashTypedData, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import bdec from 'cbor-bigdecimal'
@@ -27,6 +27,7 @@ import {
 } from '../shared/bitcoin'
 import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '../shared/constants'
 import { detectCoinTypeFromPath } from '../shared/utils'
+import { resolveTinySecp } from '../shared/utils/ecc'
 import {
   deriveHDKey,
   deriveEd25519Key,
@@ -54,6 +55,7 @@ if (!ed25519.hashes.sha512) {
 bdec(cbor)
 
 let bitcoinLibInitialized = false
+const ecc = resolveTinySecp(tinySecp)
 
 const ensureBitcoinLib = () => {
   if (!bitcoinLibInitialized) {
