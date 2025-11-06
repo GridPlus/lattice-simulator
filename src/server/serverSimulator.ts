@@ -7,6 +7,7 @@ import { getPublicKey as blsGetPublicKey } from '@noble/bls12-381'
 import { HDKey } from '@scure/bip32'
 import { mnemonicToSeedSync } from '@scure/bip39'
 import { wordlist } from '@scure/bip39/wordlists/english'
+import { Keypair } from '@solana/web3.js'
 import * as bitcoin from 'bitcoinjs-lib'
 import elliptic from 'elliptic'
 import { Hash } from 'ox'
@@ -59,7 +60,7 @@ import {
   aes256_encrypt,
 } from '../shared/utils'
 import { resolveTinySecp } from '../shared/utils/ecc'
-import { deriveBLS12381Key, formatDerivationPath } from '../shared/utils/hdWallet'
+import { deriveBLS12381Key, deriveEd25519Key, formatDerivationPath } from '../shared/utils/hdWallet'
 import {
   getWalletConfig,
   setWalletMnemonicOverride,
@@ -836,10 +837,13 @@ export class ServerLatticeSimulator {
       startPath[3] !== undefined &&
       (startPath[3] === 0 || startPath[3] === 1)
 
-    // SECP256K1_PUB export requires uncompressed public keys, which needs private key access
-    // Force manual derivation for this flag
-    if (flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
-      if (coinType === 'BTC') {
+    // Public key export flags require private key access for derivation
+    // Force manual derivation for these flags
+    if (
+      flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
+      flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB
+    ) {
+      if (coinType === 'BTC' && flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
         return this.deriveNonStandardBtcAddresses(startPath, count, flag, actualIterIdx)
       }
       return this.deriveAddressesManually(startPath, count, coinType, flag, actualIterIdx)
@@ -1106,6 +1110,14 @@ export class ServerLatticeSimulator {
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
+    console.log('[deriveAddressesManually] Called with:', {
+      startPath,
+      count,
+      coinType,
+      flag,
+      iterIdx,
+    })
+
     const config = await getWalletConfig()
     const masterKey = HDKey.fromMasterSeed(config.seed)
     const basePath = [...startPath]
@@ -1118,57 +1130,72 @@ export class ServerLatticeSimulator {
     for (let i = 0; i < count; i++) {
       const path = [...basePath]
       path[iterIndex] = baseIterValue + i
-      const pathString = formatDerivationPath(path)
-      const derivedKey = masterKey.derive(pathString)
-
-      if (!derivedKey.publicKey) {
-        throw new Error('Derived key missing public key')
-      }
-
-      const compressedPubkey = Buffer.from(derivedKey.publicKey)
       let address: string
-      let uncompressedPubKey: Buffer | null = null
+      let ed25519PubKey: Buffer | null = null
 
-      // Derive uncompressed public key if needed for ETH or SECP256K1_PUB export
-      if (coinType === 'ETH' || flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
-        if (!derivedKey.privateKey) {
-          throw new Error('Derived key missing private key')
-        }
-        const ec = new elliptic.ec('secp256k1')
-        const keyPair = ec.keyFromPrivate(derivedKey.privateKey)
-        uncompressedPubKey = Buffer.from(keyPair.getPublic().encode('array', false))
-      }
-
-      if (coinType === 'ETH') {
-        // For Ethereum, derive address from uncompressed public key
-        // Remove the 0x04 prefix from uncompressed public key
-        const pubKeyWithoutPrefix = uncompressedPubKey!.slice(1)
-        const hash = keccak256(pubKeyWithoutPrefix)
-        address = '0x' + hash.slice(-40)
-      } else if (coinType === 'SOL') {
-        // For Solana, use the public key as the address (base58 encoded)
-        // This is a simplified version - actual Solana uses ed25519
-        address = compressedPubkey.toString('hex')
+      if (coinType === 'SOL') {
+        console.log('[deriveAddressesManually] Deriving Solana address for path:', path)
+        // For Solana, use Ed25519 derivation
+        const { privateKey } = deriveEd25519Key(config.seed, path)
+        console.log(
+          '[deriveAddressesManually] Ed25519 private key (first 16 bytes):',
+          privateKey.toString('hex').substring(0, 32),
+        )
+        // Create Solana keypair from Ed25519 private key
+        const solanaKeypair = Keypair.fromSeed(privateKey)
+        address = solanaKeypair.publicKey.toBase58()
+        console.log('[deriveAddressesManually] Generated Solana address:', address)
+        ed25519PubKey = Buffer.from(solanaKeypair.publicKey.toBytes())
+        publicKeys.push(ed25519PubKey)
       } else {
-        throw new Error(`Unsupported coin type for manual derivation: ${coinType}`)
+        // For non-Solana coins, use secp256k1 derivation
+        const pathString = formatDerivationPath(path)
+        const derivedKey = masterKey.derive(pathString)
+
+        if (!derivedKey.publicKey) {
+          throw new Error('Derived key missing public key')
+        }
+
+        const compressedPubkey = Buffer.from(derivedKey.publicKey)
+        let uncompressedPubKey: Buffer | null = null
+
+        // Derive uncompressed public key if needed for ETH or SECP256K1_PUB export
+        if (coinType === 'ETH' || flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+          if (!derivedKey.privateKey) {
+            throw new Error('Derived key missing private key')
+          }
+          const ec = new elliptic.ec('secp256k1')
+          const keyPair = ec.keyFromPrivate(derivedKey.privateKey)
+          uncompressedPubKey = Buffer.from(keyPair.getPublic().encode('array', false))
+        }
+
+        if (coinType === 'ETH') {
+          // For Ethereum, derive address from uncompressed public key
+          // Remove the 0x04 prefix from uncompressed public key
+          const pubKeyWithoutPrefix = uncompressedPubKey!.slice(1)
+          const hash = keccak256(pubKeyWithoutPrefix)
+          address = '0x' + hash.slice(-40)
+        } else {
+          throw new Error(`Unsupported coin type for manual derivation: ${coinType}`)
+        }
+
+        // Handle public key export based on flag
+        if (
+          flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
+          flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB ||
+          flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB
+        ) {
+          if (flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+            // SECP256K1 export requires uncompressed public key (65 bytes)
+            publicKeys.push(uncompressedPubKey!)
+          } else {
+            // Other flags use compressed public key
+            publicKeys.push(compressedPubkey)
+          }
+        }
       }
 
       addresses.push(address)
-
-      // Handle public key export based on flag
-      if (
-        flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB ||
-        flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB ||
-        flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB
-      ) {
-        if (flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
-          // SECP256K1 export requires uncompressed public key (65 bytes)
-          publicKeys.push(uncompressedPubKey!)
-        } else {
-          // Other flags use compressed public key
-          publicKeys.push(compressedPubkey)
-        }
-      }
     }
 
     console.log('[Simulator] Manually derived addresses', {

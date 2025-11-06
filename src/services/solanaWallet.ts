@@ -42,6 +42,8 @@ export function createSolanaAccountFromHDKey(
   // Create Solana keypair from the private key bytes
   const keypair = Keypair.fromSeed(privateKeyBytes)
 
+  const address = keypair.publicKey.toBase58()
+
   // Create wallet account
   const account: SolanaWalletAccount = {
     id: `sol-${type}-${accountIndex}`,
@@ -53,8 +55,8 @@ export function createSolanaAccountFromHDKey(
     isActive: false,
     name: name || `Solana Account ${accountIndex}`,
     createdAt: Date.now(),
-    address: keypair.publicKey.toBase58(),
-    publicKey: keypair.publicKey.toBase58(),
+    address,
+    publicKey: address,
     privateKey: type === 'internal' ? Buffer.from(keypair.secretKey).toString('hex') : undefined, // Only store for internal accounts
   }
 

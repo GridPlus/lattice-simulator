@@ -5,6 +5,7 @@
 
 import { createHmac } from 'crypto'
 import { HDKey } from '@scure/bip32'
+import { Keypair } from '@solana/web3.js'
 import { deriveSeedTree } from 'bls12-381-keygen'
 import { HARDENED_OFFSET } from '../constants'
 import { getWalletConfig } from '../walletConfig'
@@ -168,19 +169,31 @@ export function deriveEd25519Key(
     throw new Error('Seed is required for Ed25519 derivation')
   }
 
+  console.log(
+    '[deriveEd25519Key] Starting derivation with path:',
+    derivationPath
+      .map(i => {
+        if (i >= HARDENED_OFFSET) {
+          return `${i - HARDENED_OFFSET}'`
+        }
+        return i.toString()
+      })
+      .join('/'),
+  )
+
   let keyMaterial = createHmac('sha512', ED25519_SEED_KEY).update(seed).digest()
   let privateKey = keyMaterial.subarray(0, 32)
   let chainCode = keyMaterial.subarray(32)
 
   for (const index of derivationPath) {
-    if (index < HARDENED_OFFSET) {
-      throw new Error('Ed25519 derivation requires hardened indices')
-    }
+    // For Ed25519, all indices should be hardened per SLIP-0010
+    // If an index is not hardened, make it hardened
+    const hardenedIndex = index < HARDENED_OFFSET ? index + HARDENED_OFFSET : index
 
     const data = Buffer.alloc(1 + privateKey.length + 4)
     data[0] = 0x00
     Buffer.from(privateKey).copy(data, 1)
-    data.writeUInt32BE(index, data.length - 4)
+    data.writeUInt32BE(hardenedIndex, data.length - 4)
 
     keyMaterial = createHmac('sha512', chainCode).update(data).digest()
     privateKey = keyMaterial.subarray(0, 32)
@@ -262,6 +275,38 @@ export async function deriveMultipleKeys(
   addressType: 'legacy' | 'segwit' | 'wrappedSegwit' = 'legacy',
 ): Promise<HDKey[]> {
   const config = await getWalletConfig()
+
+  // For Solana (Ed25519), we need special derivation
+  if (coinType === 'SOL') {
+    const keys: HDKey[] = []
+    for (let i = 0; i < count; i++) {
+      const addressIndex = startIndex + i
+      const path = generateDerivationPath(
+        coinType,
+        accountIndex,
+        isInternal,
+        addressIndex,
+        addressType,
+      )
+      const { privateKey } = deriveEd25519Key(config.seed, path)
+
+      // Derive Ed25519 public key from private key using Solana's Keypair
+      const keypair = Keypair.fromSeed(new Uint8Array(privateKey))
+      const publicKey = Buffer.from(keypair.publicKey.toBytes())
+
+      // Create a mock HDKey with the Ed25519 key pair
+      // Note: This is a workaround since HDKey is designed for secp256k1
+      const mockHDKey = {
+        privateKey,
+        publicKey,
+      } as unknown as HDKey
+
+      keys.push(mockHDKey)
+    }
+    return keys
+  }
+
+  // For other coins (secp256k1), use standard derivation
   const masterKey = HDKey.fromMasterSeed(config.seed)
 
   // Generate base derivation path (without final address index)

@@ -1843,8 +1843,9 @@ export class ProtocolHandler {
     let offset = 0
 
     // Calculate max addresses that can fit in the response
+    const pubkeyStride = flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB ? 113 : 65
     const maxAddresses = arePubkeys
-      ? Math.floor((respDataLength - 1) / 65)
+      ? Math.floor((respDataLength - 1) / pubkeyStride)
       : Math.floor(respDataLength / 129)
     const addressesToProcess = Math.min(addresses.length, maxAddresses)
 
@@ -1854,35 +1855,32 @@ export class ProtocolHandler {
     console.log(`[ProtocolHandler] isPubkeys: ${arePubkeys}, flag: ${flag}`)
 
     if (arePubkeys) {
-      // For public key responses, add count byte first
+      // For public key responses, add type flag byte first
       response.writeUInt8(flag & 0xff, offset)
       offset += 1
 
       // Write public keys as raw bytes (65 bytes each for secp256k1, 32 for ed25519, 48 for bls12_381)
       for (let i = 0; i < addressesToProcess; i++) {
+        const entryOffset = offset
         if (publicKeys && publicKeys[i]) {
           const pubKey = Buffer.isBuffer(publicKeys[i])
             ? publicKeys[i]
             : Buffer.from(String(publicKeys[i]), 'hex')
 
           // Write appropriate length based on curve type
-          if (flag === 4 /* ed25519Pubkey */) {
-            // Ed25519: 32 bytes, but still allocate 65 bytes for compatibility
-            pubKey.slice(0, 32).copy(response, offset)
-            offset += 65 // Always advance by 65 bytes as expected by decoder
-          } else if (flag === 5 /* bls12_381Pubkey */) {
-            // BLS12-381: 48 bytes, but still allocate 65 bytes for compatibility
-            pubKey.slice(0, 48).copy(response, offset)
-            offset += 65 // Always advance by 65 bytes as expected by decoder
+          if (flag === EXTERNAL.GET_ADDR_FLAGS.ED25519_PUB) {
+            // Ed25519: 32 bytes, but protocol reserves 113 bytes per entry
+            pubKey.copy(response, entryOffset, 0, Math.min(pubKey.length, 32))
+          } else if (flag === EXTERNAL.GET_ADDR_FLAGS.BLS12_381_G1_PUB) {
+            // BLS12-381: 48 bytes stored within 65-byte slot
+            pubKey.copy(response, entryOffset, 0, Math.min(pubKey.length, 48))
           } else {
             // secp256k1: 65 bytes
-            pubKey.slice(0, 65).copy(response, offset)
-            offset += 65
+            pubKey.copy(response, entryOffset, 0, Math.min(pubKey.length, 65))
           }
-        } else {
-          // Empty public key - just advance offset
-          offset += 65
         }
+        // Advance by the reserved stride for this pubkey type
+        offset += pubkeyStride
       }
     } else {
       // For address responses, write fixed-length null-terminated strings
