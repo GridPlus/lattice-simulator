@@ -15,6 +15,20 @@ pairing, wallet management, KV records, and request approval.
 
 See `docs/ARCHITECTURE.md` for a deeper component overview.
 
+## Key Features
+- **Multi-chain wallets** for Ethereum, Bitcoin, and Solana with BIP44 path
+  derivation and configurable firmware support.
+- **Secure pairing workflow** that mirrors the physical device, including
+  connection, pairing codes, and approval flows.
+- **Transaction + message signing** with simulated user approvals and data
+  normalization identical to the hardware wallet firmware.
+- **Address tags / KV records** stored client-side and synchronized to the
+  server on demand for SDK requests.
+- **Browser UI** (Next.js + Zustand) that exposes connection state, wallet
+  management, pending sign requests, and KV records.
+- **Testing hooks** via Vitest suites and utility endpoints (e.g.,
+  `app/api/test-kv-request`) to exercise protocol edges.
+
 ## Requirements
 
 - Node.js ≥ 18
