@@ -4,6 +4,15 @@ Software model of the GridPlus Lattice1 hardware wallet. It exposes the exact
 protocol surfaces the device firmware does, while providing a browser UI for
 pairing, wallet management, KV records, and request approval.
 
+## Security Warning
+- The simulator persists wallet data (including the active BIP-39 mnemonic and
+  derived accounts) in the browser’s `localStorage` under
+  `lattice-wallet-store`. **Only use test mnemonics / accounts** and treat the
+  machine/browser profile as sensitive, or disable persistence if you must
+  handle real secrets.
+- The custom HTTP/WebSocket servers do not enforce authentication; only bind to
+  `127.0.0.1` or add access controls before exposing them beyond localhost.
+
 ## Highlights
 - Full Lattice1 protocol stack: connect, pairing, wallets, KV, signing.
 - Segregated architecture (`src/server`, `src/client`, `src/shared`) with a
