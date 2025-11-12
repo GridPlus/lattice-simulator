@@ -26,8 +26,8 @@ See `docs/ARCHITECTURE.md` for a deeper component overview.
   server on demand for SDK requests.
 - **Browser UI** (Next.js + Zustand) that exposes connection state, wallet
   management, pending sign requests, and KV records.
-- **Testing hooks** via Vitest suites and utility endpoints (e.g.,
-  `app/api/test-kv-request`) to exercise protocol edges.
+- **Testing hooks** via Vitest suites and SDK integration tests to exercise
+  protocol edges.
 
 ## Requirements
 

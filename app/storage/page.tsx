@@ -9,7 +9,6 @@
 
 import { Plus, Database, Tag } from 'lucide-react'
 import React, { useState, useEffect } from 'react'
-import { ServerClientDebug } from '@/client/components/debug/ServerClientDebug'
 import { MainLayout } from '@/client/components/layout'
 import { AddKvRecordModal } from '@/client/components/storage/AddKvRecordModal'
 import { KvRecordsTable } from '@/client/components/storage/KvRecordsTable'
@@ -214,11 +213,6 @@ export default function StoragePage() {
           onAdd={handleAddRecord}
           loading={isLoading}
         />
-
-        {/* Debug Panel - Collapsible at bottom */}
-        <div className="mt-8">
-          <ServerClientDebug defaultCollapsed={true} />
-        </div>
       </div>
     </MainLayout>
   )
