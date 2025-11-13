@@ -14,7 +14,6 @@
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage",
-    "test:ts": "tsx src/test.ts",
     "type-check": "tsc --noEmit",
     "prepare": "husky"
   },
