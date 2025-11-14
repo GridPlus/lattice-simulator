@@ -450,11 +450,7 @@ function calculateRecoveryParam(
 
   for (let recovery = 0; recovery < 4; recovery++) {
     try {
-      const recovered = secp256k1.recoverPubKey(
-        messageHash,
-        { r: signature.r, s: signature.s },
-        recovery,
-      )
+      const recovered = secp256k1.recoverPubKey(messageHash, signature, recovery)
       if (recovered.encode('hex', false) === keyPair.getPublic().encode('hex', false)) {
         return recovery
       }
