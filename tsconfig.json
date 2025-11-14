@@ -29,8 +29,6 @@
       "@/utils/*": ["./src/shared/utils/*"],
       "@/types/*": ["./src/shared/types/*"],
       "@/store/*": ["./src/client/store/*"],
-      "gridplus-sdk": ["./types/gridplus-sdk/index"],
-      "gridplus-sdk/*": ["./types/gridplus-sdk/index"],
       "bls12-381-keygen": ["./types/bls12-381-keygen/index"],
       "cbor-bigdecimal": ["./types/cbor-bigdecimal/index"]
     }
