@@ -641,6 +641,17 @@ export class SigningService {
   ): Promise<SignatureResult> {
     ensureBitcoinLib()
 
+    if (this.isBitcoinTransactionRequest(request)) {
+      return this.signBitcoinTransaction(request, wallet)
+    }
+
+    return this.signBitcoinMessage(request, wallet)
+  }
+
+  private async signBitcoinTransaction(
+    request: SigningRequest,
+    wallet: BitcoinWalletAccount,
+  ): Promise<SignatureResult> {
     const rawPayload = request.rawPayload ?? request.data
     let parsed: ParsedBitcoinSignPayload | undefined = request.bitcoin
 
@@ -687,13 +698,11 @@ export class SigningService {
       return derivedKeyCache.get(cacheKey)!
     }
 
-    // Prepare transaction inputs (reverse hash for little-endian serialization)
     parsed.inputs.forEach(input => {
       const txHashLE = Buffer.from(input.txHash).reverse()
       tx.addInput(txHashLE, input.index)
     })
 
-    // Build recipient output
     const recipientVersionInfo = BITCOIN_VERSION_MAP[parsed.recipient.version]
     if (!recipientVersionInfo) {
       throw new Error(
@@ -727,7 +736,6 @@ export class SigningService {
 
     tx.addOutput(recipientPayment.output, toSafeNumber(parsed.recipient.value))
 
-    // Optionally add change output
     let changePubkeyHash: Buffer | undefined
     if (parsed.change.value > BigInt(0)) {
       if (!parsed.change.path || parsed.change.path.length === 0) {
@@ -811,6 +819,78 @@ export class SigningService {
         signatures: bitcoinSignatures,
       },
     }
+  }
+
+  private async signBitcoinMessage(
+    request: SigningRequest,
+    wallet: BitcoinWalletAccount,
+  ): Promise<SignatureResult> {
+    const derivationPath =
+      request.path && request.path.length > 0
+        ? request.path
+        : wallet.derivationPath && wallet.derivationPath.length > 0
+          ? wallet.derivationPath
+          : null
+
+    if (!derivationPath) {
+      throw new Error('Bitcoin message signing requires a derivation path')
+    }
+
+    const config = await getWalletConfig()
+    const derived = deriveHDKey(config.seed, derivationPath)
+    if (!derived.privateKey || !derived.publicKey) {
+      throw new Error('Failed to derive Bitcoin private key')
+    }
+
+    const privateKey = Buffer.from(derived.privateKey)
+    const keyPair = this.secp256k1.keyFromPrivate(privateKey)
+    const publicKeyUncompressed = keyPair.getPublic(false, 'hex')
+    const publicKeyCompressed = keyPair.getPublic(true, 'hex')
+
+    const messageBuffer = Buffer.isBuffer(request.data) ? request.data : Buffer.from(request.data)
+    const hashType = request.hashType ?? EXTERNAL.SIGNING.HASHES.SHA256
+    const digest = this.computeSecp256k1Digest(messageBuffer, hashType, request.isPrehashed)
+
+    const signature = this.secp256k1Sign(digest, privateKey)
+    const derSignature = this.formatDERSignature(signature.r, signature.s)
+
+    return {
+      signature: derSignature,
+      recovery: signature.recovery,
+      recoveryId: signature.recoveryId,
+      format: 'der',
+      metadata: {
+        publicKey: publicKeyUncompressed,
+        publicKeyCompressed,
+      },
+    }
+  }
+
+  private isBitcoinTransactionRequest(request: SigningRequest): boolean {
+    if (request.schema === SIGNING_SCHEMA.BTC_TRANSFER) {
+      return true
+    }
+    if (request.bitcoin && request.bitcoin.inputs.length > 0) {
+      return true
+    }
+    return false
+  }
+
+  private computeSecp256k1Digest(data: Buffer, hashType: number, isPrehashed?: boolean): Buffer {
+    if (isPrehashed) {
+      return data.length >= 32 ? Buffer.from(data.slice(0, 32)) : Buffer.from(data)
+    }
+
+    if (hashType === EXTERNAL.SIGNING.HASHES.NONE) {
+      return Buffer.from(data)
+    }
+
+    if (hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
+      return Buffer.from(createHash('sha256').update(data).digest())
+    }
+
+    const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data)
+    return Buffer.from(Hash.keccak256(buffer))
   }
 
   /**

@@ -5,6 +5,7 @@
 
 import * as bitcoin from 'bitcoinjs-lib'
 import ECPair, { type ECPairInterface } from 'ecpair'
+import { ec as EC } from 'elliptic'
 import * as tinySecp from 'tiny-secp256k1'
 import { resolveTinySecp } from '../shared/utils/ecc'
 import { deriveMultipleKeys, getDerivationInfo } from '../shared/utils/hdWallet'
@@ -20,6 +21,8 @@ import type { HDKey } from '@scure/bip32'
 let isInitialized = false
 let ECPairFactory: ReturnType<typeof ECPair>
 const ecc = resolveTinySecp(tinySecp)
+const secp256k1 = new EC('secp256k1')
+const BITCOIN_MESSAGE_PREFIX = 'Bitcoin Signed Message:\n'
 
 function initializeBitcoinLibs() {
   if (isInitialized) {
@@ -318,11 +321,29 @@ export async function signBitcoinMessage(
   try {
     const messageBuffer =
       typeof message === 'string' ? Buffer.from(message, 'utf8') : Buffer.from(message)
-    const messageHash = bitcoin.crypto.hash256(messageBuffer)
+    const prefix = Buffer.from(BITCOIN_MESSAGE_PREFIX, 'utf8')
+    const prefixLength = Buffer.alloc(1)
+    prefixLength.writeUInt8(prefix.length, 0)
+    const serialized = Buffer.concat([
+      prefixLength,
+      prefix,
+      encodeVarInt(messageBuffer.length),
+      messageBuffer,
+    ])
+    const messageHash = bitcoin.crypto.hash256(serialized)
 
-    // For now, just return a mock signature since we're focusing on address generation
-    // TODO: Fix tiny-secp256k1 TypeScript definitions to enable proper signing
-    return 'mock_signature_' + messageHash.toString('hex').slice(0, 16)
+    const ecKey = secp256k1.keyFromPrivate(Buffer.from(keyPair.privateKey))
+    const signature = ecKey.sign(messageHash, { canonical: true })
+    const recoveryParam = calculateRecoveryParam(messageHash, signature, ecKey)
+    const isCompressed = keyPair.compressed !== false
+    const header = 27 + recoveryParam + (isCompressed ? 4 : 0)
+
+    const signatureBuffer = Buffer.alloc(65)
+    signatureBuffer.writeUInt8(header, 0)
+    Buffer.from(signature.r.toArray('be', 32)).copy(signatureBuffer, 1)
+    Buffer.from(signature.s.toArray('be', 32)).copy(signatureBuffer, 33)
+
+    return signatureBuffer.toString('base64')
   } catch (error) {
     console.error('Error signing Bitcoin message:', error)
     return null
@@ -389,4 +410,58 @@ export function formatBitcoinAccountForDisplay(account: BitcoinWalletAccount) {
     isActive: account.isActive,
     balance: '0 BTC', // Would be fetched from blockchain in real implementation
   }
+}
+
+function encodeVarInt(value: number): Buffer {
+  if (value < 0xfd) {
+    const buf = Buffer.alloc(1)
+    buf.writeUInt8(value, 0)
+    return buf
+  }
+
+  if (value <= 0xffff) {
+    const buf = Buffer.alloc(3)
+    buf.writeUInt8(0xfd, 0)
+    buf.writeUInt16LE(value, 1)
+    return buf
+  }
+
+  if (value <= 0xffffffff) {
+    const buf = Buffer.alloc(5)
+    buf.writeUInt8(0xfe, 0)
+    buf.writeUInt32LE(value, 1)
+    return buf
+  }
+
+  const buf = Buffer.alloc(9)
+  buf.writeUInt8(0xff, 0)
+  buf.writeBigUInt64LE(BigInt(value), 1)
+  return buf
+}
+
+function calculateRecoveryParam(
+  messageHash: Buffer,
+  signature: EC.Signature,
+  keyPair: EC.KeyPair,
+): number {
+  if (typeof signature.recoveryParam === 'number') {
+    return signature.recoveryParam
+  }
+
+  for (let recovery = 0; recovery < 4; recovery++) {
+    try {
+      const recovered = secp256k1.recoverPubKey(
+        messageHash,
+        { r: signature.r, s: signature.s },
+        recovery,
+      )
+      if (recovered.encode('hex', false) === keyPair.getPublic().encode('hex', false)) {
+        return recovery
+      }
+    } catch {
+      continue
+    }
+  }
+
+  return 0
 }

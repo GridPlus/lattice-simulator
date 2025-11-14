@@ -1,6 +1,7 @@
+import { createHash } from 'crypto'
 import { describe, it, expect } from 'vitest'
 import { SigningService } from '@/services/signingService'
-import { EXTERNAL, HARDENED_OFFSET } from '@/shared/constants'
+import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '@/shared/constants'
 import { parseBitcoinSignPayload } from '@/shared/bitcoin'
 import { formatDerivationPath, deriveHDKey } from '@/shared/utils/hdWallet'
 import type { BitcoinWalletAccount } from '@/shared/types/wallet'
@@ -315,6 +316,81 @@ describe('SigningService - Bitcoin signing', () => {
       )
 
       await verifyBitcoinSignature(scriptType, parsed, signatureEntry)
+    })
+  })
+
+  describe('message signing', () => {
+    const messagePath = [HARDENED_OFFSET + 84, HARDENED_OFFSET + 0, HARDENED_OFFSET, 0, 0]
+
+    it('signs SHA256 hashed messages using BTC paths', async () => {
+      const walletAccount = createWalletAccount(messagePath, 'p2wpkh')
+      const walletAccounts = new Map<string, BitcoinWalletAccount>([
+        [walletAccount.id, walletAccount],
+      ])
+      const message = Buffer.from('GridPlus Bitcoin message signing test')
+
+      const signingRequest: SigningRequest = {
+        path: messagePath,
+        data: message,
+        curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
+        encoding: EXTERNAL.SIGNING.ENCODINGS.NONE,
+        hashType: EXTERNAL.SIGNING.HASHES.SHA256,
+        schema: SIGNING_SCHEMA.GENERAL_SIGNING,
+        isTransaction: false,
+      }
+
+      const result = await signingService.signData(signingRequest, walletAccounts)
+      expect(result.format).toBe('der')
+      expect(result.bitcoin).toBeUndefined()
+      expect(result.signature).toBeDefined()
+
+      const signatureBuffer = Buffer.from(result.signature!)
+      const decodedSignature = decodeDerSignature(signatureBuffer)
+
+      const walletConfig = await getWalletConfig()
+      const derived = deriveHDKey(walletConfig.seed, messagePath)
+      expect(derived.privateKey).toBeDefined()
+
+      const curve = new EC('secp256k1')
+      const keyPair = curve.keyFromPrivate(Buffer.from(derived.privateKey!))
+      const digest = createHash('sha256').update(message).digest()
+      const isValid = keyPair.verify(digest, decodedSignature)
+
+      expect(isValid).toBe(true)
+      expect(result.metadata?.publicKey).toBeDefined()
+      expect(result.metadata?.publicKeyCompressed).toBeDefined()
+    })
+
+    it('respects prehashed inputs for BTC message signing', async () => {
+      const walletAccount = createWalletAccount(messagePath, 'p2wpkh')
+      const walletAccounts = new Map<string, BitcoinWalletAccount>([
+        [walletAccount.id, walletAccount],
+      ])
+      const digest = Buffer.from('11'.repeat(32), 'hex')
+
+      const signingRequest: SigningRequest = {
+        path: messagePath,
+        data: digest,
+        curve: EXTERNAL.SIGNING.CURVES.SECP256K1,
+        encoding: EXTERNAL.SIGNING.ENCODINGS.NONE,
+        hashType: EXTERNAL.SIGNING.HASHES.SHA256,
+        schema: SIGNING_SCHEMA.GENERAL_SIGNING,
+        isTransaction: false,
+        isPrehashed: true,
+      }
+
+      const result = await signingService.signData(signingRequest, walletAccounts)
+      expect(result.signature).toBeDefined()
+
+      const signatureBuffer = Buffer.from(result.signature!)
+      const decodedSignature = decodeDerSignature(signatureBuffer)
+
+      const walletConfig = await getWalletConfig()
+      const derived = deriveHDKey(walletConfig.seed, messagePath)
+      const curve = new EC('secp256k1')
+      const keyPair = curve.keyFromPrivate(Buffer.from(derived.privateKey!))
+      const isValid = keyPair.verify(digest, decodedSignature)
+      expect(isValid).toBe(true)
     })
   })
 })
