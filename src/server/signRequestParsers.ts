@@ -199,7 +199,10 @@ export class EthereumMessageParser implements ISignRequestParser {
 
     const remaining = payload.slice(offset)
 
-    const expectedLength = declaredMessageLength || remaining.length
+    let expectedLength = declaredMessageLength
+    if (!Number.isFinite(expectedLength) || expectedLength < 0) {
+      expectedLength = remaining.length
+    }
     const baseChunkLength = remaining.length
     let chunkLength = Math.min(expectedLength, baseChunkLength)
     if (hasExtraPayloads) {
