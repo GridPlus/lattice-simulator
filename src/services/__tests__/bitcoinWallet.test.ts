@@ -4,7 +4,6 @@
 
 import * as bitcoin from 'bitcoinjs-lib'
 import { ec as EC } from 'elliptic'
-import { describe, it, expect, beforeAll } from 'vitest'
 import { deriveHDKey } from '@/shared/utils/hdWallet'
 import { getWalletConfig } from '@/shared/walletConfig'
 import { createMultipleBitcoinAccounts, signBitcoinMessage } from '../bitcoinWallet'

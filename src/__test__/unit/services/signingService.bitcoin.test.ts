@@ -1,5 +1,4 @@
 import { createHash } from 'crypto'
-import { describe, it, expect } from 'vitest'
 import { SigningService } from '@/services/signingService'
 import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '@/shared/constants'
 import { parseBitcoinSignPayload } from '@/shared/bitcoin'

@@ -2,7 +2,6 @@
  * HD Wallet Path Generation Tests
  */
 
-import { describe, it, expect } from 'vitest'
 import { generateDerivationPath } from '../hdWallet'
 
 describe('hdWallet', () => {

@@ -1,4 +1,3 @@
-import { describe, it, expect, beforeEach } from 'vitest'
 import { ProtocolHandler } from '@/server/serverProtocolHandler'
 import { SignRequestSchema } from '@/server/signRequestParsers'
 import { EXTERNAL } from '@/shared/constants'

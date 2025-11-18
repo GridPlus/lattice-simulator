@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest'
 import { EthereumMessageParser, SignRequestSchema } from '@/server/signRequestParsers'
 import { HARDENED_OFFSET } from '@/shared/constants'
 

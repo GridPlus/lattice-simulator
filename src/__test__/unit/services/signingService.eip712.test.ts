@@ -1,4 +1,3 @@
-import { describe, expect, it, vi } from 'vitest'
 import { SigningService } from '@/services/signingService'
 import { SIGNING_SCHEMA, EXTERNAL } from '@/shared/constants'
 import type { EthereumWalletAccount, WalletAccount } from '@/shared/types/wallet'

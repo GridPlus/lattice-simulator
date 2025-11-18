@@ -6,7 +6,6 @@
  * from the SDK's test suite.
  */
 
-import { describe, it, expect, beforeEach } from 'vitest'
 import { ServerLatticeSimulator } from '../../../server/serverSimulator'
 import { ProtocolHandler as ServerProtocolHandler } from '../../../server/serverProtocolHandler'
 import { LatticeResponseCode } from '../../../shared/types'

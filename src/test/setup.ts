@@ -1,5 +1,4 @@
 import { cleanup } from '@testing-library/react'
-import { afterEach, beforeAll } from 'vitest'
 import '@testing-library/jest-dom'
 import { resolveTinySecp } from '../shared/utils/ecc'
 
