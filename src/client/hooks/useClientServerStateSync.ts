@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
-import { sendSyncClientStateCommand } from '../clientWebSocketCommands'
+import { sendSyncClientStateCommand } from '../websocket/commands'
 
 export function useClientStateSync() {
   const hasSynced = useRef(false)

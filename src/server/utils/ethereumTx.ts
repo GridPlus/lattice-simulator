@@ -1,6 +1,6 @@
 import { Buffer } from 'buffer'
 import { RLP } from '@ethereumjs/rlp'
-import { PROTOCOL_CONSTANTS } from '../../shared/constants'
+import { PROTOCOL_CONSTANTS } from '../../core/constants'
 
 /**
  * Parse authorization list from serialized EIP-7702 transaction data

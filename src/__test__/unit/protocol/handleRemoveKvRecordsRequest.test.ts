@@ -1,9 +1,9 @@
-import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { ProtocolHandler } from '@/server/protocolHandler'
 import { LatticeResponseCode } from '@/shared/types'
-import type { ServerLatticeSimulator as LatticeSimulator } from '@/server/serverSimulator'
+import type { DeviceSimulator as LatticeSimulator } from '@/server/deviceSimulator'
 
 // Mock the server request manager to avoid network calls
-vi.mock('@/server/serverRequestManager', () => ({
+vi.mock('@/server/requestManager', () => ({
   requestKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
   requestAddKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),
   requestRemoveKvRecords: vi.fn(() => Promise.reject(new Error('Mocked network failure'))),

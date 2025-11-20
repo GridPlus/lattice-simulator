@@ -8,12 +8,12 @@ Simulator.
 ```
 src/
 ├── server/              # 🖥️ SERVER-SIDE ONLY (Node.js)
-│   ├── serverSimulator.ts          # Core device simulation (ServerLatticeSimulator)
-│   ├── serverDeviceEvents.ts       # Server-side event system
-│   ├── serverWebSocketManager.ts   # WebSocket connection manager
-│   ├── serverDeviceManager.ts      # Device instance manager
-│   ├── serverProtocolHandler.ts    # Protocol message handler
-│   └── serverRequestManager.ts     # Request lifecycle management
+│   ├── deviceSimulator.ts          # Core device simulation (DeviceSimulator)
+│   ├── events.ts                   # Server-side event system
+│   ├── websocket/manager.ts        # WebSocket connection manager
+│   ├── deviceManager.ts            # Device instance manager
+│   ├── protocolHandler.ts          # Protocol message handler
+│   └── requestManager.ts           # Request lifecycle management
 │
 ├── client/              # 🌐 CLIENT-SIDE ONLY (React/Browser)
 │   ├── store/
@@ -22,15 +22,16 @@ src/
 │   ├── hooks/
 │   │   ├── useClientWebSocketHandler.ts    # WebSocket client communication
 │   │   └── useClientServerStateSync.ts     # Client-server state sync
-│   └── components/                     # React UI components
+│   ├── websocket/
+│   │   └── commands.ts                  # Client-side bridge helpers
+│   └── components/                      # React UI components
 │
-└── shared/              # 🤝 SHARED (Both client and server)
+└── core/                # 🤝 SHARED (Both client and server)
     ├── types/           # TypeScript type definitions
     ├── utils/           # Shared utility functions
-    ├── constants.ts     # Shared constants
-    ├── protocolParser.ts # Protocol message parsing
-    ├── walletConfig.ts  # Wallet configuration
-    └── kvRecordsEvents.ts # KV record events
+    ├── protocol/        # Protocol helpers, constants, parser
+    ├── wallets/         # Wallet registry + per-coin factories
+    └── signing/         # SignatureEngine implementation
 ```
 
 ## 🔄 Communication Architecture
@@ -68,31 +69,31 @@ src/
 
 ## 🖥️ Server-Side Components
 
-### **ServerLatticeSimulator**
+### **DeviceSimulator**
 
 - **Purpose**: Core device simulation engine
-- **Location**: `src/server/serverSimulator.ts`
+- **Location**: `src/server/deviceSimulator.ts`
 - **Key Features**:
   - Manages internal device state (pairing mode, KV records, etc.)
   - Handles protocol operations (connect, pair, getAddresses, sign)
-  - Emits events via `serverDeviceEvents`
+  - Emits events via `events.ts`
 
-### **ServerWebSocketManager**
+### **WebSocket Manager**
 
 - **Purpose**: WebSocket connection and message handling
-- **Location**: `src/server/serverWebSocketManager.ts`
+- **Location**: `src/server/websocket/manager.ts`
 - **Key Features**:
   - Manages WebSocket connections per device
   - Handles command messages from clients
   - Broadcasts events to connected clients
 
-### **ServerDeviceEvents**
+### **Device Events**
 
 - **Purpose**: Server-side event emission system
-- **Location**: `src/server/serverDeviceEvents.ts`
+- **Location**: `src/server/events.ts`
 - **Key Features**:
   - Emits events like `pairing_mode_ended`
-  - Broadcasts to WebSocket clients via `ServerWebSocketManager`
+  - Broadcasts to WebSocket clients via the WebSocket manager
 
 ## 🌐 Client-Side Components
 
@@ -136,8 +137,8 @@ src/
 
 ### **4. Naming Convention**
 
-- **Server files**: `server*.ts` (e.g., `serverSimulator.ts`)
-- **Server classes**: `Server*` prefix (e.g., `ServerLatticeSimulator`)
+- **Server files**: `server*.ts` (e.g., `deviceSimulator.ts`)
+- **Server classes**: `Server*` prefix (e.g., `DeviceSimulator`)
 - **Client files**: `client*.ts` (e.g., `clientDeviceStore.ts`)
 - **Client hooks**: `useClient*` (e.g., `useClientWebSocketHandler`)
 
@@ -154,11 +155,11 @@ src/
 ### Server-Side (Node.js)
 
 ```typescript
-// server.ts
-import { serverWebSocketManager } from "./src/server/serverWebSocketManager"
-import { ServerLatticeSimulator } from "./src/server/serverSimulator"
+// packages/daemon/index.ts
+import { wsManager } from "./src/server/websocket/manager"
+import { DeviceSimulator } from "./src/server/deviceSimulator"
 
-const simulator = new ServerLatticeSimulator({
+const simulator = new DeviceSimulator({
   deviceId: "SD0001",
   autoApprove: true,
 })

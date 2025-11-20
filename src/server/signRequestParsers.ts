@@ -6,11 +6,11 @@
  * cryptocurrency transaction formats and message types.
  */
 
-import { EXTERNAL } from '../shared/constants'
+import { EXTERNAL } from '../core/constants'
 import { buildEthereumSigningPreimage, decodeEthereumTxPayload } from './utils/ethereumTx'
-import { parseBitcoinSignPayload } from '../shared/bitcoin'
-import { debug } from '../shared/debug'
-import type { SignRequest } from '../shared/types'
+import { parseBitcoinSignPayload } from '../core/bitcoin'
+import { debug } from '../core/debug'
+import type { SignRequest } from '../core/types'
 
 const ETH_MSG_PROTOCOL = {
   SIGN_PERSONAL: 0,

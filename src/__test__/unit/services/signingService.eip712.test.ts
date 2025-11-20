@@ -1,4 +1,4 @@
-import { SigningService } from '@/services/signingService'
+import { SignatureEngine } from '@/core/signing/SignatureEngine'
 import { SIGNING_SCHEMA, EXTERNAL } from '@/shared/constants'
 import type { EthereumWalletAccount, WalletAccount } from '@/shared/types/wallet'
 
@@ -21,8 +21,8 @@ const buildWalletAccounts = (): Map<string, WalletAccount> => {
   return new Map([[account.id, account]])
 }
 
-describe('SigningService EIP-712 hashing', () => {
-  const service = new SigningService()
+describe('SignatureEngine EIP-712 hashing', () => {
+  const service = new SignatureEngine()
 
   it('signs prehashed EIP-712 digests without attempting CBOR decoding', async () => {
     const digest = Buffer.alloc(32, 0x11)

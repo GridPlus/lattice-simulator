@@ -6,9 +6,9 @@
  */
 
 import { useEffect } from 'react'
-import { sendSyncWalletAccountsCommand } from '../clientWebSocketCommands'
 import { useDeviceStore } from '../store/clientDeviceStore'
 import { useWalletStore } from '../store/clientWalletStore'
+import { sendSyncWalletAccountsCommand } from '../websocket/commands'
 
 /**
  * Hook that automatically syncs wallet accounts to server when they change

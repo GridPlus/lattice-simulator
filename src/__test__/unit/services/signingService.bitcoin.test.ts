@@ -1,10 +1,10 @@
 import { createHash } from 'crypto'
-import { SigningService } from '@/services/signingService'
+import { SignatureEngine } from '@/core/signing/SignatureEngine'
 import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '@/shared/constants'
 import { parseBitcoinSignPayload } from '@/shared/bitcoin'
 import { formatDerivationPath, deriveHDKey } from '@/shared/utils/hdWallet'
 import type { BitcoinWalletAccount } from '@/shared/types/wallet'
-import type { SigningRequest } from '@/services/signingService'
+import type { SigningRequest } from '@/core/signing/SignatureEngine'
 import { getWalletConfig } from '@/shared/walletConfig'
 import * as bitcoin from 'bitcoinjs-lib'
 import { ec as EC } from 'elliptic'
@@ -287,8 +287,8 @@ const verifyBitcoinSignature = async (
   expect(isValid).toBe(true)
 }
 
-describe('SigningService - Bitcoin signing', () => {
-  const signingService = new SigningService()
+describe('SignatureEngine - Bitcoin signing', () => {
+  const signingService = new SignatureEngine()
 
   ;(['p2pkh', 'p2sh-p2wpkh', 'p2wpkh'] as TestScriptType[]).forEach(scriptType => {
     it(`produces valid signatures for ${scriptType} inputs`, async () => {

@@ -21,18 +21,18 @@ export default defineConfig({
     environmentMatchGlobs: [
       ['**/bitcoinWallet.test.ts', 'node'],
       ['**/signingService.bitcoin.test.ts', 'node'],
-      ['**/serverSimulator.xpub.test.ts', 'node'],
+      ['**/deviceSimulator.xpub.test.ts', 'node'],
     ],
   },
   resolve: {
     alias: {
+      '@/shared': resolve(__dirname, './src/core'),
+      '@/utils': resolve(__dirname, './src/core/utils'),
+      '@/types': resolve(__dirname, './src/core/types'),
       '@': resolve(__dirname, './src'),
       '@/lib': resolve(__dirname, './src/lib'),
       '@/server': resolve(__dirname, './src/server'),
       '@/client': resolve(__dirname, './src/client'),
-      '@/shared': resolve(__dirname, './src/shared'),
-      '@/utils': resolve(__dirname, './src/shared/utils'),
-      '@/types': resolve(__dirname, './src/shared/types'),
       '@/store': resolve(__dirname, './src/client/store'),
     },
   },

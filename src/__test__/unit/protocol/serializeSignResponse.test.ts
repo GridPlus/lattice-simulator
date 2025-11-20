@@ -1,7 +1,7 @@
-import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { ProtocolHandler } from '@/server/protocolHandler'
 import { SignRequestSchema } from '@/server/signRequestParsers'
-import type { ServerLatticeSimulator } from '@/server/serverSimulator'
-import { SigningService } from '@/services/signingService'
+import type { DeviceSimulator } from '@/server/deviceSimulator'
+import { SignatureEngine } from '@/core/signing/SignatureEngine'
 import { ec as EC } from 'elliptic'
 
 describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
@@ -13,7 +13,7 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
       getDeviceId: vi.fn().mockReturnValue('test-device'),
       getSharedSecret: vi.fn(),
       updateEphemeralKeyPair: vi.fn(),
-    } as unknown as ServerLatticeSimulator
+    } as unknown as DeviceSimulator
 
     protocolHandler = new ProtocolHandler(mockSimulator)
   })
@@ -405,9 +405,9 @@ describe('ProtocolHandler - serializeSignResponse Format Validation', () => {
     })
   })
 
-  describe('SigningService Recovery Normalization', () => {
+  describe('SignatureEngine Recovery Normalization', () => {
     it('should normalize recovery parameter to y-parity bit', () => {
-      const signingService = new SigningService()
+      const signingService = new SignatureEngine()
       const privateKey = Buffer.from(
         'ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80',
         'hex',

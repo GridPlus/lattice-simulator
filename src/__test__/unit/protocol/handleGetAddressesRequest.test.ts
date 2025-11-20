@@ -1,5 +1,5 @@
-import type { ServerLatticeSimulator } from '@/server/serverSimulator'
-import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import type { DeviceSimulator } from '@/server/deviceSimulator'
+import { ProtocolHandler } from '@/server/protocolHandler'
 import { LatticeResponseCode } from '@/shared/types'
 
 // Mock the simulator with simple vi.fn() calls
@@ -10,7 +10,7 @@ const mockSimulator = {
   getSharedSecret: vi.fn(),
   updateEphemeralKeyPair: vi.fn(),
   getDeviceId: vi.fn().mockReturnValue('test-device-id'),
-} as unknown as ServerLatticeSimulator
+} as unknown as DeviceSimulator
 
 describe('ProtocolHandler - handleGetAddressesRequest', () => {
   let protocolHandler: ProtocolHandler

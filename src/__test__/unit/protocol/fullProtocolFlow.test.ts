@@ -1,12 +1,12 @@
 import crc32 from 'crc-32'
 import { aes256_encrypt } from '@/shared/utils/crypto'
-import type { ServerLatticeSimulator } from '@/server/serverSimulator'
-import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import type { DeviceSimulator } from '@/server/deviceSimulator'
+import { ProtocolHandler } from '@/server/protocolHandler'
 import { LatticeResponseCode, LatticeSecureEncryptedRequestType } from '@/shared/types'
-import { requestKvRecords } from '@/server/serverRequestManager'
+import { requestKvRecords } from '@/server/requestManager'
 
-// Mock the serverRequestManager module
-vi.mock('@/server/serverRequestManager', () => ({
+// Mock the requestManager module
+vi.mock('@/server/requestManager', () => ({
   requestKvRecords: vi.fn(),
   requestAddKvRecords: vi.fn(),
   requestRemoveKvRecords: vi.fn(),
@@ -29,7 +29,7 @@ describe('Full Protocol Flow - Checksum Mismatch', () => {
       getDeviceId: vi.fn().mockReturnValue('test-device-id'),
       isConnected: true,
       isPaired: true,
-    } as unknown as ServerLatticeSimulator
+    } as unknown as DeviceSimulator
 
     protocolHandler = new ProtocolHandler(mockSimulator)
   })

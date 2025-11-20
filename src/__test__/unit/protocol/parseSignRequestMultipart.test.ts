@@ -1,8 +1,8 @@
-import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { ProtocolHandler } from '@/server/protocolHandler'
 import { SignRequestSchema } from '@/server/signRequestParsers'
 import { EXTERNAL } from '@/shared/constants'
 import type { SignRequest } from '@/shared/types'
-import type { ServerLatticeSimulator } from '@/server/serverSimulator'
+import type { DeviceSimulator } from '@/server/deviceSimulator'
 
 describe('ProtocolHandler parseSignRequest - multipart detection', () => {
   let handler: ProtocolHandler
@@ -10,7 +10,7 @@ describe('ProtocolHandler parseSignRequest - multipart detection', () => {
   beforeEach(() => {
     const mockSimulator = {
       getSharedSecret: () => undefined,
-    } as unknown as ServerLatticeSimulator
+    } as unknown as DeviceSimulator
 
     handler = new ProtocolHandler(mockSimulator)
   })

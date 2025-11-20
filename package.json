@@ -4,9 +4,9 @@
   "description": "Lattice1 Device Simulator - A software simulator for GridPlus Lattice1 hardware wallet",
   "private": true,
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "next build",
-    "start": "NODE_ENV=production tsx server.ts",
+    "dev": "tsx packages/daemon/index.ts",
+    "build": "next build apps/dashboard",
+    "start": "NODE_ENV=production tsx packages/daemon/index.ts",
     "lint": "eslint . --fix",
     "lint:check": "eslint .",
     "format": "prettier --write .",

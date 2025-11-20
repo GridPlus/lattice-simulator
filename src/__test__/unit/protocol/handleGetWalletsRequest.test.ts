@@ -1,4 +1,4 @@
-import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import { ProtocolHandler } from '@/server/protocolHandler'
 import { LatticeResponseCode } from '@/shared/types'
 
 // Mock the simulator with simple vi.fn() calls

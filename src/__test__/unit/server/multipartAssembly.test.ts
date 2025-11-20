@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ServerLatticeSimulator } from '@/server/serverSimulator'
+import { DeviceSimulator } from '@/server/deviceSimulator'
 import { SignRequestSchema } from '@/server/signRequestParsers'
 import { EXTERNAL } from '@/shared/constants'
 import { createDeviceResponse } from '@/shared/utils'
@@ -11,13 +11,13 @@ import {
   LatticeResponseCode,
 } from '@/shared/types'
 
-describe('ServerLatticeSimulator multipart message assembly', () => {
+describe('DeviceSimulator multipart message assembly', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
   it('reconstructs typed data payload spans using decoder bytes and extra frames', async () => {
-    const simulator = new ServerLatticeSimulator({ autoApprove: true })
+    const simulator = new DeviceSimulator({ autoApprove: true })
 
     const contents =
       'stupidlylongstringthatshouldstretchintomultiplepageswhencopiedmanytimes'.repeat(25)

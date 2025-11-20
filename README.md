@@ -15,7 +15,7 @@ pairing, wallet management, KV records, and request approval.
 
 ## Highlights
 - Full Lattice1 protocol stack: connect, pairing, wallets, KV, signing.
-- Segregated architecture (`src/server`, `src/client`, `src/shared`) with a
+- Segregated architecture (`src/server`, `src/client`, `src/core`) with a
   custom Node/Next server that mirrors the hardware boundary lines.
 - Client state lives in Zustand + `localStorage`; the simulator falls back to
   server memory when no browser client is connected.
@@ -66,7 +66,7 @@ server on `ws://127.0.0.1:3443`.
 
 ### 1. Protocol HTTP Endpoint
 - **Route**: `POST /:deviceId`
-- **Handler**: `app/[deviceId]/route.ts`
+- **Handler**: `apps/dashboard/app/[deviceId]/route.ts`
 - **Payload**: JSON body containing the raw Lattice1 frame (hex string or
   `{ data: { type: "Buffer", data: number[] } }`).
 - **Response**: JSON with a `message` field holding the encoded Lattice1
@@ -77,12 +77,12 @@ handles every Lattice1 command (connect, secure requests, etc.).
 
 ### 2. WebSocket Bridge
 - **Route**: `ws://<host>:<port+443>/ws/device/<deviceId>`
-- **Server implementation**: `server.ts` + `src/server/serverWebSocketManager.ts`
+- **Server implementation**: `packages/daemon/index.ts` + `src/server/websocket/manager.ts`
 - **Client hook**: `src/client/hooks/useClientWebSocketHandler.ts`
 
 SDK protocol handlers that need user-managed state (KV records, address
 derivation, signing requests) call into `RequestManager`
-(`src/server/serverRequestManager.ts`). The manager forwards the request over
+(`src/server/requestManager.ts`). The manager forwards the request over
 WebSocket, the browser responds via the same connection, and the server resumes
 the protocol flow. When no client is connected (or in CI), the simulator falls
 back to its in-memory state.
@@ -109,8 +109,8 @@ commit. `docs/DEVELOPMENT.md` lists the project conventions.
   otherwise KV and wallet address requests fall back to simulator data.
 - If you change the base HTTP port, update the client hook or set
   `PORT=<n>`—the WebSocket server always binds to `PORT + 443`.
-- Use the debug logs emitted by `server.ts`, `serverRequestManager`, and
-  `serverProtocolHandler` to trace protocol frames end-to-end.
+- Use the debug logs emitted by `packages/daemon/index.ts`, `requestManager`,
+  and `protocolHandler` to trace protocol frames end-to-end.
 
 ## Contributing
 1. Fork the repo and create a feature branch.

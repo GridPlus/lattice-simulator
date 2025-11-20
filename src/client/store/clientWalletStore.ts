@@ -12,8 +12,8 @@ import {
   normalizeMnemonic,
   validateMnemonic,
 } from '@/shared/walletConfig'
-import { sendSetActiveWalletCommand } from '../clientWebSocketCommands'
 import { useDeviceStore } from './clientDeviceStore'
+import { sendSetActiveWalletCommand } from '../websocket/commands'
 import type {
   WalletAccount,
   WalletCollection,
@@ -31,9 +31,9 @@ export async function getWalletServices() {
 
   try {
     const [ethereumWallet, bitcoinWallet, solanaWallet] = await Promise.all([
-      import('@/services/ethereumWallet'),
-      import('@/services/bitcoinWallet'),
-      import('@/services/solanaWallet'),
+      import('@/shared/wallets/ethereum'),
+      import('@/shared/wallets/bitcoin'),
+      import('@/shared/wallets/solana'),
     ])
 
     walletServices = {

@@ -1,6 +1,6 @@
 import { cleanup } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import { resolveTinySecp } from '../shared/utils/ecc'
+import { resolveTinySecp } from '../core/utils/ecc'
 
 // Initialize Bitcoin crypto libraries for tests running in Node.js environment
 beforeAll(async () => {

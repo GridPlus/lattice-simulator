@@ -1,5 +1,5 @@
-import type { ServerLatticeSimulator } from '@/server/serverSimulator'
-import { ProtocolHandler } from '@/server/serverProtocolHandler'
+import type { DeviceSimulator } from '@/server/deviceSimulator'
+import { ProtocolHandler } from '@/server/protocolHandler'
 import { LatticeSecureEncryptedRequestType } from '@/shared/types'
 
 describe('Checksum Mismatch Reproduction', () => {
@@ -12,7 +12,7 @@ describe('Checksum Mismatch Reproduction', () => {
       updateEphemeralKeyPair: vi.fn(),
       getSharedSecret: vi.fn(),
       // Add other required simulator methods
-    } as unknown as ServerLatticeSimulator
+    } as unknown as DeviceSimulator
 
     protocolHandler = new ProtocolHandler(mockSimulator)
   })

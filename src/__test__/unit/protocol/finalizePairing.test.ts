@@ -6,11 +6,11 @@
  * from the SDK's test suite.
  */
 
-import { ServerLatticeSimulator } from '../../../server/serverSimulator'
-import { ProtocolHandler as ServerProtocolHandler } from '../../../server/serverProtocolHandler'
-import { LatticeResponseCode } from '../../../shared/types'
+import { DeviceSimulator } from '../../../server/deviceSimulator'
+import { ProtocolHandler as ServerProtocolHandler } from '../../../server/protocolHandler'
+import { LatticeResponseCode } from '../../../core/types'
 import { createHash } from 'crypto'
-import { generateKeyPair } from '../../../shared/utils/crypto'
+import { generateKeyPair } from '../../../core/utils/crypto'
 import elliptic from 'elliptic'
 
 // Test data from SDK's test suite
@@ -81,11 +81,11 @@ function createFinalizePairingPayload(
 }
 
 describe('finalizePairing Request Parsing and Handling', () => {
-  let simulator: ServerLatticeSimulator
+  let simulator: DeviceSimulator
   let protocolHandler: ServerProtocolHandler
 
   beforeEach(() => {
-    simulator = new ServerLatticeSimulator({
+    simulator = new DeviceSimulator({
       deviceId: 'test-device-id',
       firmwareVersion: [0, 15, 0],
       autoApprove: false,

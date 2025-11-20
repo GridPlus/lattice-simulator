@@ -14,7 +14,7 @@ import {
   sendResetDeviceCommand,
   sendApproveSigningRequestCommand,
   sendRejectSigningRequestCommand,
-} from '../clientWebSocketCommands'
+} from '../websocket/commands'
 import type {
   DeviceState,
   DeviceInfo,
