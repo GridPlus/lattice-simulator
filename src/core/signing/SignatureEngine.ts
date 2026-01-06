@@ -43,6 +43,7 @@ import type {
   SolanaWalletAccount,
   WalletCoinType,
 } from '../types/wallet'
+import type { TinySecp256k1Interface } from 'bitcoinjs-lib/src/types'
 
 // Configure SHA-512 for @noble/ed25519 (required in v3.0+)
 // The hashes.sha512 property needs to be set before using synchronous methods
@@ -57,9 +58,15 @@ bdec(cbor)
 let bitcoinLibInitialized = false
 const ecc = resolveTinySecp(tinySecp)
 
+const hasXOnlyMethods = (candidate: typeof ecc): candidate is typeof ecc & TinySecp256k1Interface =>
+  typeof candidate.isXOnlyPoint === 'function' && typeof candidate.xOnlyPointAddTweak === 'function'
+
 const ensureBitcoinLib = () => {
   if (!bitcoinLibInitialized) {
-    bitcoin.initEccLib(ecc as any)
+    if (!hasXOnlyMethods(ecc)) {
+      throw new Error('tiny-secp256k1 is missing x-only methods required by bitcoinjs-lib')
+    }
+    bitcoin.initEccLib(ecc)
     bitcoinLibInitialized = true
   }
 }
@@ -336,10 +343,7 @@ export class SignatureEngine {
     if (process.env.DEBUG_SIGNING === '1') {
       console.log('[SignatureEngine] Derived Ethereum signing material', {
         path: derivationPath,
-        privateKey: derivedPrivateKeyHex,
         address: wallet.address,
-        publicKeyUncompressed,
-        publicKeyCompressed,
         isPrehashed: request.isPrehashed ?? false,
         messageLength: request.messageLength ?? request.data.length,
         payloadLength: request.data.length,
@@ -379,18 +383,11 @@ export class SignatureEngine {
           if (!isValid) {
             console.error('[SignatureEngine] Signature verification failed (personal_sign)', {
               path: derivationPath,
-              privateKey: derivedPrivateKeyHex,
-              messageHash: messageHash.toString('hex'),
-              r: signature.r.toString('hex'),
-              s: signature.s.toString('hex'),
             })
           }
         }
 
         console.log('[SignatureEngine] ETH personal_sign components:', {
-          hash: messageHash.toString('hex'),
-          r: signature.r.toString('hex'),
-          s: signature.s.toString('hex'),
           recovery: signature.recovery,
           recoveryId: signature.recoveryId,
           prehashed: request.isPrehashed,
@@ -432,11 +429,7 @@ export class SignatureEngine {
           isPrehashed: request.isPrehashed ?? false,
           payloadLength: typedDataBuffer.length,
           digestLength: digest.length,
-          digest: digest.toString('hex'),
         })
-        if (process.env.DEBUG_SIGNING === '1') {
-          console.log('[SignatureEngine] EIP-712 digest:', digest.toString('hex'))
-        }
 
         const signature = this.secp256k1Sign(digest, privateKeyBuffer)
         const derSignature = this.formatDERSignature(signature.r, signature.s)
@@ -444,13 +437,9 @@ export class SignatureEngine {
         console.log('[SignatureEngine] EIP-712 signing input', {
           prehashed: request.isPrehashed,
           payloadLength: typedDataBuffer.length,
-          digest: digest.toString('hex'),
         })
 
         console.log('[SignatureEngine] EIP-712 signature components:', {
-          hash: digest.toString('hex'),
-          r: signature.r.toString('hex'),
-          s: signature.s.toString('hex'),
           recovery: signature.recovery,
           recoveryId: signature.recoveryId,
           prehashed: request.isPrehashed,
@@ -465,10 +454,6 @@ export class SignatureEngine {
           if (!isValid) {
             console.error('[SignatureEngine] Signature verification failed (eip712)', {
               path: derivationPath,
-              privateKey: derivedPrivateKeyHex,
-              digest: digest.toString('hex'),
-              r: signature.r.toString('hex'),
-              s: signature.s.toString('hex'),
             })
           }
         }
@@ -533,10 +518,6 @@ export class SignatureEngine {
           // Data is already hashed by the SDK - use it directly
           console.log('[SignatureEngine] Prehashed data length:', request.data.length, 'bytes')
           console.log(
-            '[SignatureEngine] Prehashed data (first 64 chars):',
-            request.data.toString('hex').slice(0, 64),
-          )
-          console.log(
             '[SignatureEngine] Prehashed hashType:',
             request.hashType,
             '(1=SHA256, 2=KECCAK256)',
@@ -562,9 +543,7 @@ export class SignatureEngine {
       const signature = this.secp256k1Sign(signingDigest, privateKeyBuffer)
 
       console.log('[SignatureEngine] Signature components:', {
-        hash: signingDigest.toString('hex'),
-        r: signature.r.toString('hex'),
-        s: signature.s.toString('hex'),
+        digestLength: signingDigest.length,
         recovery: signature.recovery,
         recoveryId: signature.recoveryId,
       })
@@ -578,10 +557,6 @@ export class SignatureEngine {
         if (!isValid) {
           console.error('[SignatureEngine] Signature verification failed (transaction)', {
             path: request.path,
-            privateKey: derivedPrivateKeyHex,
-            digest: signingDigest.toString('hex'),
-            r: signature.r.toString('hex'),
-            s: signature.s.toString('hex'),
           })
         }
       }
@@ -684,18 +659,22 @@ export class SignatureEngine {
 
     const deriveKeyForPath = (path: number[]) => {
       const cacheKey = path.join('/')
-      if (!derivedKeyCache.has(cacheKey)) {
-        const derived = deriveHDKey(config.seed, path)
-        if (!derived.privateKey || !derived.publicKey) {
-          throw new Error(`Failed to derive Bitcoin key for path ${formatDerivationPath(path)}`)
-        }
-        const privateKey = Buffer.from(derived.privateKey)
-        const keyPair = this.secp256k1.keyFromPrivate(privateKey)
-        const publicKeyCompressed = Buffer.from(keyPair.getPublic(true, 'hex'), 'hex')
-        const publicKeyUncompressed = Buffer.from(keyPair.getPublic(false, 'hex'), 'hex')
-        derivedKeyCache.set(cacheKey, { privateKey, publicKeyCompressed, publicKeyUncompressed })
+      const cached = derivedKeyCache.get(cacheKey)
+      if (cached) {
+        return cached
       }
-      return derivedKeyCache.get(cacheKey)!
+
+      const derived = deriveHDKey(config.seed, path)
+      if (!derived.privateKey || !derived.publicKey) {
+        throw new Error(`Failed to derive Bitcoin key for path ${formatDerivationPath(path)}`)
+      }
+      const privateKey = Buffer.from(derived.privateKey)
+      const keyPair = this.secp256k1.keyFromPrivate(privateKey)
+      const publicKeyCompressed = Buffer.from(keyPair.getPublic(true, 'hex'), 'hex')
+      const publicKeyUncompressed = Buffer.from(keyPair.getPublic(false, 'hex'), 'hex')
+      const entry = { privateKey, publicKeyCompressed, publicKeyUncompressed }
+      derivedKeyCache.set(cacheKey, entry)
+      return entry
     }
 
     parsed.inputs.forEach(input => {
@@ -911,8 +890,6 @@ export class SignatureEngine {
       const debugInfo = {
         path: request.path,
         messageLength: message.length,
-        signature: Buffer.from(signature).toString('hex'),
-        publicKey: Buffer.from(publicKey).toString('hex'),
       }
       console.log('[SignatureEngine] Ed25519 signing', debugInfo)
     }
@@ -969,8 +946,6 @@ export class SignatureEngine {
       if (process.env.DEBUG_SIGNING === '1') {
         console.debug('[SignatureEngine] Derived Solana signing material', {
           path: derivationPath,
-          seed: wallet.privateKey,
-          publicKey: wallet.publicKey,
         })
       }
     }
@@ -990,21 +965,12 @@ export class SignatureEngine {
 
     if (process.env.DEBUG_SIGNING === '1') {
       console.debug('[SignatureEngine] Ed25519 Signature', {
-        dataToSign: request.data.toString('hex'),
         signatureLength: sigBuffer.length,
-        signature: sigBuffer.toString('hex'),
       })
     }
 
-    // Ed25519 signatures are 64 bytes: first 32 bytes are R, last 32 bytes are S
-    // SDK expects raw format (not DER) for Ed25519
-    const r = sigBuffer.slice(0, 32)
-    const s = sigBuffer.slice(32, 64)
-
     console.log('[SignatureEngine] Solana/Ed25519 signature components:', {
-      r: r.toString('hex'),
-      s: s.toString('hex'),
-      fullSignature: sigBuffer.toString('hex'),
+      signatureLength: sigBuffer.length,
     })
 
     // Return raw signature format (R || S) for Ed25519
@@ -1064,11 +1030,8 @@ export class SignatureEngine {
       console.debug('[SignatureEngine] BLS12-381 Signature', {
         path: request.path,
         dst,
-        dataToSign: message.toString('hex'),
         publicKeyLength: publicKeyBuffer.length,
-        publicKey: publicKeyBuffer.toString('hex'),
         signatureLength: signatureBuffer.length,
-        signature: signatureBuffer.toString('hex'),
       })
     }
 
@@ -1118,13 +1081,8 @@ export class SignatureEngine {
 
     if (process.env.DEBUG_SIGNING === '1') {
       console.log('[SignatureEngine] secp256k1Sign debug:', {
-        hash: hash.toString('hex'),
-        privateKey: privateKey.toString('hex'),
-        r: signature.r.toString('hex'),
-        s: signature.s.toString('hex'),
         rawRecovery,
         recovery,
-        publicKey: keyPair.getPublic(false, 'hex'),
       })
     }
 
@@ -1921,12 +1879,12 @@ export class SignatureEngine {
     )
 
     if (process.env.DEBUG_SIGNING === '1') {
-      const replacer = (_key: string, value: any) =>
-        typeof value === 'bigint' ? this.formatBigIntForLogging(value) : value
-      console.log(
-        '[SignatureEngine] Decoded EIP-712 data for hashing:',
-        JSON.stringify(decodedTypedData, replacer, 2),
-      )
+      console.log('[SignatureEngine] Decoded EIP-712 data for hashing', {
+        hasDomain: !!decodedTypedData.domain,
+        typeCount: decodedTypedData.types ? Object.keys(decodedTypedData.types).length : 0,
+        primaryType: decodedTypedData.primaryType,
+        messageKeys: decodedTypedData.message ? Object.keys(decodedTypedData.message) : [],
+      })
     }
 
     if (
@@ -1946,10 +1904,6 @@ export class SignatureEngine {
       primaryType: decodedTypedData.primaryType,
       message: decodedTypedData.message,
     })
-
-    if (process.env.DEBUG_SIGNING === '1') {
-      console.log('[SignatureEngine] Calculated EIP-712 hash:', hash)
-    }
 
     return Buffer.from(hash.slice(2), 'hex')
   }

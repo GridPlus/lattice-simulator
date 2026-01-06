@@ -379,7 +379,6 @@ export class DeviceSimulator {
 
     // Store the client's public key for ECDH shared secret derivation
     this.clientPublicKey = request.publicKey
-    console.log('[Simulator] Stored client public key:', this.clientPublicKey.toString('hex'))
 
     // Generate ephemeral key pair for this session
     this.ephemeralKeyPair = generateKeyPair()
@@ -1137,10 +1136,6 @@ export class DeviceSimulator {
         console.log('[deriveAddressesManually] Deriving Solana address for path:', path)
         // For Solana, use Ed25519 derivation
         const { privateKey } = deriveEd25519Key(config.seed, path)
-        console.log(
-          '[deriveAddressesManually] Ed25519 private key (first 16 bytes):',
-          privateKey.toString('hex').substring(0, 32),
-        )
         // Create Solana keypair from Ed25519 private key
         const solanaKeypair = Keypair.fromSeed(privateKey)
         address = solanaKeypair.publicKey.toBase58()
@@ -1243,7 +1238,6 @@ export class DeviceSimulator {
     console.log('[Simulator] Derived BLS addresses/pubkeys', {
       count,
       startPath,
-      publicKeys: publicKeys.map(pk => pk.toString('hex')),
     })
 
     return {
@@ -1478,13 +1472,10 @@ export class DeviceSimulator {
     if (process.env.DEBUG_SIGNING === '1') {
       console.log('[Simulator] Generic base chunk debug', {
         baseChunkLength: baseChunk.length,
-        baseChunkStart: baseChunk.slice(0, 32).toString('hex'),
         candidateLength: candidateChunk.length,
-        candidateStart: candidateChunk.slice(0, 32).toString('hex'),
         requestDataLength: request.data ? request.data.length : null,
         messageChunkLength,
         remainingChunkLength: remainingChunk.length,
-        remainingChunkStart: remainingChunk.slice(0, 32).toString('hex'),
       })
     }
 
@@ -1509,9 +1500,6 @@ export class DeviceSimulator {
               overlapsLengthField,
               remainderHasData,
               candidateChunkLength: candidateChunk.length,
-              candidatePreview: candidateChunk.slice(0, 8).toString('hex'),
-              lengthFieldBytes: lengthFieldBytes ? lengthFieldBytes.toString('hex') : null,
-              postDigestSample: candidateChunk.slice(32, 48).toString('hex'),
             }
           : undefined,
     }
@@ -2179,11 +2167,6 @@ export class DeviceSimulator {
 
       console.log('[Simulator] Prepared EIP2335 export payload', {
         iterationCount,
-        ciphertext: ciphertext.toString('hex'),
-        salt: salt.toString('hex'),
-        checksum: checksum.toString('hex'),
-        iv: iv.toString('hex'),
-        pubkey: publicKey.toString('hex'),
         payloadSize,
       })
 
@@ -2703,14 +2686,8 @@ export class DeviceSimulator {
 
       // Create KeyPair from our private key
       const ourKeyPair = ec.keyFromPrivate(this.ephemeralKeyPair.privateKey)
-      console.log(
-        '[Simulator] Our private key (hex):',
-        this.ephemeralKeyPair.privateKey.toString('hex'),
-      )
-
       // Create KeyPair from client's public key
       const clientKeyPair = ec.keyFromPublic(this.clientPublicKey)
-      console.log('[Simulator] Client public key (hex):', this.clientPublicKey.toString('hex'))
 
       // Derive shared secret
       const sharedSecret = ourKeyPair.derive(clientKeyPair.getPublic())
@@ -2718,7 +2695,6 @@ export class DeviceSimulator {
       // Convert to 32-byte buffer (big endian)
       const sharedSecretBuffer = Buffer.from(sharedSecret.toArray('be', 32))
 
-      console.log('[Simulator] Generated ECDH shared secret:', sharedSecretBuffer.toString('hex'))
       return sharedSecretBuffer
     } catch (error) {
       console.error('[Simulator] ECDH shared secret generation failed:', error)
@@ -2730,7 +2706,6 @@ export class DeviceSimulator {
         .update(Buffer.from('lattice-simulator-shared-secret'))
         .digest()
 
-      console.log('[Simulator] Using fallback shared secret:', hash.toString('hex'))
       return hash
     }
   }
@@ -3144,10 +3119,8 @@ export class DeviceSimulator {
       console.log(`[Simulator] Enhanced signing completed for request ${requestId}:`, {
         signatureFormat: signatureResult.format,
         signatureLength: signatureResult.signature ? signatureResult.signature.length : 0,
-        signature: signatureResult.signature?.toString('hex') ?? null,
         bitcoinSignatureCount: signatureResult.bitcoin?.signatures.length ?? 0,
         recovery: signatureResult.recovery,
-        metadata: signatureResult.metadata,
       })
 
       // Remove from pending requests

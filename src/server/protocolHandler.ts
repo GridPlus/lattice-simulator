@@ -251,13 +251,10 @@ export class ProtocolHandler {
       if (tried.has(keyHex)) continue
       tried.add(keyHex)
 
-      debug.protocol('Trying shared secret candidate: %s', keyHex)
-
       try {
         const decryptedData = aes256_decrypt(encryptedData, candidate.secret)
 
         debug.protocol('Decrypted data length: %d', decryptedData.length)
-        debug.protocol('Decrypted data (hex): %s', decryptedData.toString('hex'))
 
         if (decryptedData.length < 5) {
           throw new Error('Decrypted data too short (need at least 5 bytes)')
@@ -276,7 +273,6 @@ export class ProtocolHandler {
         const requestData = decryptedData.slice(offset, offset + requestDataSize)
         offset += requestDataSize
         debug.protocol('Extracted request data length: %d', requestData.length)
-        debug.protocol('Extracted request data (hex): %s', requestData.toString('hex'))
 
         const checksum = decryptedData.readUInt32LE(offset)
         debug.protocol('Extracted checksum: %s', checksum.toString(16))
@@ -336,7 +332,6 @@ export class ProtocolHandler {
     // Build the response payload: [newEphemeralPub (65)] | [responseData] | [checksum (4)]
     const newEphemeralPub = responseEphemeralKeyPair.publicKey
     debug.protocol('Response data(unpadded) length: %d', responseData.length)
-    debug.protocol('Response data(unpadded) (hex): %s', responseData.toString('hex'))
     const responseDataSize: number =
       ProtocolConstants.msgSizes.secure.data.response.encrypted[
         requestType as keyof typeof ProtocolConstants.msgSizes.secure.data.response.encrypted
@@ -367,8 +362,6 @@ export class ProtocolHandler {
       paddedResponseData, // variable size
       checksumBuffer, // 4 bytes checksum
     ])
-
-    debug.protocol('New ephemeral: %s', newEphemeralPub.toString('hex'))
 
     // The SDK expects encrypted responses to be exactly 1728 bytes
     // Pad the response payload to fit in a 1728-byte encrypted buffer
@@ -425,7 +418,6 @@ export class ProtocolHandler {
   async handleConnectRequest(data: Buffer): Promise<SecureResponse> {
     try {
       debug.protocol('Connect request data length: %d', data.length)
-      debug.protocol('Connect request data (hex): %s', data.toString('hex'))
 
       const request = this.parseConnectRequest(data)
       debug.protocol('Parsed connect request: %O', request)
@@ -457,7 +449,6 @@ export class ProtocolHandler {
    * @private
    */
   private async handlePairRequest(data: Buffer): Promise<SecureResponse> {
-    debug.protocol('handlePairRequest, data: %s', data.toString('hex'))
     const request = this.parsePairRequest(data)
     const response = await this.simulator.pair(request)
 
@@ -771,8 +762,6 @@ export class ProtocolHandler {
       const payloadLength = data.readUInt16BE(4)
       const payload = data.slice(6, 6 + payloadLength)
 
-      console.log('[ProtocolHandler] Raw wallet job payload:', payload.toString('hex'))
-
       if (payload.length < 40) {
         throw new Error('Invalid wallet job payload length')
       }
@@ -953,7 +942,6 @@ export class ProtocolHandler {
               account,
               change,
               addr,
-              dataToSignHex: dataToSign.toString('hex'),
             })
 
             // Validate pathDepth (must be 3-5 for BIP32 paths)
@@ -1171,7 +1159,7 @@ export class ProtocolHandler {
         }
 
         case WalletJobType.LOAD_SEED: {
-          console.log('[ProtocolHandler] Handling load seed job', { payload })
+          console.log('[ProtocolHandler] Handling load seed job', { payloadLength: payload.length })
           const iface = payload.readUInt8(40)
           let offset = 41
 
@@ -1394,7 +1382,6 @@ export class ProtocolHandler {
       console.error('[ProtocolHandler] Derived BTC address', {
         path: pathString,
         address: payment.address,
-        publicKey: publicKey.toString('hex'),
       })
 
       return { address: payment.address, publicKey }
@@ -1426,7 +1413,6 @@ export class ProtocolHandler {
 
   private parsePairRequest(data: Buffer): PairRequest {
     console.log('[ProtocolHandler] Parsing finalizePairing request, data length:', data.length)
-    console.log('[ProtocolHandler] Pairing request data:', data.toString('hex'))
 
     // According to SDK encodePairRequest, the payload contains:
     // - App name buffer (25 bytes, null-terminated)
@@ -1456,7 +1442,6 @@ export class ProtocolHandler {
 
     console.log('[ProtocolHandler] Parsed app name:', JSON.stringify(appName))
     console.log('[ProtocolHandler] DER signature length:', derSignature.length)
-    console.log('[ProtocolHandler] DER signature:', derSignature.toString('hex'))
 
     // The pairing secret is not directly in the payload - it's used to create the signature
     // We'll need to validate the signature against known pairing codes
@@ -2052,7 +2037,6 @@ export class ProtocolHandler {
     const includePubkey = !request.omitPubkey
     console.log('[ProtocolHandler] serializeGenericSigningResponse metadata snapshot', {
       includePubkey,
-      metadata: data?.metadata,
       signatureType: typeof data?.signature,
       signatureLength:
         data?.signature && (Buffer.isBuffer(data.signature) || typeof data.signature === 'string')
@@ -2068,15 +2052,12 @@ export class ProtocolHandler {
       omitPubkey: request.omitPubkey,
       hasMetadata: !!data.metadata,
       metadataKeys: data.metadata ? Object.keys(data.metadata) : 'none',
-      publicKey: data.metadata?.publicKey,
-      publicKeyCompressed: data.metadata?.publicKeyCompressed,
       signatureLength: (data.signature as any)?.length,
       curveType: request.curve,
       isEd25519,
       isBls,
       dataKeys: Object.keys(data),
       requestKeys: Object.keys(request),
-      messagePrehash: data.messagePrehash ? data.messagePrehash.toString('hex') : 'undefined',
     })
 
     const messagePrehashSection = data.messagePrehash
@@ -2118,9 +2099,7 @@ export class ProtocolHandler {
       isEd25519,
       pubkeyLength: pubkeySection.length,
       finalLength: signatureSection.length,
-      finalPrefix: signatureSection.slice(0, 5).toString('hex'),
       pubkeyFirstByte: pubkeySection[0],
-      pubkeyPrefix: pubkeySection.slice(0, 4).toString('hex'),
     })
 
     const responseBuffer = messagePrehashSection
@@ -2182,19 +2161,12 @@ export class ProtocolHandler {
                 : Buffer.isBuffer(candidate)
                   ? candidate.length
                   : null,
-          sample:
-            typeof candidate === 'string'
-              ? `${candidate.slice(0, 8)}...`
-              : Buffer.from(candidate as any)
-                  .slice(0, 4)
-                  .toString('hex'),
         })
       }
       const normalized = this.normalizePublicKey(candidate)
       if (normalized) {
         console.log('[ProtocolHandler] Using normalized pubkey', {
           length: normalized.length,
-          prefix: normalized.slice(0, 4).toString('hex'),
         })
         return normalized
       }
@@ -2527,9 +2499,15 @@ export class ProtocolHandler {
     externalNameBuf.copy(response, offset)
     offset += 35
 
-    console.log('[ProtocolHandler] Serialized wallet response length:', response.length)
-    console.log('[ProtocolHandler] Internal wallet UID (hex):', data.internal.uid)
-    console.log('[ProtocolHandler] External wallet UID (hex):', data.external.uid)
+    console.log('[ProtocolHandler] serializeGetWalletsResponse', {
+      length: response.length,
+      bytes: Array.from(response),
+      hex: Array.from(response)
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join(' '),
+      internalUid: data.internal.uid,
+      externalUid: data.external.uid,
+    })
 
     return response
   }

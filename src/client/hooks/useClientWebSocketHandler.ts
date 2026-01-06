@@ -486,13 +486,13 @@ export function useServerRequestHandler(deviceId: string) {
   )
 
   const handleSigningRequestCompleted = useCallback((data: any) => {
-    console.log('[ClientWebSocketHandler] Signing request completed:', data)
+    console.log('[ClientWebSocketHandler] Signing request completed', {
+      requestId: data?.requestId,
+      status: data?.status,
+    })
 
     // Get the original signing request from the store
     const getPendingSigningRequestById = useDeviceStore.getState().getPendingSigningRequestById
-    console.log(
-      `[ClientWebSocketHandler] handleSigningRequestCompleted.useDeviceStore.getState(): ${JSON.stringify(useDeviceStore.getState())}`,
-    )
     const originalRequest = getPendingSigningRequestById(data.requestId)
 
     if (originalRequest?.type === 'SIGN') {
@@ -510,12 +510,7 @@ export function useServerRequestHandler(deviceId: string) {
         const bitcoinSignatureEntry = bitcoinResponse?.signatures?.[0]
 
         if (signature) {
-          console.log(`[ClientWebSocketHandler] Signature: ${JSON.stringify(signature)}`)
-
           const actualSignature = normalizeBuffer(signature)
-          console.log(
-            `[ClientWebSocketHandler] Converted signature to Buffer: ${actualSignature.toString('hex')}`,
-          )
 
           const normalizedRequest = {
             ...originalRequest,

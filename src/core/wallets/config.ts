@@ -174,7 +174,7 @@ export async function getWalletConfig(): Promise<WalletConfig> {
       if (validateMnemonic(envMnemonic)) {
         mnemonic = envMnemonic
         source = 'environment'
-        debug.wallet('[WalletConfig] Using mnemonic from environment variable: ', envMnemonic)
+        debug.wallet('[WalletConfig] Using mnemonic from environment variable')
       } else {
         debug.wallet(
           '[WalletConfig] Invalid mnemonic in environment variable, falling back to default',
@@ -196,10 +196,7 @@ export async function getWalletConfig(): Promise<WalletConfig> {
   const seedOverride = getWalletSeedOverride()
 
   if (seedOverride) {
-    debug.wallet('[WalletConfig] Using seed override', {
-      mnemonic,
-      source,
-    })
+    debug.wallet('[WalletConfig] Using seed override', { source })
     return {
       mnemonic,
       seed: new Uint8Array(seedOverride),
@@ -210,11 +207,7 @@ export async function getWalletConfig(): Promise<WalletConfig> {
   // Generate seed from mnemonic (using empty passphrase for simplicity)
   const seed = await mnemonicToSeed(mnemonic, '')
 
-  debug.wallet('[WalletConfig] Derived seed from mnemonic', {
-    mnemonic,
-    source,
-    isDefault,
-  })
+  debug.wallet('[WalletConfig] Derived seed from mnemonic', { source, isDefault })
 
   return {
     mnemonic,
