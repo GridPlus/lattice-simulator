@@ -157,6 +157,8 @@ export function TransactionSigningModal({
         return 'text-orange-500'
       case 'SOL':
         return 'text-purple-500'
+      case 'COSMOS':
+        return 'text-teal-500'
       default:
         return 'text-gray-500'
     }

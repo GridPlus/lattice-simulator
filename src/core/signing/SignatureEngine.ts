@@ -26,6 +26,7 @@ import {
 } from '../protocol/bitcoin'
 import { EXTERNAL, HARDENED_OFFSET, SIGNING_SCHEMA } from '../protocol/constants'
 import { detectCoinTypeFromPath } from '../utils'
+import { getCosmosChainConfigByCoinType } from '../utils/cosmosConfig'
 import { resolveTinySecp } from '../utils/ecc'
 import {
   deriveHDKey,
@@ -41,6 +42,7 @@ import type {
   EthereumWalletAccount,
   BitcoinWalletAccount,
   SolanaWalletAccount,
+  CosmosWalletAccount,
   WalletCoinType,
 } from '../types/wallet'
 import type { TinySecp256k1Interface } from 'bitcoinjs-lib/src/types'
@@ -143,7 +145,7 @@ export interface SigningRequest {
  * Enhanced Signing Service
  *
  * Provides real cryptographic signing capabilities by integrating with
- * the simulator's wallet services. Supports ETH, BTC, and SOL signing
+ * the simulator's wallet services. Supports ETH, BTC, SOL, and COSMOS signing
  * with proper key derivation and signature formats.
  */
 export class SignatureEngine {
@@ -254,6 +256,17 @@ export class SignatureEngine {
           address: '',
           publicKey: '',
         } as SolanaWalletAccount
+      } else if (coinType === 'COSMOS') {
+        const coinTypeValue = request.path && request.path.length > 1 ? request.path[1] : 118
+        const cosmosConfig = getCosmosChainConfigByCoinType(coinTypeValue)
+        walletAccount = {
+          ...baseAccount,
+          coinType: 'COSMOS',
+          address: '',
+          publicKey: '',
+          bip44CoinType: cosmosConfig.bip44CoinType,
+          bech32Prefix: cosmosConfig.bech32Prefix,
+        } as CosmosWalletAccount
       }
     }
 
@@ -265,10 +278,13 @@ export class SignatureEngine {
     // (The specific signing function will update it after deriving new keys if needed)
     if (!request.path || request.path.length === 0) {
       const defaultEthPath = [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0]
+      const defaultCosmosPath = [HARDENED_OFFSET + 44, HARDENED_OFFSET + 118, HARDENED_OFFSET, 0, 0]
       request.path =
         walletAccount.derivationPath && walletAccount.derivationPath.length > 0
           ? [...walletAccount.derivationPath]
-          : [...defaultEthPath]
+          : coinType === 'COSMOS'
+            ? [...defaultCosmosPath]
+            : [...defaultEthPath]
     }
 
     console.log('[SignatureEngine] Using wallet account for signing:', {
@@ -297,6 +313,9 @@ export class SignatureEngine {
 
       case 'SOL':
         return this.signSolana(request, walletAccount as SolanaWalletAccount)
+
+      case 'COSMOS':
+        return this.signCosmos(request, walletAccount as CosmosWalletAccount)
 
       default:
         throw new Error(`Unsupported coin type: ${coinType}`)
@@ -870,6 +889,50 @@ export class SignatureEngine {
 
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data)
     return Buffer.from(Hash.keccak256(buffer))
+  }
+
+  /**
+   * Signs data using Cosmos wallet (secp256k1)
+   */
+  private async signCosmos(
+    request: SigningRequest,
+    wallet: CosmosWalletAccount,
+  ): Promise<SignatureResult> {
+    const derivationPath =
+      request.path && request.path.length > 0
+        ? request.path
+        : wallet.derivationPath && wallet.derivationPath.length > 0
+          ? wallet.derivationPath
+          : [HARDENED_OFFSET + 44, HARDENED_OFFSET + 118, HARDENED_OFFSET, 0, 0]
+
+    const config = await getWalletConfig()
+    const derived = deriveHDKey(config.seed, derivationPath)
+    if (!derived.privateKey || !derived.publicKey) {
+      throw new Error('Failed to derive Cosmos private key')
+    }
+
+    const privateKey = Buffer.from(derived.privateKey)
+    const keyPair = this.secp256k1.keyFromPrivate(privateKey)
+    const publicKeyUncompressed = keyPair.getPublic(false, 'hex')
+    const publicKeyCompressed = keyPair.getPublic(true, 'hex')
+
+    const messageBuffer = Buffer.isBuffer(request.data) ? request.data : Buffer.from(request.data)
+    const hashType = request.hashType ?? EXTERNAL.SIGNING.HASHES.SHA256
+    const digest = this.computeSecp256k1Digest(messageBuffer, hashType, request.isPrehashed)
+
+    const signature = this.secp256k1Sign(digest, privateKey)
+    const derSignature = this.formatDERSignature(signature.r, signature.s)
+
+    return {
+      signature: derSignature,
+      recovery: signature.recovery,
+      recoveryId: signature.recoveryId,
+      format: 'der',
+      metadata: {
+        publicKey: publicKeyUncompressed,
+        publicKeyCompressed,
+      },
+    }
   }
 
   /**

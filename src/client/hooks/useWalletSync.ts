@@ -24,6 +24,7 @@ export function useWalletSync() {
 
     const syncToServer = () => {
       const { wallets, activeMnemonic } = useWalletStore.getState()
+      const cosmosWallets = wallets.COSMOS || { external: [], internal: [] }
       const allAccounts = [
         ...wallets.ETH.external,
         ...wallets.ETH.internal,
@@ -31,6 +32,8 @@ export function useWalletSync() {
         ...wallets.BTC.internal,
         ...wallets.SOL.external,
         ...wallets.SOL.internal,
+        ...cosmosWallets.external,
+        ...cosmosWallets.internal,
       ]
 
       if (allAccounts.length > 0 && isConnected) {
@@ -63,6 +66,7 @@ export function useSyncWalletsToServer() {
 
   return () => {
     const { wallets, activeMnemonic } = useWalletStore.getState()
+    const cosmosWallets = wallets.COSMOS || { external: [], internal: [] }
     const allAccounts = [
       ...wallets.ETH.external,
       ...wallets.ETH.internal,
@@ -70,6 +74,8 @@ export function useSyncWalletsToServer() {
       ...wallets.BTC.internal,
       ...wallets.SOL.external,
       ...wallets.SOL.internal,
+      ...cosmosWallets.external,
+      ...cosmosWallets.internal,
     ]
 
     if (allAccounts.length > 0) {

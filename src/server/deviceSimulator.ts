@@ -52,11 +52,13 @@ import {
   generateDeviceId,
   generateKeyPair,
   detectCoinTypeFromPath,
+  generateCosmosAddress,
   simulateDelay,
   createDeviceResponse,
   supportsFeature,
   aes256_encrypt,
 } from '../core/utils'
+import { getCosmosChainConfigByCoinType } from '../core/utils/cosmosConfig'
 import { resolveTinySecp } from '../core/utils/ecc'
 import { deriveBLS12381Key, deriveEd25519Key, formatDerivationPath } from '../core/utils/hdWallet'
 import {
@@ -813,7 +815,7 @@ export class DeviceSimulator {
   private async deriveAddressesFallback(
     startPath: WalletPath,
     count: number,
-    coinType: 'ETH' | 'BTC' | 'SOL',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
@@ -877,6 +879,18 @@ export class DeviceSimulator {
       else if (purpose === HARDENED_OFFSET + 84) addressType = 'segwit'
     }
 
+    const cosmosOptions =
+      coinType === 'COSMOS'
+        ? (() => {
+            const coinTypeValue = startPath.length > 1 ? startPath[1] : HARDENED_OFFSET + 118
+            const config = getCosmosChainConfigByCoinType(coinTypeValue)
+            return {
+              bip44CoinType: config.bip44CoinType,
+              bech32Prefix: config.bech32Prefix,
+            }
+          })()
+        : undefined
+
     const derived = await walletRegistry.deriveAddressesOnDemand(
       coinType,
       accountIndex,
@@ -884,6 +898,7 @@ export class DeviceSimulator {
       addressType,
       startIndex,
       count,
+      cosmosOptions,
     )
 
     console.log('[Simulator] Fallback derived addresses', {
@@ -1105,7 +1120,7 @@ export class DeviceSimulator {
   private async deriveAddressesManually(
     startPath: WalletPath,
     count: number,
-    coinType: 'ETH' | 'BTC' | 'SOL',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
@@ -1170,6 +1185,10 @@ export class DeviceSimulator {
           const pubKeyWithoutPrefix = uncompressedPubKey!.slice(1)
           const hash = keccak256(pubKeyWithoutPrefix)
           address = '0x' + hash.slice(-40)
+        } else if (coinType === 'COSMOS') {
+          const coinTypeValue = path.length > 1 ? path[1] : HARDENED_OFFSET + 118
+          const config = getCosmosChainConfigByCoinType(coinTypeValue)
+          address = generateCosmosAddress(compressedPubkey, config.bech32Prefix)
         } else {
           throw new Error(`Unsupported coin type for manual derivation: ${coinType}`)
         }
@@ -2566,6 +2585,15 @@ export class DeviceSimulator {
           const solHash = this.simpleHash(seed + 'sol')
           address = solHash.toString(16).padStart(44, '0').substring(0, 44)
           break
+        case 'COSMOS': {
+          const coinTypeValue = startPath.length > 1 ? startPath[1] : HARDENED_OFFSET + 118
+          const config = getCosmosChainConfigByCoinType(coinTypeValue)
+          const pubkey = Buffer.alloc(33)
+          pubkey[0] = 0x02
+          pubkey.writeUInt32BE(this.simpleHash(seed + 'cosmos'), 1)
+          address = generateCosmosAddress(pubkey, config.bech32Prefix)
+          break
+        }
         default:
           address = `mock_${coinType.toLowerCase()}_${index}_${this.deviceId.substring(0, 8)}`
       }
@@ -3024,7 +3052,7 @@ export class DeviceSimulator {
    */
   private async extractTransactionMetadata(
     request: SignRequest,
-    coinType: 'ETH' | 'BTC' | 'SOL',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
   ): Promise<SigningRequest['metadata']> {
     // This is a simplified implementation
     // In a real implementation, you would parse the transaction data
@@ -3052,6 +3080,11 @@ export class DeviceSimulator {
     if (coinType === 'SOL') {
       metadata.tokenSymbol = 'SOL'
       metadata.description = 'Sign Solana transaction'
+    }
+
+    if (coinType === 'COSMOS') {
+      metadata.tokenSymbol = 'COSMOS'
+      metadata.description = 'Sign Cosmos transaction'
     }
 
     return metadata

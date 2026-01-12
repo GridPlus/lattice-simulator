@@ -15,11 +15,17 @@ import {
   generateEthereumAddress,
   generateBitcoinAddress,
   generateSolanaAddress,
+  generateCosmosAddress,
   deriveChild,
   generateSeedFromMnemonic,
 } from './crypto'
-import { DERIVATION_PATHS, SIMULATOR_CONSTANTS } from '../constants'
+import { DERIVATION_PATHS, HARDENED_OFFSET, SIMULATOR_CONSTANTS } from '../constants'
 import { getEnvironmentConfig } from '../walletConfig'
+import {
+  getCosmosChainConfigByCoinType,
+  getDefaultCosmosChainConfig,
+  isCosmosCoinType,
+} from './cosmosConfig'
 
 /**
  * Generates a unique request ID
@@ -170,11 +176,11 @@ export function supportsFeature(
  * Generates mock addresses for a given derivation path
  *
  * Creates cryptocurrency addresses using HD wallet derivation.
- * Supports Ethereum, Bitcoin, and Solana address generation.
+ * Supports Ethereum, Bitcoin, Solana, and Cosmos address generation.
  *
  * @param startPath - Starting derivation path
  * @param count - Number of addresses to generate
- * @param coinType - Cryptocurrency type ('ETH', 'BTC', 'SOL')
+ * @param coinType - Cryptocurrency type ('ETH', 'BTC', 'SOL', 'COSMOS')
  * @param seed - Optional seed for deterministic generation
  * @returns Array of address information objects
  */
@@ -216,6 +222,14 @@ export function generateMockAddresses(
       case 'SOL':
         address = generateSolanaAddress(publicKey)
         break
+      case 'COSMOS': {
+        const coinTypeValue = startPath.length > 1 ? startPath[1] : undefined
+        const cosmosConfig = getCosmosChainConfigByCoinType(
+          typeof coinTypeValue === 'number' ? coinTypeValue : 118,
+        )
+        address = generateCosmosAddress(publicKey, cosmosConfig.bech32Prefix)
+        break
+      }
       default:
         throw new Error(`Unsupported coin type: ${coinType}`)
     }
@@ -255,6 +269,7 @@ export function detectCoinTypeFromPath(path: WalletPath): WalletCoinType | 'UNKN
   )
     return 'BTC'
   if (coinType === 0x80000000 + 501) return 'SOL' // SOL
+  if (isCosmosCoinType(coinType)) return 'COSMOS'
 
   return 'UNKNOWN'
 }
@@ -278,6 +293,16 @@ export function getStandardPath(coinType: WalletCoinType, account: number = 0): 
       return [...DERIVATION_PATHS.BTC_SEGWIT.slice(0, -2), account, 0]
     case 'SOL':
       return [...DERIVATION_PATHS.SOLANA.slice(0, -1), account]
+    case 'COSMOS': {
+      const config = getDefaultCosmosChainConfig()
+      return [
+        HARDENED_OFFSET + 44,
+        HARDENED_OFFSET + config.bip44CoinType,
+        HARDENED_OFFSET + account,
+        0,
+        0,
+      ]
+    }
     default:
       throw new Error(`Unsupported coin type: ${coinType}`)
   }

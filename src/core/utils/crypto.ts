@@ -4,6 +4,7 @@
 
 import { createHash, randomBytes } from 'crypto'
 import aes from 'aes-js'
+import { bech32 } from 'bech32'
 import { ec as EC } from 'elliptic'
 import { keccak256 } from 'viem/utils'
 import { HARDENED_OFFSET } from '../constants'
@@ -211,6 +212,40 @@ export function generateSolanaAddress(publicKey: Buffer): string {
   // Solana addresses are base58-encoded public keys
   // This is a simplified mock implementation
   return publicKey.toString('base64').slice(0, 44)
+}
+
+/**
+ * Generates a Cosmos bech32 address from a public key
+ *
+ * Cosmos addresses use RIPEMD160(SHA256(pubkey)) with bech32 encoding.
+ *
+ * @param publicKey - Public key buffer (compressed secp256k1 recommended)
+ * @param prefix - Bech32 prefix (e.g., "cosmos")
+ * @returns Cosmos bech32 address
+ */
+export function generateCosmosAddress(publicKey: Buffer, prefix: string): string {
+  const sha256 = createHash('sha256').update(publicKey).digest()
+  const ripemd160 = createHash('ripemd160').update(sha256).digest()
+  return bech32.encode(prefix, bech32.toWords(ripemd160))
+}
+
+/**
+ * Validates a Cosmos bech32 address
+ *
+ * @param address - Bech32 address string
+ * @param prefix - Optional prefix to enforce
+ * @returns True if address is valid bech32
+ */
+export function isValidCosmosAddress(address: string, prefix?: string): boolean {
+  try {
+    const decoded = bech32.decode(address)
+    if (prefix && decoded.prefix !== prefix) {
+      return false
+    }
+    return decoded.words.length > 0
+  } catch {
+    return false
+  }
 }
 
 /**

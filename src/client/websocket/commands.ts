@@ -97,7 +97,7 @@ export function sendSyncClientStateCommand(deviceId: string, clientState: any) {
 export function sendDeriveAddressesCommand(
   deviceId: string,
   params: {
-    coinType: 'ETH' | 'BTC' | 'SOL'
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS'
     accountIndex?: number
     walletType?: 'internal' | 'external'
     addressType?: 'segwit' | 'legacy' | 'wrapped-segwit'
@@ -150,7 +150,7 @@ export function sendSyncWalletAccountsCommand(
  */
 export function sendSetActiveWalletCommand(
   deviceId: string,
-  coinType: 'ETH' | 'BTC' | 'SOL',
+  coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
   accountId: string,
 ) {
   sendDeviceCommand(deviceId, 'set_active_wallet', { coinType, accountId })

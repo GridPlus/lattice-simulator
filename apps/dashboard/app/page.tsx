@@ -24,7 +24,7 @@ export default function Home() {
               <h3 className="text-lg font-semibold text-green-900 dark:text-green-100">
                 Supported Chains
               </h3>
-              <p className="text-green-600 dark:text-green-300">ETH, BTC, SOL</p>
+              <p className="text-green-600 dark:text-green-300">ETH, BTC, SOL, COSMOS</p>
             </div>
             <div className="bg-purple-50 dark:bg-purple-900/20 p-6 rounded-lg">
               <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100">

@@ -33,6 +33,12 @@ export const BIP44_DERIVATION_PATHS = {
     account: 0,
     change: 0,
   },
+  COSMOS: {
+    purpose: 44,
+    coinType: 118,
+    account: 0,
+    change: 0,
+  },
 } as const
 
 /**
@@ -59,10 +65,13 @@ export function generateDerivationPath(
   isInternal: boolean = false,
   addressIndex: number = 0,
   addressType: 'legacy' | 'segwit' | 'wrappedSegwit' = 'legacy',
+  bip44CoinType?: number,
 ): number[] {
   const paths = BIP44_DERIVATION_PATHS[coinType]
 
   let purpose: number = paths.purpose
+  const resolvedCoinType =
+    coinType === 'COSMOS' && typeof bip44CoinType === 'number' ? bip44CoinType : paths.coinType
 
   // Use specific purpose for Bitcoin address types
   if (coinType === 'BTC') {
@@ -91,7 +100,7 @@ export function generateDerivationPath(
 
   return [
     HARDENED_OFFSET + purpose, // Purpose (44', 49', 84')
-    HARDENED_OFFSET + paths.coinType, // Coin type (0', 60', 501')
+    HARDENED_OFFSET + resolvedCoinType, // Coin type (0', 60', 118', 501')
     HARDENED_OFFSET + logicalAccountIndex, // Account (0', 1', 2', ...)
     isInternal ? 1 : 0, // Change (0 = external, 1 = internal)
     addressIndex, // Address index (0, 1, 2, ...)
@@ -273,6 +282,7 @@ export async function deriveMultipleKeys(
   count: number = 1,
   startIndex: number = 0,
   addressType: 'legacy' | 'segwit' | 'wrappedSegwit' = 'legacy',
+  bip44CoinType?: number,
 ): Promise<HDKey[]> {
   const config = await getWalletConfig()
 
@@ -287,6 +297,7 @@ export async function deriveMultipleKeys(
         isInternal,
         addressIndex,
         addressType,
+        bip44CoinType,
       )
       const { privateKey } = deriveEd25519Key(config.seed, path)
 
@@ -310,7 +321,14 @@ export async function deriveMultipleKeys(
   const masterKey = HDKey.fromMasterSeed(config.seed)
 
   // Generate base derivation path (without final address index)
-  const basePath = generateDerivationPath(coinType, accountIndex, isInternal, 0, addressType)
+  const basePath = generateDerivationPath(
+    coinType,
+    accountIndex,
+    isInternal,
+    0,
+    addressType,
+    bip44CoinType,
+  )
   basePath.pop() // Remove the address index (0)
 
   // Derive to the base path
@@ -343,10 +361,20 @@ export function getDerivationInfo(
   isInternal: boolean = false,
   addressIndex: number = 0,
   addressType: 'legacy' | 'segwit' | 'wrappedSegwit' = 'legacy',
+  bip44CoinType?: number,
 ) {
-  const path = generateDerivationPath(coinType, accountIndex, isInternal, addressIndex, addressType)
+  const path = generateDerivationPath(
+    coinType,
+    accountIndex,
+    isInternal,
+    addressIndex,
+    addressType,
+    bip44CoinType,
+  )
   const pathString = formatDerivationPath(path)
   const config = BIP44_DERIVATION_PATHS[coinType]
+  const resolvedCoinType =
+    coinType === 'COSMOS' && typeof bip44CoinType === 'number' ? bip44CoinType : config.coinType
 
   return {
     coinType,
@@ -363,7 +391,7 @@ export function getDerivationInfo(
             ? BTC_PURPOSES.wrappedSegwit
             : BTC_PURPOSES.legacy
         : config.purpose,
-    coinTypeValue: config.coinType,
+    coinTypeValue: resolvedCoinType,
   }
 }
 

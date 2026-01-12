@@ -5,6 +5,7 @@
 
 import { createMultipleBitcoinAccounts } from './bitcoin'
 import { setWalletMnemonicOverride, normalizeMnemonic, validateMnemonic } from './config'
+import { createMultipleCosmosAccounts } from './cosmos'
 import { createMultipleEthereumAccounts } from './ethereum'
 import { createMultipleSolanaAccounts } from './solana'
 import type { ActiveWallets } from '../types/device'
@@ -27,6 +28,7 @@ export class WalletRegistry {
     ETH: undefined,
     BTC: undefined,
     SOL: undefined,
+    COSMOS: undefined,
   }
   private initialized: boolean = false
 
@@ -79,7 +81,7 @@ export class WalletRegistry {
   /**
    * Derives wallet addresses on-demand for the specified coin type and range
    *
-   * @param coinType - The cryptocurrency type ('ETH', 'BTC', 'SOL')
+   * @param coinType - The cryptocurrency type ('ETH', 'BTC', 'SOL', 'COSMOS')
    * @param accountIndex - Account index for derivation
    * @param walletType - 'internal' or 'external'
    * @param addressType - Address type (e.g., 'segwit' for Bitcoin)
@@ -88,12 +90,13 @@ export class WalletRegistry {
    * @returns Array of wallet account objects
    */
   async deriveAddressesOnDemand(
-    coinType: 'ETH' | 'BTC' | 'SOL',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
     accountIndex: number = 0,
     walletType: 'internal' | 'external' = 'internal',
     addressType: 'segwit' | 'legacy' | 'wrapped-segwit' = 'segwit',
     startIndex: number = 0,
     count: number = 1,
+    cosmosOptions?: { bip44CoinType?: number; bech32Prefix?: string },
   ): Promise<Array<{ id: string; address: string; publicKey?: string; coinType: string }>> {
     if (!this.initialized) {
       throw new Error('WalletRegistry not initialized')
@@ -149,6 +152,22 @@ export class WalletRegistry {
           }))
         }
 
+        case 'COSMOS': {
+          const accounts = await createMultipleCosmosAccounts(
+            accountIndex,
+            walletType,
+            count,
+            startIndex,
+            cosmosOptions,
+          )
+          return accounts.map(account => ({
+            id: account.id,
+            address: account.address,
+            publicKey: account.publicKey,
+            coinType: 'COSMOS',
+          }))
+        }
+
         default:
           throw new Error(`Unsupported coin type: ${coinType}`)
       }
@@ -197,6 +216,15 @@ export class WalletRegistry {
     })
     if (solAccounts.length > 0) {
       this.activeWallets.SOL = solAccounts[0]
+    }
+
+    // Create Cosmos accounts
+    const cosmosAccounts = await createMultipleCosmosAccounts(0, 'internal', 3, 0)
+    cosmosAccounts.forEach(account => {
+      this.walletAccounts.set(account.id, account)
+    })
+    if (cosmosAccounts.length > 0) {
+      this.activeWallets.COSMOS = cosmosAccounts[0]
     }
 
     console.log(`[WalletRegistry] Created ${this.walletAccounts.size} wallet accounts`)
@@ -391,6 +419,7 @@ export class WalletRegistry {
       ETH: { external: [], internal: [] },
       BTC: { external: [], internal: [] },
       SOL: { external: [], internal: [] },
+      COSMOS: { external: [], internal: [] },
     }
 
     this.walletAccounts.forEach(account => {
@@ -423,6 +452,9 @@ export class WalletRegistry {
       case 'SOL':
         accounts = await createMultipleSolanaAccounts(accountIndex, type, count, 0)
         break
+      case 'COSMOS':
+        accounts = await createMultipleCosmosAccounts(accountIndex, type, count, 0)
+        break
     }
 
     // Add to our collection
@@ -446,6 +478,7 @@ export class WalletRegistry {
       ETH: 0,
       BTC: 0,
       SOL: 0,
+      COSMOS: 0,
     }
 
     this.walletAccounts.forEach(account => {
@@ -461,6 +494,7 @@ export class WalletRegistry {
         ETH: this.activeWallets.ETH?.id,
         BTC: this.activeWallets.BTC?.id,
         SOL: this.activeWallets.SOL?.id,
+        COSMOS: this.activeWallets.COSMOS?.id,
       },
     }
   }
@@ -491,6 +525,7 @@ export class WalletRegistry {
       ETH: undefined,
       BTC: undefined,
       SOL: undefined,
+      COSMOS: undefined,
     }
     this.initialized = false
     console.log('[WalletRegistry] Reset all wallet data')

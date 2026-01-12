@@ -26,11 +26,18 @@ import {
   type SignRequest,
   type WalletPath,
 } from '../core/types'
-import { aes256_decrypt, aes256_encrypt, generateKeyPair } from '../core/utils/crypto'
+import { getCosmosChainConfigByCoinType } from '../core/utils/cosmosConfig'
+import {
+  aes256_decrypt,
+  aes256_encrypt,
+  generateCosmosAddress,
+  generateKeyPair,
+} from '../core/utils/crypto'
 import { resolveTinySecp } from '../core/utils/ecc'
 import { formatDerivationPath } from '../core/utils/hdWallet'
 import { detectCoinTypeFromPath } from '../core/utils/protocol'
 import type { DeviceSimulator } from './deviceSimulator'
+import type { WalletCoinType } from '../core/types/wallet'
 
 const secp256k1 = new elliptic.ec('secp256k1')
 let bitcoinInitialized = false
@@ -1346,7 +1353,7 @@ export class ProtocolHandler {
   private deriveWalletJobAddress(
     path: number[],
     bip32Master: BIP32Interface,
-    coinType: 'BTC' | 'ETH' | 'SOL',
+    coinType: WalletCoinType,
   ): { address: string; publicKey?: Buffer } {
     const pathString = formatDerivationPath(path as WalletPath)
     const node = bip32Master.derivePath(pathString)
@@ -1385,6 +1392,12 @@ export class ProtocolHandler {
       })
 
       return { address: payment.address, publicKey }
+    }
+
+    if (coinType === 'COSMOS') {
+      const coinTypeValue = path.length > 1 ? path[1] : HARDENED_OFFSET + 118
+      const config = getCosmosChainConfigByCoinType(coinTypeValue)
+      return { address: generateCosmosAddress(publicKey, config.bech32Prefix), publicKey }
     }
 
     // Default to Ethereum-style derivation for ETH and other EVM chains

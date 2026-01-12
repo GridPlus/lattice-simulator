@@ -3,7 +3,7 @@
  * Defines interfaces for wallet accounts with external/internal distinction
  */
 
-export type WalletCoinType = 'ETH' | 'BTC' | 'SOL'
+export type WalletCoinType = 'ETH' | 'BTC' | 'SOL' | 'COSMOS'
 export type WalletAccountType = 'external' | 'internal'
 
 /**
@@ -72,9 +72,30 @@ export interface SolanaWalletAccount extends BaseWalletAccount {
 }
 
 /**
+ * Cosmos wallet account
+ */
+export interface CosmosWalletAccount extends BaseWalletAccount {
+  coinType: 'COSMOS'
+  /** Cosmos bech32 address */
+  address: string
+  /** Compressed public key (hex string) */
+  publicKey: string
+  /** Private key (hex string) - only stored for internal accounts */
+  privateKey?: string
+  /** BIP-44 coin type for this Cosmos chain (e.g., 118) */
+  bip44CoinType: number
+  /** Bech32 prefix used for this account */
+  bech32Prefix: string
+}
+
+/**
  * Union type for all wallet accounts
  */
-export type WalletAccount = EthereumWalletAccount | BitcoinWalletAccount | SolanaWalletAccount
+export type WalletAccount =
+  | EthereumWalletAccount
+  | BitcoinWalletAccount
+  | SolanaWalletAccount
+  | CosmosWalletAccount
 
 /**
  * Active wallets configuration - one per coin type
@@ -83,6 +104,7 @@ export interface ActiveWallets {
   ETH?: EthereumWalletAccount
   BTC?: BitcoinWalletAccount
   SOL?: SolanaWalletAccount
+  COSMOS?: CosmosWalletAccount
 }
 
 /**
@@ -100,6 +122,10 @@ export interface WalletCollection {
   SOL: {
     external: SolanaWalletAccount[]
     internal: SolanaWalletAccount[]
+  }
+  COSMOS: {
+    external: CosmosWalletAccount[]
+    internal: CosmosWalletAccount[]
   }
 }
 
@@ -142,6 +168,8 @@ export interface CreateAccountParams {
   type: WalletAccountType
   name?: string
   addressType?: 'legacy' | 'segwit' | 'wrapped-segwit' // Bitcoin only
+  bip44CoinType?: number // Cosmos only
+  bech32Prefix?: string // Cosmos only
 }
 
 /**

@@ -13,6 +13,7 @@ import { useDeviceStore } from '@/client/store/clientDeviceStore'
 import { useTransactionStore } from '@/client/store/clientTransactionStore'
 import { getWalletServices } from '@/client/store/clientWalletStore'
 import { normalizeBuffer } from '@/shared/utils'
+import { getCosmosChainConfigByCoinType } from '@/shared/utils/cosmosConfig'
 import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
 import type { SigningRequest } from '@/shared/types/device'
 
@@ -181,6 +182,20 @@ export function useServerRequestHandler(deviceId: string) {
               startIndex,
             )
             break
+          case 'COSMOS': {
+            const cosmosConfig = getCosmosChainConfigByCoinType(startPath?.[1] ?? 118)
+            accounts = await walletServices.createMultipleCosmosAccounts(
+              accountIndex,
+              walletType,
+              count,
+              startIndex,
+              {
+                bip44CoinType: cosmosConfig.bip44CoinType,
+                bech32Prefix: cosmosConfig.bech32Prefix,
+              },
+            )
+            break
+          }
           default:
             throw new Error(`Unsupported coin type: ${coinType}`)
         }
