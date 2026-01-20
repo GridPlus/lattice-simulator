@@ -298,6 +298,17 @@ export default function PendingRequestsPage() {
                       })()}
                     </div>
                   </div>
+
+                  {selectedRequest.metadata?.decodedDetails && (
+                    <div>
+                      <label className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                        Decoded Details
+                      </label>
+                      <pre className="font-mono text-xs bg-gray-100 dark:bg-gray-700 rounded px-3 py-2 mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap">
+                        {selectedRequest.metadata.decodedDetails}
+                      </pre>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-end space-x-3 mt-6">
