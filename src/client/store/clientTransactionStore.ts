@@ -302,6 +302,7 @@ export const useTransactionStore = create<TransactionStore>()(
             value: request.metadata?.value,
             tokenSymbol: request.metadata?.tokenSymbol,
             description: request.metadata?.description,
+            decodedDetails: request.metadata?.decodedDetails,
             ...metadata,
           },
         }
@@ -327,6 +328,7 @@ export const useTransactionStore = create<TransactionStore>()(
             value: request.metadata?.value,
             tokenSymbol: request.metadata?.tokenSymbol,
             description: request.metadata?.description || 'User rejected transaction',
+            decodedDetails: request.metadata?.decodedDetails,
             ...metadata,
           },
         }

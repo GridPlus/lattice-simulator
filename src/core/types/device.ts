@@ -78,6 +78,8 @@ export interface SigningRequest extends PendingRequest {
     contractAddress?: string
     /** Human-readable description */
     description?: string
+    /** Decoded details for complex transactions (e.g. Cosmos SignDoc) */
+    decodedDetails?: string
   }
 }
 
@@ -141,6 +143,8 @@ export interface TransactionRecord {
     fee?: string
     /** Human-readable description */
     description?: string
+    /** Decoded details for complex transactions (e.g. Cosmos SignDoc) */
+    decodedDetails?: string
     /** Block number (if confirmed) */
     blockNumber?: number
   }

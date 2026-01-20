@@ -303,6 +303,17 @@ export function TransactionSigningModal({
                     </p>
                   </div>
                 )}
+
+                {request.metadata.decodedDetails && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+                      DECODED DETAILS
+                    </p>
+                    <pre className="text-xs font-mono text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800 p-3 rounded whitespace-pre-wrap max-h-64 overflow-y-auto">
+                      {request.metadata.decodedDetails}
+                    </pre>
+                  </div>
+                )}
               </div>
             </div>
           )}

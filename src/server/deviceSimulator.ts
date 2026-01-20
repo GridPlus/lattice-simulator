@@ -26,6 +26,7 @@ import {
 import { requestWalletAddresses } from './requestManager'
 import { SignRequestSchema, GENERIC_SIGNING_BASE_CHUNK_SIZE } from './signRequestParsers'
 import { EXTERNAL, HARDENED_OFFSET } from '../core/constants'
+import { decodeCosmosSignDoc } from './utils/cosmosDecoder'
 import {
   buildEthereumSigningPreimage,
   decodeEthereumTxPayload,
@@ -3084,7 +3085,28 @@ export class DeviceSimulator {
 
     if (coinType === 'COSMOS') {
       metadata.tokenSymbol = 'COSMOS'
-      metadata.description = 'Sign Cosmos transaction'
+      const payload = Buffer.isBuffer(request.data) ? request.data : Buffer.from(request.data)
+      const isPrehashed = request.isPrehashed === true
+      const hasFullPayload =
+        request.messageLength !== undefined ? payload.length >= request.messageLength : true
+
+      if (!isPrehashed && hasFullPayload && payload.length > 0) {
+        const decoded = decodeCosmosSignDoc(payload, { addressTags: this.kvRecords })
+        if (decoded) {
+          const label = decoded.messageTypes.length
+            ? decoded.messageTypes.join(', ')
+            : 'Transaction'
+          metadata.description = `Cosmos ${label}`
+          metadata.decodedDetails = decoded.details
+          return metadata
+        }
+      }
+
+      metadata.description = isPrehashed
+        ? 'Cosmos transaction (prehashed)'
+        : hasFullPayload
+          ? 'Cosmos transaction'
+          : 'Cosmos transaction (partial payload)'
     }
 
     return metadata
