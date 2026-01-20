@@ -576,7 +576,7 @@ function readVarint64(buffer: Buffer, offset: number): { value: bigint; bytes: n
   if (offset >= buffer.length) {
     return null
   }
-  let value = 0n
+  let value = BigInt(0)
   for (let index = 0; index < 10; index++) {
     if (offset + index >= buffer.length) {
       return null
@@ -594,7 +594,8 @@ function isPrintableAsciiBuffer(buffer: Buffer): boolean {
   if (buffer.length === 0) {
     return false
   }
-  for (const byte of buffer) {
+  for (let i = 0; i < buffer.length; i++) {
+    const byte = buffer[i]
     if (
       byte !== 0x00 &&
       byte !== 0x09 &&
