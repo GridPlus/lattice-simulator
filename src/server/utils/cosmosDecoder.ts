@@ -1,3 +1,28 @@
+/**
+ * Cosmos SignDoc Decoder
+ *
+ * Supports automatic detection and decoding of both Cosmos signing modes:
+ *
+ * 1. SIGN_MODE_DIRECT (Protobuf)
+ *    - Binary protobuf-encoded SignDoc
+ *    - Modern signing mode used by most Cosmos chains
+ *    - First byte is typically 0x0A (tag 1, wire type 2)
+ *
+ * 2. SIGN_MODE_LEGACY_AMINO_JSON (Amino JSON)
+ *    - JSON-encoded StdSignDoc
+ *    - Legacy signing mode for backwards compatibility
+ *    - First byte is always '{' (0x7B)
+ *
+ * Detection is reliable because:
+ * - JSON always starts with '{' (0x7B)
+ * - No valid Protobuf SignDoc starts with '{' (0x7B = field 15, wire type 3, deprecated)
+ *
+ * Supported message types (both encodings):
+ * - MsgSend, MsgMultiSend (bank)
+ * - MsgDelegate, MsgUndelegate, MsgBeginRedelegate (staking)
+ * - MsgTransfer (IBC)
+ * - MsgExecuteContract (CosmWasm/Terra)
+ */
 import { createHash } from 'crypto'
 
 type DecodeType =
@@ -543,15 +568,25 @@ const MSG_TYPE_MAP: Record<
   },
 }
 
+/**
+ * Amino JSON message type mappings (SIGN_MODE_LEGACY_AMINO_JSON).
+ * These match the Protobuf type mappings in MSG_TYPE_MAP for full parity.
+ */
 const JSON_MSG_TYPE_MAP: Record<string, { type: CosmosMsgType; label: string }> = {
+  // Bank module
   'cosmos-sdk/MsgSend': { type: 'send', label: 'Send' },
   'cosmos-sdk/MsgMultiSend': { type: 'multiSend', label: 'MultiSend' },
+  // Staking module
   'cosmos-sdk/MsgDelegate': { type: 'delegate', label: 'Delegate' },
   'cosmos-sdk/MsgUndelegate': { type: 'undelegate', label: 'Undelegate' },
   'cosmos-sdk/MsgBeginRedelegate': { type: 'redelegate', label: 'Redelegate' },
+  // IBC transfer
   'cosmos-sdk/MsgTransfer': { type: 'ibcTransfer', label: 'IBC Transfer' },
+  'ibc/MsgTransfer': { type: 'ibcTransfer', label: 'IBC Transfer' },
+  // CosmWasm / Terra wasm
   'cosmos-sdk/MsgExecuteContract': { type: 'executeContract', label: 'Execute Contract' },
   'wasm/MsgExecuteContract': { type: 'executeContract', label: 'Execute Contract' },
+  'terra/MsgExecuteContract': { type: 'executeContract', label: 'Execute Contract' },
 }
 
 function readVarint32(buffer: Buffer, offset: number): { value: number; bytes: number } | null {
@@ -819,38 +854,96 @@ function decodeProtobuf(
   }
 }
 
+/**
+ * Detects whether the payload is Amino JSON (SIGN_MODE_LEGACY_AMINO_JSON).
+ *
+ * Detection heuristics:
+ * - Amino JSON always starts with `{` (0x7B)
+ * - The entire payload must be printable ASCII
+ *
+ * Protobuf SignDoc starts with a field tag:
+ * - Tag 1 (body_bytes), wire type 2: 0x0A
+ * - Tag 2 (auth_info_bytes), wire type 2: 0x12
+ * - These are non-printable or control characters
+ *
+ * No valid Protobuf SignDoc starts with `{` (0x7B = field 15, wire type 3, which is deprecated).
+ */
+function isAminoJson(data: Buffer): boolean {
+  if (data.length === 0) {
+    return false
+  }
+  // Quick check: Amino JSON always starts with '{'
+  if (data[0] !== 0x7b) {
+    return false
+  }
+  // Full check: entire buffer must be printable ASCII
+  return isPrintableAsciiBuffer(data)
+}
+
+/**
+ * Decodes a Cosmos SignDoc payload, automatically detecting the encoding type.
+ *
+ * Supports:
+ * - SIGN_MODE_DIRECT (Protobuf-encoded SignDoc)
+ * - SIGN_MODE_LEGACY_AMINO_JSON (JSON-encoded StdSignDoc)
+ *
+ * @param data - The raw SignDoc payload
+ * @param options - Optional configuration (e.g., address tag replacements)
+ * @returns Decoded details and message types, or null if decoding fails
+ */
 export function decodeCosmosSignDoc(
   data: Buffer,
   options?: { addressTags?: Record<string, string> },
 ): CosmosDecodedDetails | null {
-  const tryJsonFallback = (): CosmosDecodedDetails | null => {
-    if (!isPrintableAsciiBuffer(data)) {
-      return null
-    }
-    const ascii = bufferToAscii(data).trim()
-    if (!ascii) {
-      return null
-    }
-    return formatCosmosJson(ascii, options?.addressTags)
+  // Detect encoding type upfront
+  if (isAminoJson(data)) {
+    return decodeAminoJson(data, options?.addressTags)
   }
 
+  // Try Protobuf decoding (SIGN_MODE_DIRECT)
+  return decodeProtobufSignDoc(data, options?.addressTags)
+}
+
+/**
+ * Decodes an Amino JSON (SIGN_MODE_LEGACY_AMINO_JSON) payload.
+ */
+function decodeAminoJson(
+  data: Buffer,
+  addressTags?: Record<string, string>,
+): CosmosDecodedDetails | null {
+  const ascii = bufferToAscii(data).trim()
+  if (!ascii) {
+    return null
+  }
+  return formatCosmosJson(ascii, addressTags)
+}
+
+/**
+ * Decodes a Protobuf (SIGN_MODE_DIRECT) SignDoc payload.
+ */
+function decodeProtobufSignDoc(
+  data: Buffer,
+  addressTags?: Record<string, string>,
+): CosmosDecodedDetails | null {
   const context: DecodeContext = {
     output: [],
     messageTypes: [],
-    addressTags: options?.addressTags,
+    addressTags,
   }
 
   try {
+    // Decode twice: first pass extracts metadata (AuthInfo, chain),
+    // second pass extracts transaction body (messages, memo)
     decodeProtobuf(data, cosmosBufA, context, true)
     decodeProtobuf(data, cosmosBufB, context, true)
-    // eslint-disable-next-line unused-imports/no-unused-vars, @typescript-eslint/no-unused-vars
-  } catch (_error) {
-    return tryJsonFallback()
+  } catch {
+    // Protobuf decoding failed - this might be malformed or unsupported
+    return null
   }
 
   const details = context.output.join('').trim()
   if (!details) {
-    return tryJsonFallback()
+    return null
   }
 
   return {
