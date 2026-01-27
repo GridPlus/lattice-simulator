@@ -602,6 +602,39 @@ class ServerWebSocketManager {
           }
           break
 
+        case 'set_active_safecard': {
+          const { safeCardId, uid, name, mnemonic } = data || {}
+          if (!safeCardId || !uid || !name) {
+            this.sendError(ws, 'safeCardId, uid, and name are required to set active SafeCard')
+            return
+          }
+
+          try {
+            simulator.setActiveSafeCard({
+              id: safeCardId,
+              uid,
+              name,
+              mnemonic: typeof mnemonic === 'string' ? mnemonic : null,
+            })
+
+            this.sendMessage(ws, {
+              type: 'command_response',
+              data: {
+                command,
+                success: true,
+                safeCardId,
+                uid,
+                name,
+              },
+              timestamp: Date.now(),
+            })
+          } catch (error) {
+            console.error(`[ServerWsManager] Error setting active SafeCard: ${error}`)
+            this.sendError(ws, `Error setting active SafeCard: ${(error as Error).message}`)
+          }
+          break
+        }
+
         case 'sync_wallet_accounts':
           const payload = data || {}
           const { walletAccounts, mnemonic } = payload

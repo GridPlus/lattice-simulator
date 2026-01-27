@@ -8,8 +8,13 @@ import { HDKey } from '@scure/bip32'
 import { Keypair } from '@solana/web3.js'
 import { deriveSeedTree } from 'bls12-381-keygen'
 import { HARDENED_OFFSET } from '../constants'
-import { getWalletConfig } from '../walletConfig'
+import { deriveSeedFromMnemonic, getWalletConfig } from '../walletConfig'
 import type { WalletCoinType } from '../types/wallet'
+
+export interface DerivationSeedOptions {
+  seed?: Uint8Array
+  mnemonic?: string
+}
 
 /**
  * Standard BIP-44 derivation paths for supported coins
@@ -283,8 +288,13 @@ export async function deriveMultipleKeys(
   startIndex: number = 0,
   addressType: 'legacy' | 'segwit' | 'wrappedSegwit' = 'legacy',
   bip44CoinType?: number,
+  options?: DerivationSeedOptions,
 ): Promise<HDKey[]> {
-  const config = await getWalletConfig()
+  const seed =
+    options?.seed ??
+    (options?.mnemonic
+      ? await deriveSeedFromMnemonic(options.mnemonic)
+      : (await getWalletConfig()).seed)
 
   // For Solana (Ed25519), we need special derivation
   if (coinType === 'SOL') {
@@ -299,7 +309,7 @@ export async function deriveMultipleKeys(
         addressType,
         bip44CoinType,
       )
-      const { privateKey } = deriveEd25519Key(config.seed, path)
+      const { privateKey } = deriveEd25519Key(seed, path)
 
       // Derive Ed25519 public key from private key using Solana's Keypair
       const keypair = Keypair.fromSeed(new Uint8Array(privateKey))
@@ -318,7 +328,7 @@ export async function deriveMultipleKeys(
   }
 
   // For other coins (secp256k1), use standard derivation
-  const masterKey = HDKey.fromMasterSeed(config.seed)
+  const masterKey = HDKey.fromMasterSeed(seed)
 
   // Generate base derivation path (without final address index)
   const basePath = generateDerivationPath(

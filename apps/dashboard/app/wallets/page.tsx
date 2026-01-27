@@ -47,9 +47,15 @@ export default function WalletsPage() {
     setActiveWallet,
     initializeWallets,
     createAccounts,
+    safeCards,
+    activeSafeCardId,
   } = useWalletStore()
 
   const walletStats = useWalletStats()
+  const activeSafeCard = useMemo(
+    () => safeCards.find(card => card.id === activeSafeCardId),
+    [safeCards, activeSafeCardId],
+  )
 
   const accounts = useMemo(() => {
     if (!isInitialized || !wallets[selectedCoin]) {
@@ -215,6 +221,11 @@ export default function WalletsPage() {
           <p className="text-gray-600 dark:text-gray-400 mb-4">
             View and manage your HD wallet accounts across different blockchains
           </p>
+          {activeSafeCard && (
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Active SafeCard: <span className="font-medium">{activeSafeCard.name}</span>
+            </p>
+          )}
 
           {/* Wallet Stats */}
           <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">

@@ -13,6 +13,11 @@ import type {
 } from '../types/wallet'
 import type { HDKey } from '@scure/bip32'
 
+interface AccountGenerationOptions {
+  seed?: Uint8Array
+  idPrefix?: string
+}
+
 /**
  * Creates a Solana wallet account from HD key
  *
@@ -77,6 +82,7 @@ export async function createMultipleSolanaAccounts(
   type: WalletAccountType = 'external',
   count: number = 1,
   startIndex: number = 0,
+  options?: AccountGenerationOptions,
 ): Promise<SolanaWalletAccount[]> {
   // Derive multiple HD keys using Solana's BIP-44 path
   const hdKeys = await deriveMultipleKeys(
@@ -85,6 +91,9 @@ export async function createMultipleSolanaAccounts(
     type === 'internal',
     count,
     startIndex,
+    'legacy',
+    undefined,
+    options,
   )
 
   // Create accounts from HD keys
@@ -102,7 +111,8 @@ export async function createMultipleSolanaAccounts(
     )
 
     // Update the account ID to include address index
-    account.id = `sol-${type}-${accountIndex}-${addressIndex}`
+    const idPrefix = options?.idPrefix ? `${options.idPrefix}-` : ''
+    account.id = `sol-${idPrefix}${type}-${addressIndex}`
 
     accounts.push(account)
   }
@@ -118,13 +128,20 @@ export async function createMultipleSolanaAccounts(
  */
 export async function createSolanaAccount(
   params: CreateAccountParams,
+  options?: AccountGenerationOptions,
 ): Promise<WalletDerivationResult> {
   try {
     if (params.coinType !== 'SOL') {
       throw new Error('Invalid coin type for Solana account creation')
     }
 
-    const accounts = await createMultipleSolanaAccounts(params.accountIndex, params.type, 1, 0)
+    const accounts = await createMultipleSolanaAccounts(
+      params.accountIndex,
+      params.type,
+      1,
+      0,
+      options,
+    )
 
     if (accounts.length === 0) {
       throw new Error('Failed to create Solana account')

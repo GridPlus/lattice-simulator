@@ -6,6 +6,15 @@
 export type WalletCoinType = 'ETH' | 'BTC' | 'SOL' | 'COSMOS'
 export type WalletAccountType = 'external' | 'internal'
 
+export interface SafeCard {
+  id: number
+  uid: string
+  name: string
+  mnemonic: string
+  mnemonicSource?: 'default' | 'custom'
+  createdAt: number
+}
+
 /**
  * Base wallet account interface
  */

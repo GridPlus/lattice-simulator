@@ -6,20 +6,24 @@
 import { create } from 'zustand'
 import { subscribeWithSelector, persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
+import { SIMULATOR_CONSTANTS } from '@/shared/constants'
+import { defaultSafeCardName, generateSafeCardUid } from '@/shared/utils/safecard'
 import {
+  deriveSeedFromMnemonic,
   getWalletConfig,
   setWalletMnemonicOverride,
   normalizeMnemonic,
   validateMnemonic,
 } from '@/shared/walletConfig'
 import { useDeviceStore } from './clientDeviceStore'
-import { sendSetActiveWalletCommand } from '../websocket/commands'
+import { sendSetActiveSafeCardCommand, sendSetActiveWalletCommand } from '../websocket/commands'
 import type {
   WalletAccount,
   WalletCollection,
   ActiveWallets,
   WalletCoinType,
   WalletAccountType,
+  SafeCard,
 } from '@/shared/types/wallet'
 // Dynamic imports to avoid SSR issues with crypto libraries
 let walletServices: any = null
@@ -87,6 +91,10 @@ const INITIAL_ACTIVE_WALLETS: ActiveWallets = {
   COSMOS: undefined,
 }
 
+const INITIAL_SAFE_CARDS: SafeCard[] = []
+const INITIAL_WALLETS_BY_SAFECARD: Record<number, WalletCollection> = {}
+const INITIAL_ACTIVE_WALLETS_BY_SAFECARD: Record<number, ActiveWallets> = {}
+
 /**
  * Wallet store state interface
  */
@@ -96,6 +104,18 @@ interface WalletState {
 
   /** Currently active wallet for each coin type */
   activeWallets: ActiveWallets
+
+  /** All SafeCards configured in the simulator */
+  safeCards: SafeCard[]
+
+  /** Currently active SafeCard ID */
+  activeSafeCardId: number | null
+
+  /** Wallet collections per SafeCard */
+  walletsBySafeCard: Record<number, WalletCollection>
+
+  /** Active wallets per SafeCard */
+  activeWalletsBySafeCard: Record<number, ActiveWallets>
 
   /** Whether wallets have been initialized from mnemonic */
   isInitialized: boolean
@@ -126,6 +146,15 @@ interface WalletActions {
 
   /** Persist a mnemonic override for deriving wallets */
   setActiveMnemonic: (mnemonic: string) => void
+
+  /** Add a new SafeCard with its own mnemonic */
+  addSafeCard: (params: { mnemonic: string; name?: string }) => Promise<void>
+
+  /** Set the active SafeCard */
+  setActiveSafeCard: (safeCardId: number) => void
+
+  /** Get the active SafeCard */
+  getActiveSafeCard: () => SafeCard | undefined
 
   // Account Management
   /** Create new accounts for a specific coin type */
@@ -173,6 +202,10 @@ interface WalletStore extends WalletState, WalletActions {}
 const INITIAL_WALLET_STATE: WalletState = {
   wallets: INITIAL_WALLET_COLLECTION,
   activeWallets: INITIAL_ACTIVE_WALLETS,
+  safeCards: INITIAL_SAFE_CARDS,
+  activeSafeCardId: null,
+  walletsBySafeCard: INITIAL_WALLETS_BY_SAFECARD,
+  activeWalletsBySafeCard: INITIAL_ACTIVE_WALLETS_BY_SAFECARD,
   isInitialized: false,
   isLoading: false,
   error: null,
@@ -197,6 +230,26 @@ const ensureActiveWallets = (activeWallets?: ActiveWallets): ActiveWallets => {
   }
 }
 
+const resolveSafeCardWallets = (
+  walletsBySafeCard: Record<number, WalletCollection> | undefined,
+  safeCardId?: number | null,
+): WalletCollection => {
+  if (!safeCardId || !walletsBySafeCard || !walletsBySafeCard[safeCardId]) {
+    return INITIAL_WALLET_COLLECTION
+  }
+  return ensureWalletCollection(walletsBySafeCard[safeCardId])
+}
+
+const resolveSafeCardActiveWallets = (
+  activeWalletsBySafeCard: Record<number, ActiveWallets> | undefined,
+  safeCardId?: number | null,
+): ActiveWallets => {
+  if (!safeCardId || !activeWalletsBySafeCard || !activeWalletsBySafeCard[safeCardId]) {
+    return INITIAL_ACTIVE_WALLETS
+  }
+  return ensureActiveWallets(activeWalletsBySafeCard[safeCardId])
+}
+
 /**
  * Zustand wallet store with persistence
  */
@@ -215,6 +268,8 @@ export const useWalletStore = create<WalletStore>()(
 
           try {
             console.log('[WalletStore] Initializing wallets from mnemonic...')
+
+            const defaultMnemonic = normalizeMnemonic(SIMULATOR_CONSTANTS.DEFAULT_MNEMONIC)
 
             // Determine which mnemonic to use and ensure the override is applied before derivation
             let mnemonic = get().activeMnemonic?.trim()
@@ -236,6 +291,8 @@ export const useWalletStore = create<WalletStore>()(
               throw new Error('Invalid mnemonic provided for wallet initialization')
             }
 
+            const seed = await deriveSeedFromMnemonic(normalizedMnemonic)
+
             set(state => {
               state.activeMnemonic = normalizedMnemonic
             })
@@ -245,12 +302,33 @@ export const useWalletStore = create<WalletStore>()(
             // Load wallet services dynamically
             const services = await getWalletServices()
 
+            const safeCardId = 1
+            const safeCard: SafeCard = {
+              id: safeCardId,
+              uid: generateSafeCardUid(safeCardId, 'external'),
+              name: defaultSafeCardName(safeCardId),
+              mnemonic: normalizedMnemonic,
+              mnemonicSource: normalizedMnemonic === defaultMnemonic ? 'default' : 'custom',
+              createdAt: Date.now(),
+            }
+
+            const idPrefix = `safecard-${safeCardId}`
+            const accountOptions = { seed, idPrefix }
+
             // Create initial external accounts for each coin type (first 5 accounts)
             const [ethAccounts, btcAccounts, solAccounts, cosmosAccounts] = await Promise.all([
-              services.createMultipleEthereumAccounts(0, 'external', 5, 0),
-              services.createMultipleBitcoinAccounts(0, 'external', 'segwit', 5, 0),
-              services.createMultipleSolanaAccounts(0, 'external', 5, 0),
-              services.createMultipleCosmosAccounts(0, 'external', 5, 0),
+              services.createMultipleEthereumAccounts(0, 'external', 5, 0, accountOptions),
+              services.createMultipleBitcoinAccounts(
+                0,
+                'external',
+                'segwit',
+                5,
+                0,
+                'mainnet',
+                accountOptions,
+              ),
+              services.createMultipleSolanaAccounts(0, 'external', 5, 0, accountOptions),
+              services.createMultipleCosmosAccounts(0, 'external', 5, 0, accountOptions),
             ])
 
             // Create initial internal accounts for each coin type (first 2 accounts)
@@ -260,40 +338,62 @@ export const useWalletStore = create<WalletStore>()(
               solInternalAccounts,
               cosmosInternalAccounts,
             ] = await Promise.all([
-              services.createMultipleEthereumAccounts(0, 'internal', 2, 0),
-              services.createMultipleBitcoinAccounts(0, 'internal', 'segwit', 2, 0),
-              services.createMultipleSolanaAccounts(0, 'internal', 2, 0),
-              services.createMultipleCosmosAccounts(0, 'internal', 2, 0),
+              services.createMultipleEthereumAccounts(0, 'internal', 2, 0, accountOptions),
+              services.createMultipleBitcoinAccounts(
+                0,
+                'internal',
+                'segwit',
+                2,
+                0,
+                'mainnet',
+                accountOptions,
+              ),
+              services.createMultipleSolanaAccounts(0, 'internal', 2, 0, accountOptions),
+              services.createMultipleCosmosAccounts(0, 'internal', 2, 0, accountOptions),
             ])
 
             set(state => {
-              // Set wallet accounts
-              state.wallets.ETH.external = ethAccounts
-              state.wallets.ETH.internal = ethInternalAccounts
-              state.wallets.BTC.external = btcAccounts
-              state.wallets.BTC.internal = btcInternalAccounts
-              state.wallets.SOL.external = solAccounts
-              state.wallets.SOL.internal = solInternalAccounts
-              state.wallets.COSMOS.external = cosmosAccounts
-              state.wallets.COSMOS.internal = cosmosInternalAccounts
+              // Seed SafeCard state
+              state.safeCards = [safeCard]
+              state.activeSafeCardId = safeCardId
+
+              state.walletsBySafeCard = {
+                [safeCardId]: {
+                  ETH: { external: ethAccounts, internal: ethInternalAccounts },
+                  BTC: { external: btcAccounts, internal: btcInternalAccounts },
+                  SOL: { external: solAccounts, internal: solInternalAccounts },
+                  COSMOS: { external: cosmosAccounts, internal: cosmosInternalAccounts },
+                },
+              }
 
               // Set first external account as active for each coin
+              const activeWallets: ActiveWallets = {
+                ETH: ethAccounts[0],
+                BTC: btcAccounts[0],
+                SOL: solAccounts[0],
+                COSMOS: cosmosAccounts[0],
+              }
+
               if (ethAccounts.length > 0) {
                 ethAccounts[0].isActive = true
-                state.activeWallets.ETH = ethAccounts[0]
               }
               if (btcAccounts.length > 0) {
                 btcAccounts[0].isActive = true
-                state.activeWallets.BTC = btcAccounts[0]
               }
               if (solAccounts.length > 0) {
                 solAccounts[0].isActive = true
-                state.activeWallets.SOL = solAccounts[0]
               }
               if (cosmosAccounts.length > 0) {
                 cosmosAccounts[0].isActive = true
-                state.activeWallets.COSMOS = cosmosAccounts[0]
               }
+
+              state.activeWalletsBySafeCard = {
+                [safeCardId]: activeWallets,
+              }
+
+              // Set active SafeCard view
+              state.wallets = state.walletsBySafeCard[safeCardId]
+              state.activeWallets = activeWallets
 
               state.isInitialized = true
               state.isLoading = false
@@ -325,6 +425,10 @@ export const useWalletStore = create<WalletStore>()(
           set(state => {
             state.wallets = INITIAL_WALLET_COLLECTION
             state.activeWallets = INITIAL_ACTIVE_WALLETS
+            state.safeCards = INITIAL_SAFE_CARDS
+            state.activeSafeCardId = null
+            state.walletsBySafeCard = INITIAL_WALLETS_BY_SAFECARD
+            state.activeWalletsBySafeCard = INITIAL_ACTIVE_WALLETS_BY_SAFECARD
             state.isInitialized = false
             state.error = null
             state.activeMnemonic = null
@@ -349,6 +453,185 @@ export const useWalletStore = create<WalletStore>()(
           setWalletMnemonicOverride(normalized)
         },
 
+        addSafeCard: async ({ mnemonic, name }) => {
+          set(state => {
+            state.isLoading = true
+            state.error = null
+          })
+
+          try {
+            const normalizedMnemonic = normalizeMnemonic(mnemonic)
+            if (!validateMnemonic(normalizedMnemonic)) {
+              throw new Error('Invalid mnemonic provided for SafeCard')
+            }
+
+            const seed = await deriveSeedFromMnemonic(normalizedMnemonic)
+            const safeCards = get().safeCards
+            const nextId =
+              safeCards.length > 0 ? Math.max(...safeCards.map(card => card.id)) + 1 : 1
+            const defaultName = defaultSafeCardName(nextId)
+            const resolvedName = name && name.trim().length > 0 ? name.trim() : defaultName
+
+            const safeCard: SafeCard = {
+              id: nextId,
+              uid: generateSafeCardUid(nextId, 'external'),
+              name: resolvedName,
+              mnemonic: normalizedMnemonic,
+              mnemonicSource:
+                normalizedMnemonic === normalizeMnemonic(SIMULATOR_CONSTANTS.DEFAULT_MNEMONIC)
+                  ? 'default'
+                  : 'custom',
+              createdAt: Date.now(),
+            }
+
+            const idPrefix = `safecard-${safeCard.id}`
+            const accountOptions = { seed, idPrefix }
+
+            const services = await getWalletServices()
+            const [ethAccounts, btcAccounts, solAccounts, cosmosAccounts] = await Promise.all([
+              services.createMultipleEthereumAccounts(0, 'external', 5, 0, accountOptions),
+              services.createMultipleBitcoinAccounts(
+                0,
+                'external',
+                'segwit',
+                5,
+                0,
+                'mainnet',
+                accountOptions,
+              ),
+              services.createMultipleSolanaAccounts(0, 'external', 5, 0, accountOptions),
+              services.createMultipleCosmosAccounts(0, 'external', 5, 0, accountOptions),
+            ])
+
+            const [
+              ethInternalAccounts,
+              btcInternalAccounts,
+              solInternalAccounts,
+              cosmosInternalAccounts,
+            ] = await Promise.all([
+              services.createMultipleEthereumAccounts(0, 'internal', 2, 0, accountOptions),
+              services.createMultipleBitcoinAccounts(
+                0,
+                'internal',
+                'segwit',
+                2,
+                0,
+                'mainnet',
+                accountOptions,
+              ),
+              services.createMultipleSolanaAccounts(0, 'internal', 2, 0, accountOptions),
+              services.createMultipleCosmosAccounts(0, 'internal', 2, 0, accountOptions),
+            ])
+
+            set(state => {
+              state.safeCards.push(safeCard)
+              state.activeSafeCardId = safeCard.id
+
+              state.walletsBySafeCard[safeCard.id] = {
+                ETH: { external: ethAccounts, internal: ethInternalAccounts },
+                BTC: { external: btcAccounts, internal: btcInternalAccounts },
+                SOL: { external: solAccounts, internal: solInternalAccounts },
+                COSMOS: { external: cosmosAccounts, internal: cosmosInternalAccounts },
+              }
+
+              if (ethAccounts.length > 0) {
+                ethAccounts[0].isActive = true
+              }
+              if (btcAccounts.length > 0) {
+                btcAccounts[0].isActive = true
+              }
+              if (solAccounts.length > 0) {
+                solAccounts[0].isActive = true
+              }
+              if (cosmosAccounts.length > 0) {
+                cosmosAccounts[0].isActive = true
+              }
+
+              state.activeWalletsBySafeCard[safeCard.id] = {
+                ETH: ethAccounts[0],
+                BTC: btcAccounts[0],
+                SOL: solAccounts[0],
+                COSMOS: cosmosAccounts[0],
+              }
+
+              state.wallets = state.walletsBySafeCard[safeCard.id]
+              state.activeWallets = state.activeWalletsBySafeCard[safeCard.id]
+              state.activeMnemonic = safeCard.mnemonic
+              state.isInitialized = true
+              state.isLoading = false
+            })
+
+            setWalletMnemonicOverride(normalizedMnemonic)
+
+            const deviceState = useDeviceStore.getState()
+            const deviceId = deviceState.deviceInfo?.deviceId
+
+            if (deviceState.isConnected && deviceId) {
+              sendSetActiveSafeCardCommand(deviceId, {
+                safeCardId: safeCard.id,
+                uid: safeCard.uid,
+                name: safeCard.name,
+                mnemonic: safeCard.mnemonic,
+              })
+            }
+
+            console.log('[WalletStore] Added SafeCard', safeCard)
+          } catch (error) {
+            console.error('[WalletStore] Failed to add SafeCard:', error)
+            set(state => {
+              state.isLoading = false
+              state.error = error instanceof Error ? error.message : 'Failed to add SafeCard'
+            })
+          }
+        },
+
+        setActiveSafeCard: (safeCardId: number) => {
+          const safeCard = get().safeCards.find(card => card.id === safeCardId)
+          if (!safeCard) {
+            console.warn('[WalletStore] SafeCard not found:', safeCardId)
+            return
+          }
+
+          set(state => {
+            state.activeSafeCardId = safeCardId
+            state.wallets = resolveSafeCardWallets(state.walletsBySafeCard, safeCardId)
+            state.activeWallets = resolveSafeCardActiveWallets(
+              state.activeWalletsBySafeCard,
+              safeCardId,
+            )
+            state.activeMnemonic = safeCard.mnemonic
+          })
+
+          setWalletMnemonicOverride(safeCard.mnemonic)
+
+          const deviceState = useDeviceStore.getState()
+          const deviceId = deviceState.deviceInfo?.deviceId
+
+          if (deviceState.isConnected && deviceId) {
+            sendSetActiveSafeCardCommand(deviceId, {
+              safeCardId: safeCard.id,
+              uid: safeCard.uid,
+              name: safeCard.name,
+              mnemonic: safeCard.mnemonic,
+            })
+
+            const activeWallets = get().activeWalletsBySafeCard[safeCardId]
+            if (activeWallets) {
+              ;(['ETH', 'BTC', 'SOL', 'COSMOS'] as WalletCoinType[]).forEach(coinType => {
+                const account = activeWallets[coinType]
+                if (account?.id) {
+                  sendSetActiveWalletCommand(deviceId, coinType, account.id)
+                }
+              })
+            }
+          }
+        },
+
+        getActiveSafeCard: () => {
+          const { safeCards, activeSafeCardId } = get()
+          return safeCards.find(card => card.id === activeSafeCardId)
+        },
+
         // Account Management
         createAccounts: async (coinType: WalletCoinType, type: WalletAccountType, count = 1) => {
           set(state => {
@@ -357,8 +640,19 @@ export const useWalletStore = create<WalletStore>()(
           })
 
           try {
-            const currentAccounts = get().wallets[coinType][type]
+            const { activeSafeCardId, safeCards, walletsBySafeCard } = get()
+            const safeCard = safeCards.find(card => card.id === activeSafeCardId)
+
+            if (!safeCard || !activeSafeCardId) {
+              throw new Error('Active SafeCard not available')
+            }
+
+            const safeCardWallets = walletsBySafeCard[activeSafeCardId] ?? ensureWalletCollection()
+            const currentAccounts = safeCardWallets[coinType][type]
             const nextAccountIndex = currentAccounts.length
+            const seed = await deriveSeedFromMnemonic(safeCard.mnemonic)
+            const idPrefix = `safecard-${safeCard.id}`
+            const accountOptions = { seed, idPrefix }
 
             // Load wallet services dynamically
             const services = await getWalletServices()
@@ -372,6 +666,7 @@ export const useWalletStore = create<WalletStore>()(
                   type,
                   count,
                   nextAccountIndex,
+                  accountOptions,
                 )
                 break
               case 'BTC':
@@ -381,6 +676,8 @@ export const useWalletStore = create<WalletStore>()(
                   'segwit',
                   count,
                   nextAccountIndex,
+                  'mainnet',
+                  accountOptions,
                 )
                 break
               case 'SOL':
@@ -389,6 +686,7 @@ export const useWalletStore = create<WalletStore>()(
                   type,
                   count,
                   nextAccountIndex,
+                  accountOptions,
                 )
                 break
               case 'COSMOS':
@@ -397,6 +695,7 @@ export const useWalletStore = create<WalletStore>()(
                   type,
                   count,
                   nextAccountIndex,
+                  accountOptions,
                 )
                 break
               default:
@@ -404,7 +703,18 @@ export const useWalletStore = create<WalletStore>()(
             }
 
             set(state => {
-              state.wallets[coinType][type].push(...(newAccounts as any))
+              if (!state.walletsBySafeCard[activeSafeCardId]) {
+                state.walletsBySafeCard[activeSafeCardId] = ensureWalletCollection()
+              }
+
+              state.walletsBySafeCard[activeSafeCardId][coinType][type].push(
+                ...(newAccounts as any),
+              )
+
+              if (state.activeSafeCardId === activeSafeCardId) {
+                state.wallets = state.walletsBySafeCard[activeSafeCardId]
+              }
+
               state.isLoading = false
             })
 
@@ -452,10 +762,19 @@ export const useWalletStore = create<WalletStore>()(
         // Active Wallet Management
         setActiveWallet: (coinType: WalletCoinType, account: WalletAccount) => {
           set(state => {
+            const safeCardId = state.activeSafeCardId
+            if (!safeCardId || !state.walletsBySafeCard[safeCardId]) {
+              return
+            }
+
+            const safeCardWallets = state.walletsBySafeCard[safeCardId]
+            const safeCardActiveWallets =
+              state.activeWalletsBySafeCard[safeCardId] ?? ensureActiveWallets()
+
             // Clear previous active wallet for this coin type
-            const currentActive = state.activeWallets[coinType]
+            const currentActive = safeCardActiveWallets[coinType]
             if (currentActive) {
-              const currentAccount = state.wallets[coinType][currentActive.type].find(
+              const currentAccount = safeCardWallets[coinType][currentActive.type].find(
                 a => a.id === currentActive.id,
               )
               if (currentAccount) {
@@ -464,12 +783,15 @@ export const useWalletStore = create<WalletStore>()(
             }
 
             // Set new active wallet
-            const targetAccount = state.wallets[coinType][account.type].find(
+            const targetAccount = safeCardWallets[coinType][account.type].find(
               a => a.id === account.id,
             )
             if (targetAccount) {
               targetAccount.isActive = true
-              state.activeWallets[coinType] = targetAccount as any // Type assertion needed due to union type complexity
+              safeCardActiveWallets[coinType] = targetAccount as any
+              state.activeWalletsBySafeCard[safeCardId] = safeCardActiveWallets
+              state.activeWallets = safeCardActiveWallets
+              state.wallets = safeCardWallets
             }
           })
 
@@ -511,28 +833,86 @@ export const useWalletStore = create<WalletStore>()(
     ),
     {
       name: 'lattice-wallet-store',
-      version: 3,
+      version: 4,
       migrate: (persistedState, version) => {
-        if (version < 3 && persistedState && typeof persistedState === 'object') {
-          const state = persistedState as WalletState
+        if (!persistedState || typeof persistedState !== 'object') {
+          return persistedState as WalletState
+        }
+
+        const state = persistedState as WalletState
+
+        if (version < 4) {
+          const defaultMnemonic = normalizeMnemonic(SIMULATOR_CONSTANTS.DEFAULT_MNEMONIC)
+          const normalizedMnemonic = state.activeMnemonic
+            ? normalizeMnemonic(state.activeMnemonic)
+            : defaultMnemonic
+          const safeCardId = 1
+          const safeCard: SafeCard = {
+            id: safeCardId,
+            uid: generateSafeCardUid(safeCardId, 'external'),
+            name: defaultSafeCardName(safeCardId),
+            mnemonic: normalizedMnemonic,
+            mnemonicSource: normalizedMnemonic === defaultMnemonic ? 'default' : 'custom',
+            createdAt: Date.now(),
+          }
+
+          const migratedWallets = ensureWalletCollection(state.wallets)
+          const migratedActiveWallets = ensureActiveWallets(state.activeWallets)
+
           return {
             ...state,
-            wallets: ensureWalletCollection(state.wallets),
-            activeWallets: ensureActiveWallets(state.activeWallets),
+            safeCards: [safeCard],
+            activeSafeCardId: safeCardId,
+            walletsBySafeCard: {
+              [safeCardId]: migratedWallets,
+            },
+            activeWalletsBySafeCard: {
+              [safeCardId]: migratedActiveWallets,
+            },
+            wallets: migratedWallets,
+            activeWallets: migratedActiveWallets,
+            activeMnemonic: normalizedMnemonic,
           }
         }
-        return persistedState as WalletState
+
+        return {
+          ...state,
+          wallets: ensureWalletCollection(state.wallets),
+          activeWallets: ensureActiveWallets(state.activeWallets),
+        }
       },
       // Only persist essential data, not loading states or errors
       partialize: state => ({
         wallets: state.wallets,
         activeWallets: state.activeWallets,
+        safeCards: state.safeCards,
+        activeSafeCardId: state.activeSafeCardId,
+        walletsBySafeCard: state.walletsBySafeCard,
+        activeWalletsBySafeCard: state.activeWalletsBySafeCard,
         isInitialized: state.isInitialized,
         activeMnemonic: state.activeMnemonic,
         hasDismissedSetupPrompt: state.hasDismissedSetupPrompt,
       }),
       onRehydrateStorage: () => state => {
-        const mnemonic = state?.activeMnemonic?.trim()
+        if (!state) {
+          return
+        }
+
+        const activeSafeCardId = state.activeSafeCardId ?? state.safeCards?.[0]?.id
+        const activeSafeCard = state.safeCards?.find(card => card.id === activeSafeCardId)
+
+        if (!state.activeSafeCardId && activeSafeCardId) {
+          state.activeSafeCardId = activeSafeCardId
+        }
+
+        state.wallets = resolveSafeCardWallets(state.walletsBySafeCard, activeSafeCardId)
+        state.activeWallets = resolveSafeCardActiveWallets(
+          state.activeWalletsBySafeCard,
+          activeSafeCardId,
+        )
+
+        const mnemonic = activeSafeCard?.mnemonic?.trim() || state.activeMnemonic?.trim()
+        state.activeMnemonic = mnemonic || null
         setWalletMnemonicOverride(mnemonic && mnemonic.length > 0 ? mnemonic : null)
 
         if (state && typeof state.hasDismissedSetupPrompt === 'undefined') {

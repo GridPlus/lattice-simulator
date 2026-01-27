@@ -8,7 +8,7 @@
 import { useEffect } from 'react'
 import { useDeviceStore } from '../store/clientDeviceStore'
 import { useWalletStore } from '../store/clientWalletStore'
-import { sendSyncWalletAccountsCommand } from '../websocket/commands'
+import { sendSetActiveSafeCardCommand, sendSyncWalletAccountsCommand } from '../websocket/commands'
 
 /**
  * Hook that automatically syncs wallet accounts to server when they change
@@ -23,22 +23,35 @@ export function useWalletSync() {
     }
 
     const syncToServer = () => {
-      const { wallets, activeMnemonic } = useWalletStore.getState()
-      const cosmosWallets = wallets.COSMOS || { external: [], internal: [] }
-      const allAccounts = [
-        ...wallets.ETH.external,
-        ...wallets.ETH.internal,
-        ...wallets.BTC.external,
-        ...wallets.BTC.internal,
-        ...wallets.SOL.external,
-        ...wallets.SOL.internal,
-        ...cosmosWallets.external,
-        ...cosmosWallets.internal,
-      ]
+      const { walletsBySafeCard, safeCards, activeSafeCardId } = useWalletStore.getState()
+      const activeWallets = activeSafeCardId ? walletsBySafeCard?.[activeSafeCardId] : null
+      const allAccounts = activeWallets
+        ? [
+            ...activeWallets.ETH.external,
+            ...activeWallets.ETH.internal,
+            ...activeWallets.BTC.external,
+            ...activeWallets.BTC.internal,
+            ...activeWallets.SOL.external,
+            ...activeWallets.SOL.internal,
+            ...activeWallets.COSMOS.external,
+            ...activeWallets.COSMOS.internal,
+          ]
+        : []
+
+      const activeSafeCard = safeCards.find(card => card.id === activeSafeCardId)
 
       if (allAccounts.length > 0 && isConnected) {
         console.log(`[useWalletSync] Syncing ${allAccounts.length} wallet accounts to server`)
-        sendSyncWalletAccountsCommand(deviceId, allAccounts, activeMnemonic)
+        sendSyncWalletAccountsCommand(deviceId, allAccounts, activeSafeCard?.mnemonic)
+      }
+
+      if (activeSafeCard && isConnected) {
+        sendSetActiveSafeCardCommand(deviceId, {
+          safeCardId: activeSafeCard.id,
+          uid: activeSafeCard.uid,
+          name: activeSafeCard.name,
+          mnemonic: activeSafeCard.mnemonic,
+        })
       }
     }
 
@@ -51,7 +64,10 @@ export function useWalletSync() {
         syncToServer()
       },
       // Subscribe to wallets changes specifically
-      (state: any) => state.wallets,
+      (state: any) => ({
+        walletsBySafeCard: state.walletsBySafeCard,
+        activeSafeCardId: state.activeSafeCardId,
+      }),
     )
 
     return unsubscribe
@@ -65,22 +81,35 @@ export function useSyncWalletsToServer() {
   const deviceId = useDeviceStore((state: any) => state.deviceInfo.deviceId)
 
   return () => {
-    const { wallets, activeMnemonic } = useWalletStore.getState()
-    const cosmosWallets = wallets.COSMOS || { external: [], internal: [] }
-    const allAccounts = [
-      ...wallets.ETH.external,
-      ...wallets.ETH.internal,
-      ...wallets.BTC.external,
-      ...wallets.BTC.internal,
-      ...wallets.SOL.external,
-      ...wallets.SOL.internal,
-      ...cosmosWallets.external,
-      ...cosmosWallets.internal,
-    ]
+    const { walletsBySafeCard, safeCards, activeSafeCardId } = useWalletStore.getState()
+    const activeWallets = activeSafeCardId ? walletsBySafeCard?.[activeSafeCardId] : null
+    const allAccounts = activeWallets
+      ? [
+          ...activeWallets.ETH.external,
+          ...activeWallets.ETH.internal,
+          ...activeWallets.BTC.external,
+          ...activeWallets.BTC.internal,
+          ...activeWallets.SOL.external,
+          ...activeWallets.SOL.internal,
+          ...activeWallets.COSMOS.external,
+          ...activeWallets.COSMOS.internal,
+        ]
+      : []
+
+    const activeSafeCard = safeCards.find(card => card.id === activeSafeCardId)
 
     if (allAccounts.length > 0) {
       console.log(`[useSyncWalletsToServer] Manually syncing ${allAccounts.length} wallet accounts`)
-      sendSyncWalletAccountsCommand(deviceId, allAccounts, activeMnemonic)
+      sendSyncWalletAccountsCommand(deviceId, allAccounts, activeSafeCard?.mnemonic)
+    }
+
+    if (activeSafeCard) {
+      sendSetActiveSafeCardCommand(deviceId, {
+        safeCardId: activeSafeCard.id,
+        uid: activeSafeCard.uid,
+        name: activeSafeCard.name,
+        mnemonic: activeSafeCard.mnemonic,
+      })
     }
   }
 }
