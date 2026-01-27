@@ -226,6 +226,14 @@ export function generateNewMnemonic(): string {
 }
 
 /**
+ * Derive a seed from a provided mnemonic without mutating global overrides.
+ */
+export async function deriveSeedFromMnemonic(mnemonic: string): Promise<Uint8Array> {
+  const normalized = normalizeMnemonic(mnemonic)
+  return mnemonicToSeed(normalized, '')
+}
+
+/**
  * Gets environment configuration for CI, delays, and auto-approval
  *
  * @returns EnvironmentConfig object with CI detection and behavior settings

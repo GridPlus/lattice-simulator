@@ -62,10 +62,13 @@ import {
 import { getCosmosChainConfigByCoinType } from '../core/utils/cosmosConfig'
 import { resolveTinySecp } from '../core/utils/ecc'
 import { deriveBLS12381Key, deriveEd25519Key, formatDerivationPath } from '../core/utils/hdWallet'
+import { generateSafeCardUid } from '../core/utils/safecard'
 import {
   getWalletConfig,
+  normalizeMnemonic,
   setWalletMnemonicOverride,
   setWalletSeedOverride,
+  validateMnemonic,
 } from '../core/walletConfig'
 import { BITCOIN_NETWORKS } from '../core/wallets/bitcoin'
 import { walletRegistry } from '../core/wallets/WalletRegistry'
@@ -243,6 +246,9 @@ export class DeviceSimulator {
   /** Currently active internal and external wallets */
   private activeWallets: ActiveWallets
 
+  /** Active SafeCard ID for derivation context */
+  private activeSafeCardId: number
+
   /** Currently loaded seed (if loaded via loadSeed) */
   private currentSeed?: Buffer
 
@@ -335,29 +341,24 @@ export class DeviceSimulator {
     this.firmwareVersion = Buffer.from([patch, minor, major, 0])
 
     // Initialize with mock wallets
-    // Generate deterministic non-zero UIDs so tests can validate wallet presence
-    const internalUid = Buffer.from(
-      '123456789abcdef0000000000000000000000000000000000000000000000000',
-      'hex',
-    )
-    const externalUid = Buffer.from(
-      'abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789',
-      'hex',
-    )
+    const defaultSafeCardId = 1
+    this.activeSafeCardId = defaultSafeCardId
+    const internalUid = generateSafeCardUid(defaultSafeCardId, 'internal')
+    const externalUid = generateSafeCardUid(defaultSafeCardId, 'external')
 
     // Store UIDs as hex strings for better serialization and debugging.
     // Protocol handler will convert back to Buffers when needed for SDK compatibility.
     this.activeWallets = {
       internal: {
-        uid: internalUid.toString('hex'),
+        uid: internalUid,
         external: false,
-        name: 'Internal Wallet',
+        name: `SafeCard #${defaultSafeCardId} (Internal)`,
         capabilities: 0,
       },
       external: {
-        uid: externalUid.toString('hex'),
+        uid: externalUid,
         external: true,
-        name: 'P60 SafeCard',
+        name: `SafeCard #${defaultSafeCardId}`,
         capabilities: 0,
       },
     }
@@ -891,6 +892,7 @@ export class DeviceSimulator {
             }
           })()
         : undefined
+    const derivationOptions = await this.getActiveDerivationOptions()
 
     const derived = await walletRegistry.deriveAddressesOnDemand(
       coinType,
@@ -900,6 +902,7 @@ export class DeviceSimulator {
       startIndex,
       count,
       cosmosOptions,
+      derivationOptions,
     )
 
     console.log('[Simulator] Fallback derived addresses', {
@@ -1028,14 +1031,30 @@ export class DeviceSimulator {
     return false
   }
 
+  private async resolveActiveSeed(): Promise<Uint8Array> {
+    const config = await getWalletConfig()
+    return config.seed
+  }
+
+  private async getActiveDerivationOptions(): Promise<{
+    seed: Uint8Array
+    idPrefix?: string
+  }> {
+    const seed = await this.resolveActiveSeed()
+    const idPrefix =
+      typeof this.activeSafeCardId === 'number' ? `safecard-${this.activeSafeCardId}` : undefined
+
+    return { seed, idPrefix }
+  }
+
   private async deriveNonStandardBtcAddresses(
     startPath: WalletPath,
     count: number,
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
-    const config = await getWalletConfig()
-    const masterKey = HDKey.fromMasterSeed(config.seed)
+    const seed = await this.resolveActiveSeed()
+    const masterKey = HDKey.fromMasterSeed(seed)
     const purpose = startPath[0]
     const coin = startPath[1]
     const basePath = [...startPath]
@@ -1133,8 +1152,8 @@ export class DeviceSimulator {
       iterIdx,
     })
 
-    const config = await getWalletConfig()
-    const masterKey = HDKey.fromMasterSeed(config.seed)
+    const seed = await this.resolveActiveSeed()
+    const masterKey = HDKey.fromMasterSeed(seed)
     const basePath = [...startPath]
     const iterIndex =
       iterIdx !== undefined ? iterIdx : basePath.length > 0 ? basePath.length - 1 : 0
@@ -1151,7 +1170,7 @@ export class DeviceSimulator {
       if (coinType === 'SOL') {
         console.log('[deriveAddressesManually] Deriving Solana address for path:', path)
         // For Solana, use Ed25519 derivation
-        const { privateKey } = deriveEd25519Key(config.seed, path)
+        const { privateKey } = deriveEd25519Key(seed, path)
         // Create Solana keypair from Ed25519 private key
         const solanaKeypair = Keypair.fromSeed(privateKey)
         address = solanaKeypair.publicKey.toBase58()
@@ -1188,8 +1207,8 @@ export class DeviceSimulator {
           address = '0x' + hash.slice(-40)
         } else if (coinType === 'COSMOS') {
           const coinTypeValue = path.length > 1 ? path[1] : HARDENED_OFFSET + 118
-          const config = getCosmosChainConfigByCoinType(coinTypeValue)
-          address = generateCosmosAddress(compressedPubkey, config.bech32Prefix)
+          const chainConfig = getCosmosChainConfigByCoinType(coinTypeValue)
+          address = generateCosmosAddress(compressedPubkey, chainConfig.bech32Prefix)
         } else {
           throw new Error(`Unsupported coin type for manual derivation: ${coinType}`)
         }
@@ -1232,7 +1251,7 @@ export class DeviceSimulator {
     startPath: WalletPath,
     count: number,
   ): Promise<GetAddressesResponse> {
-    const config = await getWalletConfig()
+    const seed = await this.resolveActiveSeed()
     const addresses: string[] = []
     const publicKeys: Buffer[] = []
 
@@ -1246,7 +1265,7 @@ export class DeviceSimulator {
         path[2] = startPath[2] + i
       }
 
-      const { privateKey } = deriveBLS12381Key(config.seed, path)
+      const { privateKey } = deriveBLS12381Key(seed, path)
       const publicKey = blsGetPublicKey(privateKey)
       const publicKeyBuffer = Buffer.from(publicKey)
 
@@ -2643,12 +2662,7 @@ export class DeviceSimulator {
    */
   private async derivePrivateKey(path: WalletPath): Promise<Buffer> {
     // Use proper BIP32 derivation from mnemonic
-    const walletConfig = await getWalletConfig()
-    if (!walletConfig.mnemonic) {
-      throw new Error('No mnemonic available for key derivation')
-    }
-
-    const seed = mnemonicToSeedSync(walletConfig.mnemonic)
+    const seed = await this.resolveActiveSeed()
     const hdkey = HDKey.fromMasterSeed(seed)
     const derivedKey = hdkey.derive(path.join('/'))
 
@@ -2851,6 +2865,53 @@ export class DeviceSimulator {
   setActiveWallets(wallets: ActiveWallets): void {
     this.activeWallets = wallets
     console.log('[Simulator] Set active wallets:', wallets)
+  }
+
+  setActiveSafeCard(params: {
+    id: number
+    uid: string
+    name: string
+    mnemonic?: string | null
+  }): void {
+    const normalizedMnemonic =
+      typeof params.mnemonic === 'string' && params.mnemonic.trim().length > 0
+        ? normalizeMnemonic(params.mnemonic)
+        : null
+
+    if (!normalizedMnemonic) {
+      throw new Error('Mnemonic is required to activate SafeCard')
+    }
+
+    if (!validateMnemonic(normalizedMnemonic)) {
+      throw new Error('Invalid mnemonic provided for SafeCard')
+    }
+
+    const seed = new Uint8Array(mnemonicToSeedSync(normalizedMnemonic))
+    this.activeSafeCardId = params.id
+    setWalletSeedOverride(seed, normalizedMnemonic)
+
+    const internalUid = generateSafeCardUid(params.id, 'internal')
+
+    this.activeWallets = {
+      internal: {
+        uid: internalUid,
+        external: false,
+        name: `${params.name} (Internal)`,
+        capabilities: 0,
+      },
+      external: {
+        uid: params.uid,
+        external: true,
+        name: params.name,
+        capabilities: 0,
+      },
+    }
+
+    console.log('[Simulator] Set active SafeCard:', {
+      id: params.id,
+      uid: params.uid,
+      name: params.name,
+    })
   }
 
   /**

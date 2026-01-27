@@ -17,6 +17,11 @@ import type {
 } from '../types/wallet'
 import type { HDKey } from '@scure/bip32'
 
+interface AccountGenerationOptions {
+  seed?: Uint8Array
+  idPrefix?: string
+}
+
 // Lazy initialization to avoid SSR issues
 let isInitialized = false
 let ECPairFactory: ReturnType<typeof ECPair>
@@ -170,6 +175,7 @@ export async function createMultipleBitcoinAccounts(
   count: number = 1,
   startIndex: number = 0,
   network: keyof typeof BITCOIN_NETWORKS = 'mainnet',
+  options?: AccountGenerationOptions,
 ): Promise<BitcoinWalletAccount[]> {
   // Validate account index - handle hardened indices by normalizing them
   if (accountIndex < 0 || accountIndex >= 4294967295) {
@@ -190,6 +196,8 @@ export async function createMultipleBitcoinAccounts(
     count,
     startIndex,
     hdWalletAddressType as any,
+    undefined,
+    options,
   )
 
   // Create accounts from HD keys
@@ -209,7 +217,8 @@ export async function createMultipleBitcoinAccounts(
     )
 
     // Update the account ID to include address index
-    account.id = `btc-${type}-${normalizedAccountIndex}-${addressIndex}`
+    const idPrefix = options?.idPrefix ? `${options.idPrefix}-` : ''
+    account.id = `btc-${idPrefix}${type}-${addressIndex}`
 
     accounts.push(account)
   }
@@ -231,6 +240,7 @@ export async function createMultipleBitcoinAccounts(
 export async function createBitcoinAccount(
   params: CreateAccountParams,
   network: keyof typeof BITCOIN_NETWORKS = 'mainnet',
+  options?: AccountGenerationOptions,
 ): Promise<WalletDerivationResult> {
   try {
     if (params.coinType !== 'BTC') {
@@ -245,6 +255,7 @@ export async function createBitcoinAccount(
       1,
       0,
       network,
+      options,
     )
 
     if (accounts.length === 0) {

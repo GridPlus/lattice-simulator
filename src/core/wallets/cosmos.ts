@@ -21,6 +21,8 @@ import type { HDKey } from '@scure/bip32'
 interface CosmosAccountOptions {
   bip44CoinType?: number
   bech32Prefix?: string
+  seed?: Uint8Array
+  idPrefix?: string
 }
 
 const resolveCosmosConfig = (options?: CosmosAccountOptions): CosmosChainConfig => {
@@ -101,6 +103,7 @@ export async function createMultipleCosmosAccounts(
     startIndex,
     'legacy',
     config.bip44CoinType,
+    options ? { seed: options.seed } : undefined,
   )
 
   const accounts: CosmosWalletAccount[] = []
@@ -117,7 +120,8 @@ export async function createMultipleCosmosAccounts(
       `Cosmos ${type === 'internal' ? 'Internal' : 'External'} Account ${addressIndex}`,
     )
 
-    account.id = `cosmos-${type}-${accountIndex}-${addressIndex}`
+    const idPrefix = options?.idPrefix ? `${options.idPrefix}-` : ''
+    account.id = `cosmos-${idPrefix}${type}-${addressIndex}`
     accounts.push(account)
   }
 
@@ -140,6 +144,8 @@ export async function createCosmosAccount(
       ...options,
       bip44CoinType: params.bip44CoinType ?? options?.bip44CoinType,
       bech32Prefix: params.bech32Prefix ?? options?.bech32Prefix,
+      seed: options?.seed,
+      idPrefix: options?.idPrefix,
     }
 
     const accounts = await createMultipleCosmosAccounts(

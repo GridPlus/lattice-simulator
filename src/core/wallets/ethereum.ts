@@ -14,6 +14,11 @@ import type {
 } from '../types/wallet'
 import type { HDKey } from '@scure/bip32'
 
+interface AccountGenerationOptions {
+  seed?: Uint8Array
+  idPrefix?: string
+}
+
 /**
  * Creates an Ethereum wallet account from HD key
  *
@@ -74,6 +79,7 @@ export async function createMultipleEthereumAccounts(
   type: WalletAccountType = 'external',
   count: number = 1,
   startIndex: number = 0,
+  options?: AccountGenerationOptions,
 ): Promise<EthereumWalletAccount[]> {
   // Derive multiple HD keys
   const hdKeys = await deriveMultipleKeys(
@@ -82,6 +88,9 @@ export async function createMultipleEthereumAccounts(
     type === 'internal',
     count,
     startIndex,
+    'legacy',
+    undefined,
+    options,
   )
 
   // Create accounts from HD keys
@@ -99,7 +108,8 @@ export async function createMultipleEthereumAccounts(
     )
 
     // Update the account ID to include address index
-    account.id = `eth-${type}-${accountIndex}-${addressIndex}`
+    const idPrefix = options?.idPrefix ? `${options.idPrefix}-` : ''
+    account.id = `eth-${idPrefix}${type}-${addressIndex}`
 
     accounts.push(account)
   }
@@ -115,13 +125,20 @@ export async function createMultipleEthereumAccounts(
  */
 export async function createEthereumAccount(
   params: CreateAccountParams,
+  options?: AccountGenerationOptions,
 ): Promise<WalletDerivationResult> {
   try {
     if (params.coinType !== 'ETH') {
       throw new Error('Invalid coin type for Ethereum account creation')
     }
 
-    const accounts = await createMultipleEthereumAccounts(params.accountIndex, params.type, 1, 0)
+    const accounts = await createMultipleEthereumAccounts(
+      params.accountIndex,
+      params.type,
+      1,
+      0,
+      options,
+    )
 
     if (accounts.length === 0) {
       throw new Error('Failed to create Ethereum account')

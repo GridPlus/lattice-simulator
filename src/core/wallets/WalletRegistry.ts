@@ -16,6 +16,11 @@ import type {
   ActiveWallets as WalletActiveWallets,
 } from '../types/wallet'
 
+interface WalletDerivationOptions {
+  seed?: Uint8Array
+  idPrefix?: string
+}
+
 /**
  * Wallet Manager Service
  *
@@ -87,6 +92,7 @@ export class WalletRegistry {
    * @param addressType - Address type (e.g., 'segwit' for Bitcoin)
    * @param startIndex - Starting address index
    * @param count - Number of addresses to derive
+   * @param options - Optional derivation overrides (seed/id prefix)
    * @returns Array of wallet account objects
    */
   async deriveAddressesOnDemand(
@@ -97,6 +103,7 @@ export class WalletRegistry {
     startIndex: number = 0,
     count: number = 1,
     cosmosOptions?: { bip44CoinType?: number; bech32Prefix?: string },
+    options?: WalletDerivationOptions,
   ): Promise<Array<{ id: string; address: string; publicKey?: string; coinType: string }>> {
     if (!this.initialized) {
       throw new Error('WalletRegistry not initialized')
@@ -112,6 +119,7 @@ export class WalletRegistry {
             walletType,
             count,
             startIndex,
+            options,
           )
           return accounts.map(account => ({
             id: account.id,
@@ -128,6 +136,8 @@ export class WalletRegistry {
             addressType,
             count,
             startIndex,
+            undefined,
+            options,
           )
           return accounts.map(account => ({
             id: account.id,
@@ -143,6 +153,7 @@ export class WalletRegistry {
             walletType,
             count,
             startIndex,
+            options,
           )
           return accounts.map(account => ({
             id: account.id,
@@ -153,12 +164,14 @@ export class WalletRegistry {
         }
 
         case 'COSMOS': {
+          const cosmosDerivationOptions =
+            cosmosOptions || options ? { ...cosmosOptions, ...options } : undefined
           const accounts = await createMultipleCosmosAccounts(
             accountIndex,
             walletType,
             count,
             startIndex,
-            cosmosOptions,
+            cosmosDerivationOptions,
           )
           return accounts.map(account => ({
             id: account.id,

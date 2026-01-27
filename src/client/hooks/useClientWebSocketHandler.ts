@@ -11,10 +11,11 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useToast } from '@/client/components/ui/ToastProvider'
 import { useDeviceStore } from '@/client/store/clientDeviceStore'
 import { useTransactionStore } from '@/client/store/clientTransactionStore'
-import { getWalletServices } from '@/client/store/clientWalletStore'
+import { getWalletServices, useWalletStore } from '@/client/store/clientWalletStore'
 import { normalizeBuffer } from '@/shared/utils'
 import { getCosmosChainConfigByCoinType } from '@/shared/utils/cosmosConfig'
 import { detectCoinTypeFromPath } from '@/shared/utils/protocol'
+import { deriveSeedFromMnemonic } from '@/shared/walletConfig'
 import type { SigningRequest } from '@/shared/types/device'
 
 interface ServerRequest {
@@ -150,6 +151,13 @@ export function useServerRequestHandler(deviceId: string) {
       )
 
       let accounts: any[] = []
+      const { safeCards, activeSafeCardId } = useWalletStore.getState()
+      const activeSafeCard = safeCards.find(card => card.id === activeSafeCardId)
+      const seed = activeSafeCard?.mnemonic
+        ? await deriveSeedFromMnemonic(activeSafeCard.mnemonic)
+        : undefined
+      const accountOptions =
+        seed && activeSafeCard ? { seed, idPrefix: `safecard-${activeSafeCard.id}` } : undefined
 
       // Use wallet services through the client store's import system to avoid chunking issues
       try {
@@ -163,6 +171,7 @@ export function useServerRequestHandler(deviceId: string) {
               walletType,
               count,
               startIndex,
+              accountOptions,
             )
             break
           case 'BTC':
@@ -172,6 +181,8 @@ export function useServerRequestHandler(deviceId: string) {
               'segwit',
               count,
               startIndex,
+              'mainnet',
+              accountOptions,
             )
             break
           case 'SOL':
@@ -180,19 +191,22 @@ export function useServerRequestHandler(deviceId: string) {
               walletType,
               count,
               startIndex,
+              accountOptions,
             )
             break
           case 'COSMOS': {
             const cosmosConfig = getCosmosChainConfigByCoinType(startPath?.[1] ?? 118)
+            const cosmosOptions = {
+              bip44CoinType: cosmosConfig.bip44CoinType,
+              bech32Prefix: cosmosConfig.bech32Prefix,
+              ...accountOptions,
+            }
             accounts = await walletServices.createMultipleCosmosAccounts(
               accountIndex,
               walletType,
               count,
               startIndex,
-              {
-                bip44CoinType: cosmosConfig.bip44CoinType,
-                bech32Prefix: cosmosConfig.bech32Prefix,
-              },
+              cosmosOptions,
             )
             break
           }

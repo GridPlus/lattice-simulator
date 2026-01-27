@@ -155,3 +155,18 @@ export function sendSetActiveWalletCommand(
 ) {
   sendDeviceCommand(deviceId, 'set_active_wallet', { coinType, accountId })
 }
+
+/**
+ * Sends a command to set the active SafeCard profile
+ */
+export function sendSetActiveSafeCardCommand(
+  deviceId: string,
+  params: {
+    safeCardId: number
+    uid: string
+    name: string
+    mnemonic?: string | null
+  },
+) {
+  sendDeviceCommand(deviceId, 'set_active_safecard', params)
+}
