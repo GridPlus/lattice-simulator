@@ -2943,10 +2943,12 @@ export class DeviceSimulator {
       }
     }
 
-    for (const [id, session] of this.sessions.entries()) {
-      if (id === ephemeralId) continue
+    this.sessions.forEach((session, id) => {
+      if (id === ephemeralId) {
+        return
+      }
       candidates.push({ id, secret: session.sharedSecret })
-    }
+    })
 
     return candidates
   }
@@ -3178,13 +3180,13 @@ export class DeviceSimulator {
       return false
     }
 
-    for (const session of this.sessions.values()) {
+    this.sessions.forEach(session => {
       const sessionPairingId = this.getPairingId(session.clientPublicKey)
       if (sessionPairingId === pairingId) {
         session.isPaired = false
         session.pairingId = undefined
       }
-    }
+    })
 
     return true
   }
