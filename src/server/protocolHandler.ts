@@ -43,11 +43,19 @@ const secp256k1 = new elliptic.ec('secp256k1')
 let bitcoinInitialized = false
 const ecc = resolveTinySecp(tinySecp)
 let bip32: ReturnType<typeof BIP32Factory> | null = null
+type EccLib = Parameters<typeof BIP32Factory>[0] &
+  NonNullable<Parameters<typeof bitcoin.initEccLib>[0]>
+
+type SessionSupport = {
+  getSharedSecretCandidates?: (ephemeralId?: number) => Array<{ secret: Buffer; id: number }>
+  markSessionUsed?: (ephemeralId: number) => void
+}
 
 const initBitcoinLibs = () => {
   if (!bitcoinInitialized) {
-    bitcoin.initEccLib(ecc as any)
-    bip32 = BIP32Factory(ecc as any)
+    const eccLib = ecc as unknown as EccLib
+    bitcoin.initEccLib(eccLib)
+    bip32 = BIP32Factory(eccLib)
     bitcoinInitialized = true
   }
 }
@@ -143,44 +151,44 @@ export class ProtocolHandler {
         }
       }
 
-      const { requestType, requestData } = decryptionResult
+      const { requestType, requestData, sessionId } = decryptionResult
 
       let response: SecureResponse
 
       switch (requestType) {
         case LatticeSecureEncryptedRequestType.finalizePairing:
           debug.protocol('Handling finalizePairing request')
-          response = await this.handlePairRequest(requestData)
+          response = await this.handlePairRequest(requestData, sessionId)
           break
 
         case LatticeSecureEncryptedRequestType.getAddresses:
           debug.protocol('Handling getAddresses request')
-          response = await this.handleGetAddressesRequest(requestData)
+          response = await this.handleGetAddressesRequest(requestData, sessionId)
           break
 
         case LatticeSecureEncryptedRequestType.sign:
           debug.protocol('Handling sign request')
-          response = await this.handleSignRequest(requestData)
+          response = await this.handleSignRequest(requestData, sessionId)
           break
 
         case LatticeSecureEncryptedRequestType.getWallets:
           debug.protocol('Handling getWallets request')
-          response = await this.handleGetWalletsRequest()
+          response = await this.handleGetWalletsRequest(sessionId)
           break
 
         case LatticeSecureEncryptedRequestType.getKvRecords:
           debug.protocol('Handling getKvRecords request')
-          response = await this.handleGetKvRecordsRequest(requestData)
+          response = await this.handleGetKvRecordsRequest(requestData, sessionId)
           break
 
         case LatticeSecureEncryptedRequestType.addKvRecords:
           debug.protocol('Handling addKvRecords request')
-          response = await this.handleAddKvRecordsRequest(requestData)
+          response = await this.handleAddKvRecordsRequest(requestData, sessionId)
           break
 
         case LatticeSecureEncryptedRequestType.removeKvRecords:
           debug.protocol('Handling removeKvRecords request')
-          response = await this.handleRemoveKvRecordsRequest(requestData)
+          response = await this.handleRemoveKvRecordsRequest(requestData, sessionId)
           break
 
         case LatticeSecureEncryptedRequestType.fetchEncryptedData:
@@ -203,7 +211,7 @@ export class ProtocolHandler {
 
       // If the response was successful and has data, encrypt it
       if (response.code === LatticeResponseCode.success && response.data) {
-        const encryptedData = await this.encryptResponseData(response.data, requestType)
+        const encryptedData = await this.encryptResponseData(response.data, requestType, sessionId)
         return {
           ...response,
           data: encryptedData,
@@ -233,21 +241,32 @@ export class ProtocolHandler {
   private async decryptRequestData(
     encryptedData: Buffer,
     ephemeralId?: number,
-  ): Promise<{ requestType: number; requestData: Buffer } | null> {
-    const primarySecret = this.simulator.getSharedSecret()
+  ): Promise<{ requestType: number; requestData: Buffer; sessionId?: number } | null> {
     const candidates: Array<{ secret: Buffer; id: number }> = []
-
-    if (primarySecret) {
-      candidates.push({
-        secret: primarySecret,
-        id: this.computeEphemeralId(primarySecret),
-      })
-    }
 
     if (ephemeralId !== undefined) {
       const cachedSecret = this.sharedSecretCache.get(ephemeralId)
       if (cachedSecret) {
-        candidates.unshift({ secret: cachedSecret, id: ephemeralId })
+        candidates.push({ secret: cachedSecret, id: ephemeralId })
+      }
+    }
+
+    const sessionSupport = this.simulator as SessionSupport
+    const simulatorCandidates =
+      typeof sessionSupport.getSharedSecretCandidates === 'function'
+        ? sessionSupport.getSharedSecretCandidates(ephemeralId)
+        : []
+    if (Array.isArray(simulatorCandidates)) {
+      candidates.push(...simulatorCandidates)
+    }
+
+    if (candidates.length === 0) {
+      const primarySecret = this.simulator.getSharedSecret()
+      if (primarySecret) {
+        candidates.push({
+          secret: primarySecret,
+          id: this.computeEphemeralId(primarySecret),
+        })
       }
     }
 
@@ -296,8 +315,11 @@ export class ProtocolHandler {
         debug.protocol('Checksum validation passed')
 
         this.sharedSecretCache.set(candidate.id, candidate.secret)
+        if (typeof sessionSupport.markSessionUsed === 'function') {
+          sessionSupport.markSessionUsed(candidate.id)
+        }
 
-        return { requestType, requestData }
+        return { requestType, requestData, sessionId: candidate.id }
       } catch (error) {
         console.error('[ProtocolHandler] Decryption attempt failed:', error)
       }
@@ -322,18 +344,19 @@ export class ProtocolHandler {
   private async encryptResponseData(
     responseData: Buffer,
     requestType: LatticeSecureEncryptedRequestType,
+    sessionId?: number,
   ): Promise<Buffer> {
     // Get the shared secret for encryption
-    const sharedSecret = this.simulator.getSharedSecret()
+    const sharedSecret = this.simulator.getSharedSecret(sessionId)
     if (!sharedSecret) {
       throw new Error('No shared secret available for response encryption')
     }
 
     // Reuse the current device ephemeral key to keep shared secrets in sync with SDK
-    let responseEphemeralKeyPair = this.simulator.getEphemeralKeyPair()
+    let responseEphemeralKeyPair = this.simulator.getEphemeralKeyPair(sessionId)
     if (!responseEphemeralKeyPair) {
       responseEphemeralKeyPair = generateKeyPair()
-      this.simulator.updateEphemeralKeyPair(responseEphemeralKeyPair)
+      this.simulator.updateEphemeralKeyPair(responseEphemeralKeyPair, sessionId)
     }
 
     // Build the response payload: [newEphemeralPub (65)] | [responseData] | [checksum (4)]
@@ -455,9 +478,9 @@ export class ProtocolHandler {
    * @returns Promise resolving to pairing response
    * @private
    */
-  private async handlePairRequest(data: Buffer): Promise<SecureResponse> {
+  private async handlePairRequest(data: Buffer, sessionId?: number): Promise<SecureResponse> {
     const request = this.parsePairRequest(data)
-    const response = await this.simulator.pair(request)
+    const response = await this.simulator.pair(request, sessionId)
 
     return {
       code: response.code,
@@ -475,9 +498,12 @@ export class ProtocolHandler {
    * @returns Promise resolving to address response
    * @private
    */
-  private async handleGetAddressesRequest(data: Buffer): Promise<SecureResponse> {
+  private async handleGetAddressesRequest(
+    data: Buffer,
+    sessionId?: number,
+  ): Promise<SecureResponse> {
     const request = this.parseGetAddressesRequest(data)
-    const response = await this.simulator.getAddresses(request)
+    const response = await this.simulator.getAddresses(request, sessionId)
 
     return {
       code: response.code,
@@ -497,10 +523,10 @@ export class ProtocolHandler {
    * @returns Promise resolving to signature response
    * @private
    */
-  private async handleSignRequest(data: Buffer): Promise<SecureResponse> {
+  private async handleSignRequest(data: Buffer, sessionId?: number): Promise<SecureResponse> {
     const request = this.parseSignRequest(data)
     debug.signing('Sign request: %O', request)
-    const response = await this.simulator.sign(request)
+    const response = await this.simulator.sign(request, sessionId)
 
     return {
       code: response.code,
@@ -517,8 +543,8 @@ export class ProtocolHandler {
    * @returns Promise resolving to wallet response
    * @private
    */
-  private async handleGetWalletsRequest(): Promise<SecureResponse> {
-    const response = await this.simulator.getWallets()
+  private async handleGetWalletsRequest(sessionId?: number): Promise<SecureResponse> {
+    const response = await this.simulator.getWallets(sessionId)
 
     return {
       code: response.code,
@@ -538,7 +564,10 @@ export class ProtocolHandler {
    * @returns Promise resolving to records response
    * @private
    */
-  private async handleGetKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
+  private async handleGetKvRecordsRequest(
+    data: Buffer,
+    sessionId?: number,
+  ): Promise<SecureResponse> {
     const { type, n, start } = this.parseGetKvRecordsRequest(data)
     const deviceId = this.simulator.getDeviceId()
 
@@ -552,7 +581,7 @@ export class ProtocolHandler {
         isCI,
         hasClientConnection,
       )
-      const response = await this.simulator.getKvRecords({ type, n, start })
+      const response = await this.simulator.getKvRecords({ type, n, start }, sessionId)
       return {
         code: response.code,
         data: response.data ? this.serializeKvRecordsResponse(response.data) : undefined,
@@ -592,7 +621,7 @@ export class ProtocolHandler {
 
       // If client request fails, fall back to simulator data
       debug.protocol('Falling back to simulator data')
-      const response = await this.simulator.getKvRecords({ type, n, start })
+      const response = await this.simulator.getKvRecords({ type, n, start }, sessionId)
 
       return {
         code: response.code,
@@ -611,7 +640,10 @@ export class ProtocolHandler {
    * @returns Promise resolving to addition response
    * @private
    */
-  private async handleAddKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
+  private async handleAddKvRecordsRequest(
+    data: Buffer,
+    sessionId?: number,
+  ): Promise<SecureResponse> {
     const records = this.parseAddKvRecordsRequest(data)
     const deviceId = this.simulator.getDeviceId()
 
@@ -625,7 +657,7 @@ export class ProtocolHandler {
         isCI,
         hasClientConnection,
       )
-      const response = await this.simulator.addKvRecords(records)
+      const response = await this.simulator.addKvRecords(records, sessionId)
       return {
         code: response.code,
         data: response.success ? Buffer.alloc(0) : undefined,
@@ -652,7 +684,7 @@ export class ProtocolHandler {
       console.error('[ProtocolHandler] Error handling add KV records request:', error)
 
       // Fall back to simulator
-      const response = await this.simulator.addKvRecords(records)
+      const response = await this.simulator.addKvRecords(records, sessionId)
 
       return {
         code: response.code,
@@ -671,7 +703,10 @@ export class ProtocolHandler {
    * @returns Promise resolving to removal response
    * @private
    */
-  private async handleRemoveKvRecordsRequest(data: Buffer): Promise<SecureResponse> {
+  private async handleRemoveKvRecordsRequest(
+    data: Buffer,
+    sessionId?: number,
+  ): Promise<SecureResponse> {
     const { type, ids } = this.parseRemoveKvRecordsRequest(data)
     const deviceId = this.simulator.getDeviceId()
 
@@ -685,7 +720,7 @@ export class ProtocolHandler {
         isCI,
         hasClientConnection,
       )
-      const response = await this.simulator.removeKvRecords(type, ids)
+      const response = await this.simulator.removeKvRecords(type, ids, sessionId)
       return {
         code: response.code,
         data: response.success ? Buffer.alloc(0) : undefined,
@@ -712,7 +747,7 @@ export class ProtocolHandler {
       console.error('[ProtocolHandler] Error handling remove KV records request:', error)
 
       // Fall back to simulator
-      const response = await this.simulator.removeKvRecords(type, ids)
+      const response = await this.simulator.removeKvRecords(type, ids, sessionId)
 
       return {
         code: response.code,

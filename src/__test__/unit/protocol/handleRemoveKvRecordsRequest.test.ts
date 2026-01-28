@@ -130,7 +130,7 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       expect(result.code).toBe(LatticeResponseCode.success)
       expect(result.data).toEqual(Buffer.alloc(0)) // Success response has no data
       expect(result.error).toBeUndefined()
-      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(0, [42])
+      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(0, [42], undefined)
     })
 
     it('should handle multiple ID removal', async () => {
@@ -151,7 +151,7 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
 
       expect(result.code).toBe(LatticeResponseCode.success)
       expect(result.data).toEqual(Buffer.alloc(0))
-      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(1, [100, 200])
+      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(1, [100, 200], undefined)
     })
 
     it('should handle simulator failure', async () => {
@@ -204,7 +204,7 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
 
       expect(result.code).toBe(LatticeResponseCode.success)
       expect(result.data).toEqual(Buffer.alloc(0))
-      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(0, [])
+      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(0, [], undefined)
     })
 
     it('should handle different record types', async () => {
@@ -223,7 +223,7 @@ describe('ProtocolHandler - handleRemoveKvRecordsRequest', () => {
       const result = await protocolHandler['handleRemoveKvRecordsRequest'](requestData)
 
       expect(result.code).toBe(LatticeResponseCode.success)
-      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(5, [999])
+      expect(mockSimulator.removeKvRecords).toHaveBeenCalledWith(5, [999], undefined)
     })
   })
 })

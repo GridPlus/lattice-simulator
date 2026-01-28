@@ -10,7 +10,6 @@ import { DeviceSimulator } from '../../../server/deviceSimulator'
 import { ProtocolHandler as ServerProtocolHandler } from '../../../server/protocolHandler'
 import { LatticeResponseCode } from '../../../core/types'
 import { createHash } from 'crypto'
-import { generateKeyPair } from '../../../core/utils/crypto'
 import elliptic from 'elliptic'
 
 // Test data from SDK's test suite
@@ -32,6 +31,11 @@ const TEST_DATA = {
 function createTestKeyPair(privateKey: Buffer) {
   const ec = new elliptic.ec('p256')
   return ec.keyFromPrivate(privateKey)
+}
+
+function getClientPublicKey(): Buffer {
+  const clientKeyPair = createTestKeyPair(TEST_DATA.privateKey)
+  return Buffer.from(clientKeyPair.getPublic().encode('hex', false), 'hex')
 }
 
 /**
@@ -84,27 +88,26 @@ describe('finalizePairing Request Parsing and Handling', () => {
   let simulator: DeviceSimulator
   let protocolHandler: ServerProtocolHandler
 
-  beforeEach(() => {
+  beforeEach(async () => {
     simulator = new DeviceSimulator({
       deviceId: 'test-device-id',
       firmwareVersion: [0, 15, 0],
       autoApprove: false,
+      pairingCode: TEST_DATA.pairingSecret,
     })
     protocolHandler = new ServerProtocolHandler(simulator)
     // Reset simulator state completely
     simulator.reset()
-    // Set up simulator in pairing mode
-    simulator.enterPairingMode()
     // Set a test pairing code
     ;(simulator as any).pairingCode = TEST_DATA.pairingSecret
-    // Mock ephemeral key pair for tests that need it
-    ;(simulator as any).ephemeralKeyPair = generateKeyPair()
     // Set a client public key for testing
-    const clientKeyPair = createTestKeyPair(TEST_DATA.privateKey)
-    ;(simulator as any).clientPublicKey = Buffer.from(
-      clientKeyPair.getPublic().encode('hex', false),
-      'hex',
-    )
+    const clientPublicKey = getClientPublicKey()
+    await simulator.connect({
+      deviceId: 'test-device-id',
+      publicKey: clientPublicKey,
+    })
+    // Set up simulator in pairing mode
+    simulator.enterPairingMode()
   })
 
   describe('parsePairRequest', () => {
@@ -392,9 +395,6 @@ describe('finalizePairing Request Parsing and Handling', () => {
     })
 
     it('should reject finalizePairing request when already paired', async () => {
-      // Set as already paired
-      ;(simulator as any).isPaired = true
-
       const payload = createFinalizePairingPayload(
         TEST_DATA.privateKey,
         TEST_DATA.appName,
@@ -402,6 +402,8 @@ describe('finalizePairing Request Parsing and Handling', () => {
       )
 
       const request = (protocolHandler as any).parsePairRequest(payload)
+      const initialResponse = await simulator.pair(request)
+      expect(initialResponse.success).toBe(true)
       const response = await simulator.pair(request)
 
       expect(response.success).toBe(false)
@@ -473,8 +475,11 @@ describe('finalizePairing Request Parsing and Handling', () => {
       for (const testCase of testCases) {
         // Reset simulator state for each test case
         simulator.reset()
-        ;(simulator as any).ephemeralKeyPair = generateKeyPair()
         ;(simulator as any).pairingCode = testCase.pairingSecret
+        await simulator.connect({
+          deviceId: 'test-device-id',
+          publicKey: getClientPublicKey(),
+        })
         simulator.enterPairingMode()
 
         const payload = createFinalizePairingPayload(
@@ -500,8 +505,11 @@ describe('finalizePairing Request Parsing and Handling', () => {
       for (const testCase of edgeCases) {
         // Reset simulator state for each test case
         simulator.reset()
-        ;(simulator as any).ephemeralKeyPair = generateKeyPair()
         ;(simulator as any).pairingCode = testCase.pairingSecret
+        await simulator.connect({
+          deviceId: 'test-device-id',
+          publicKey: getClientPublicKey(),
+        })
         simulator.enterPairingMode()
 
         const payload = createFinalizePairingPayload(
