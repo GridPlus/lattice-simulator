@@ -40,6 +40,7 @@ import {
   type ConnectRequest,
   type ConnectResponse,
   type PairRequest,
+  type PairingRecord,
   type GetAddressesRequest,
   type GetAddressesResponse,
   type SignRequest,
@@ -199,6 +200,20 @@ interface MultipartSignSession {
   messagePrehash?: Buffer
 }
 
+type SessionKeyPair = { publicKey: Buffer; privateKey: Buffer }
+
+interface PairingSession {
+  clientPublicKey: Buffer
+  sharedSecret: Buffer
+  ephemeralKeyPair: SessionKeyPair
+  isPaired: boolean
+  pairingId?: string
+  createdAt: number
+  lastUsedAt?: number
+}
+
+const MAX_PAIRINGS = 10
+
 /**
  * SERVER-SIDE ONLY Lattice1 Device Simulator
  *
@@ -225,20 +240,23 @@ export class DeviceSimulator {
   /** Unique identifier for this simulated device */
   private deviceId: string
 
-  /** Whether the device is paired with a client application */
-  private isPaired: boolean = false
-
   /** Expected pairing code for automatic pairing in test environments */
   private expectedPairingCode: string | undefined
 
+  /** Collection of paired clients (keyed by pairing id) */
+  private pairings: Map<string, PairingRecord> = new Map()
+
+  /** Active per-client sessions keyed by ephemeral id */
+  private sessions: Map<number, PairingSession> = new Map()
+
+  /** Most recently used session id */
+  private lastSessionId?: number
+
+  /** Whether to auto-pair new clients (test environments) */
+  private autoPairingEnabled: boolean = false
+
   /** Whether the device is currently locked */
   private isLocked: boolean = false
-
-  /** Ephemeral key pair for session encryption */
-  private ephemeralKeyPair?: { publicKey: Buffer; privateKey: Buffer }
-
-  /** Client's public key received during connect phase */
-  private clientPublicKey?: Buffer
 
   /** Simulated firmware version [patch, minor, major, reserved] */
   private firmwareVersion: Buffer
@@ -325,10 +343,11 @@ export class DeviceSimulator {
         this.expectedPairingCode.toUpperCase() === this.pairingCode.toUpperCase()) ||
       testPairingCodes.includes(this.pairingCode)
 
-    if (shouldStartPaired) {
-      this.isPaired = true
+    this.autoPairingEnabled = shouldStartPaired
+
+    if (this.autoPairingEnabled) {
       console.log(
-        '[Simulator] Starting in paired mode for test environment (pairing code:',
+        '[Simulator] Auto-pairing enabled for test environment (pairing code:',
         this.pairingCode,
         ')',
       )
@@ -381,39 +400,192 @@ export class DeviceSimulator {
       return createDeviceResponse(false, LatticeResponseCode.deviceLocked)
     }
 
-    // Store the client's public key for ECDH shared secret derivation
-    this.clientPublicKey = request.publicKey
+    const { id: sessionId, session } = this.createSession(request.publicKey)
 
-    // Generate ephemeral key pair for this session
-    this.ephemeralKeyPair = generateKeyPair()
-
-    const encryptedWalletData = this.isPaired
-      ? this.encryptActiveWallets(this.clientPublicKey)
+    const encryptedWalletData = session.isPaired
+      ? this.encryptActiveWallets(session.clientPublicKey, session.ephemeralKeyPair)
       : undefined
 
-    // If device is not paired, enter pairing mode for 60 seconds
-    if (!this.isPaired) {
-      console.log('[Simulator] Device not paired, entering pairing mode...')
+    // If device is not paired for this client, enter pairing mode for 60 seconds
+    if (!session.isPaired) {
+      console.log('[Simulator] Device not paired for client, entering pairing mode...')
       this.enterPairingMode()
     }
 
     // Always include activeWallets in connect response, even if not paired
     // The SDK expects this structure to be present
-    console.log('[Simulator] Connect response - isPaired:', this.isPaired)
+    console.log('[Simulator] Connect response - isPaired:', session.isPaired)
     console.log(
       '[Simulator] Connect response - activeWallets:',
       JSON.stringify(this.activeWallets, null, 2),
     )
 
     const response: ConnectResponse = {
-      isPaired: this.isPaired,
+      isPaired: session.isPaired,
       firmwareVersion: this.firmwareVersion,
-      ephemeralPub: this.ephemeralKeyPair.publicKey,
+      ephemeralPub: session.ephemeralKeyPair.publicKey,
       activeWallets: this.activeWallets, // Always include, even when not paired
       encryptedWalletData,
     }
 
+    this.lastSessionId = sessionId
+
     return createDeviceResponse(true, LatticeResponseCode.success, response)
+  }
+
+  private createSession(clientPublicKey: Buffer): { id: number; session: PairingSession } {
+    const now = Date.now()
+    const pairingId = this.getPairingId(clientPublicKey)
+    let pairingRecord = this.pairings.get(pairingId)
+
+    if (!pairingRecord && this.autoPairingEnabled) {
+      pairingRecord = this.addPairingRecord(clientPublicKey, 'Auto Paired', now) ?? undefined
+    }
+
+    const isPaired = !!pairingRecord
+    if (pairingRecord) {
+      pairingRecord.lastUsedAt = now
+      this.pairings.set(pairingId, pairingRecord)
+    }
+
+    let sessionKeyPair = generateKeyPair()
+    let sharedSecret = this.deriveSharedSecret(sessionKeyPair, clientPublicKey)
+    let ephemeralId = this.computeEphemeralId(sharedSecret)
+
+    let attempts = 0
+    while (this.sessions.has(ephemeralId) && attempts < 5) {
+      attempts += 1
+      sessionKeyPair = generateKeyPair()
+      sharedSecret = this.deriveSharedSecret(sessionKeyPair, clientPublicKey)
+      ephemeralId = this.computeEphemeralId(sharedSecret)
+    }
+
+    if (this.sessions.has(ephemeralId)) {
+      console.warn('[Simulator] EphemeralId collision detected; overwriting existing session.')
+    }
+
+    const session: PairingSession = {
+      clientPublicKey,
+      sharedSecret,
+      ephemeralKeyPair: sessionKeyPair,
+      isPaired,
+      pairingId: pairingRecord?.id,
+      createdAt: now,
+    }
+
+    this.sessions.set(ephemeralId, session)
+
+    return { id: ephemeralId, session }
+  }
+
+  private resolveSession(ephemeralId?: number): { id: number; session: PairingSession } | null {
+    if (ephemeralId !== undefined) {
+      const session = this.sessions.get(ephemeralId)
+      if (session) {
+        return { id: ephemeralId, session }
+      }
+    }
+
+    if (this.lastSessionId !== undefined) {
+      const session = this.sessions.get(this.lastSessionId)
+      if (session) {
+        return { id: this.lastSessionId, session }
+      }
+    }
+
+    if (this.sessions.size === 1) {
+      const [id, session] = Array.from(this.sessions.entries())[0]
+      return { id, session }
+    }
+
+    return null
+  }
+
+  private isPairedForSession(ephemeralId?: number): boolean {
+    const resolved = this.resolveSession(ephemeralId)
+    if (!resolved) {
+      return false
+    }
+
+    const pairingId = this.getPairingId(resolved.session.clientPublicKey)
+    const isPaired = this.pairings.has(pairingId)
+    resolved.session.isPaired = isPaired
+    resolved.session.pairingId = isPaired ? pairingId : undefined
+    return isPaired
+  }
+
+  markSessionUsed(ephemeralId?: number): void {
+    const resolved = this.resolveSession(ephemeralId)
+    if (!resolved) {
+      return
+    }
+
+    const now = Date.now()
+    resolved.session.lastUsedAt = now
+    this.lastSessionId = resolved.id
+
+    const pairingId = this.getPairingId(resolved.session.clientPublicKey)
+    const pairingRecord = this.pairings.get(pairingId)
+    if (pairingRecord) {
+      pairingRecord.lastUsedAt = now
+      this.pairings.set(pairingId, pairingRecord)
+    }
+  }
+
+  private getPairingId(clientPublicKey: Buffer): string {
+    return createHash('sha256').update(clientPublicKey).digest('hex').slice(0, 16)
+  }
+
+  private addPairingRecord(
+    clientPublicKey: Buffer,
+    appName: string,
+    createdAt: number,
+  ): PairingRecord | null {
+    const pairingId = this.getPairingId(clientPublicKey)
+
+    if (this.pairings.has(pairingId)) {
+      return this.pairings.get(pairingId) ?? null
+    }
+
+    if (this.pairings.size >= MAX_PAIRINGS) {
+      console.warn(
+        `[Simulator] Pairing limit reached (${MAX_PAIRINGS}). Cannot add pairing ${pairingId}.`,
+      )
+      return null
+    }
+
+    const record: PairingRecord = {
+      id: pairingId,
+      appName,
+      clientPublicKey: clientPublicKey.toString('hex'),
+      createdAt,
+      lastUsedAt: createdAt,
+    }
+
+    this.pairings.set(pairingId, record)
+    return record
+  }
+
+  private deriveSharedSecret(ephemeralKeyPair: SessionKeyPair, clientPublicKey: Buffer): Buffer {
+    try {
+      const ec = new elliptic.ec('p256')
+      const ourKeyPair = ec.keyFromPrivate(ephemeralKeyPair.privateKey)
+      const clientKeyPair = ec.keyFromPublic(clientPublicKey)
+      const sharedSecret = ourKeyPair.derive(clientKeyPair.getPublic())
+      return Buffer.from(sharedSecret.toArray('be', 32))
+    } catch (error) {
+      console.error('[Simulator] ECDH shared secret generation failed:', error)
+      return createHash('sha256')
+        .update(ephemeralKeyPair.publicKey)
+        .update(clientPublicKey)
+        .update(Buffer.from('lattice-simulator-shared-secret'))
+        .digest()
+    }
+  }
+
+  private computeEphemeralId(sharedSecret: Buffer): number {
+    const hash = createHash('sha256').update(sharedSecret).digest()
+    return hash.readUInt32BE(0)
   }
 
   /**
@@ -428,24 +600,32 @@ export class DeviceSimulator {
    * @returns Promise resolving to boolean indicating successful pairing
    * @throws {DeviceResponse} When device is already paired, locked, or invalid request
    */
-  async pair(request: PairRequest): Promise<DeviceResponse<boolean>> {
+  async pair(request: PairRequest, sessionId?: number): Promise<DeviceResponse<boolean>> {
     await simulateDelay(1000, 500)
-
-    if (this.isPaired) {
-      return createDeviceResponse<boolean>(false, LatticeResponseCode.already)
-    }
 
     if (this.isLocked) {
       return createDeviceResponse<boolean>(false, LatticeResponseCode.deviceLocked)
     }
 
-    if (!this.ephemeralKeyPair) {
+    const resolvedSession = this.resolveSession(sessionId)
+    if (!resolvedSession) {
       return createDeviceResponse<boolean>(
         false,
         LatticeResponseCode.pairFailed,
         undefined,
         'No connection established',
       )
+    }
+
+    const { session } = resolvedSession
+    const pairingId = this.getPairingId(session.clientPublicKey)
+    const existingPairing = this.pairings.get(pairingId)
+    if (existingPairing) {
+      existingPairing.lastUsedAt = Date.now()
+      this.pairings.set(pairingId, existingPairing)
+      session.isPaired = true
+      session.pairingId = pairingId
+      return createDeviceResponse<boolean>(false, LatticeResponseCode.already)
     }
 
     // Check if device is in pairing mode
@@ -475,7 +655,7 @@ export class DeviceSimulator {
       // Implement real signature validation
       try {
         // 1. Use the client public key that was stored during connect
-        if (!this.clientPublicKey) {
+        if (!session.clientPublicKey) {
           throw new Error('No client public key available')
         }
 
@@ -485,13 +665,13 @@ export class DeviceSimulator {
 
         // 3. Generate the same hash that was signed by the SDK
         const hash = this.generateAppSecret(
-          this.clientPublicKey,
+          session.clientPublicKey,
           nameBuf,
           Buffer.from(this.pairingCode),
         )
 
         // 4. Verify the signature against the hash
-        const isValid = this.verifySignature(request.derSignature, hash, this.clientPublicKey)
+        const isValid = this.verifySignature(request.derSignature, hash, session.clientPublicKey)
 
         if (!isValid) {
           console.log('[Simulator] Signature verification failed')
@@ -514,8 +694,20 @@ export class DeviceSimulator {
         )
       }
 
-      // Successful pairing
-      this.isPaired = true
+      const now = Date.now()
+      const newRecord = this.addPairingRecord(session.clientPublicKey, request.appName, now)
+      if (!newRecord) {
+        return createDeviceResponse(
+          false,
+          LatticeResponseCode.pairFailed,
+          false,
+          'Pairing limit reached',
+        )
+      }
+
+      session.isPaired = true
+      session.pairingId = newRecord.id
+      session.lastUsedAt = now
 
       // Exit pairing mode and emit events
       this.exitPairingMode()
@@ -523,7 +715,10 @@ export class DeviceSimulator {
       // Emit connection and pairing events
       try {
         emitConnectionChanged(this.deviceId, true)
-        emitPairingChanged(this.deviceId, true)
+        emitPairingChanged(this.deviceId, {
+          isPairedForClient: true,
+          pairedClientsCount: this.pairings.size,
+        })
       } catch (error) {
         console.error('[Simulator] Failed to emit connection/pairing events:', error)
       }
@@ -542,14 +737,17 @@ export class DeviceSimulator {
     )
   }
 
-  private encryptActiveWallets(clientPublicKey?: Buffer): Buffer | undefined {
-    if (!clientPublicKey || !this.ephemeralKeyPair) {
+  private encryptActiveWallets(
+    clientPublicKey: Buffer,
+    ephemeralKeyPair: SessionKeyPair,
+  ): Buffer | undefined {
+    if (!clientPublicKey || !ephemeralKeyPair) {
       return undefined
     }
 
     try {
       const ec = new elliptic.ec('p256')
-      const deviceKey = ec.keyFromPrivate(this.ephemeralKeyPair.privateKey)
+      const deviceKey = ec.keyFromPrivate(ephemeralKeyPair.privateKey)
       const clientKey = ec.keyFromPublic(clientPublicKey)
       const sharedSecret = Buffer.from(deviceKey.derive(clientKey.getPublic()).toArray('be', 32))
 
@@ -737,7 +935,10 @@ export class DeviceSimulator {
    * @returns Promise resolving to array of derived addresses
    * @throws {DeviceResponse} When device is not paired, locked, or path is invalid
    */
-  async getAddresses(request: GetAddressesRequest): Promise<DeviceResponse<GetAddressesResponse>> {
+  async getAddresses(
+    request: GetAddressesRequest,
+    sessionId?: number,
+  ): Promise<DeviceResponse<GetAddressesResponse>> {
     console.log('[Simulator] getAddresses request', {
       startPath: request.startPath,
       count: request.n,
@@ -745,7 +946,7 @@ export class DeviceSimulator {
     })
     await simulateDelay(200, 100)
 
-    if (!this.isPaired) {
+    if (!this.isPairedForSession(sessionId)) {
       return createDeviceResponse<GetAddressesResponse>(false, LatticeResponseCode.pairFailed)
     }
 
@@ -1295,10 +1496,10 @@ export class DeviceSimulator {
    * @returns Promise resolving to signature and optional recovery information
    * @throws {DeviceResponse} When device is not paired, locked, or user declines
    */
-  async sign(request: SignRequest): Promise<DeviceResponse<SignResponse>> {
+  async sign(request: SignRequest, sessionId?: number): Promise<DeviceResponse<SignResponse>> {
     await simulateDelay(500, 300)
 
-    if (!this.isPaired) {
+    if (!this.isPairedForSession(sessionId)) {
       return createDeviceResponse<SignResponse>(false, LatticeResponseCode.pairFailed)
     }
 
@@ -2230,10 +2431,10 @@ export class DeviceSimulator {
    * @returns Promise resolving to active wallet information
    * @throws {DeviceResponse} When device is not paired or locked
    */
-  async getWallets(): Promise<DeviceResponse<ActiveWallets>> {
+  async getWallets(sessionId?: number): Promise<DeviceResponse<ActiveWallets>> {
     await simulateDelay(100, 50)
 
-    if (!this.isPaired) {
+    if (!this.isPairedForSession(sessionId)) {
       return createDeviceResponse(false, LatticeResponseCode.pairFailed)
     }
 
@@ -2254,7 +2455,10 @@ export class DeviceSimulator {
    * @returns Promise resolving to record map of found key-value pairs
    * @throws {DeviceResponse} When device is not paired or feature unsupported
    */
-  async getKvRecords(params: { type: number; n: number; start: number }): Promise<
+  async getKvRecords(
+    params: { type: number; n: number; start: number },
+    sessionId?: number,
+  ): Promise<
     DeviceResponse<{
       records: Array<{ id: number; type: number; caseSensitive: boolean; key: string; val: string }>
       total: number
@@ -2263,7 +2467,7 @@ export class DeviceSimulator {
   > {
     await simulateDelay(150, 75)
 
-    if (!this.isPaired) {
+    if (!this.isPairedForSession(sessionId)) {
       return createDeviceResponse(false, LatticeResponseCode.pairFailed, {
         records: [],
         total: 0,
@@ -2396,10 +2600,13 @@ export class DeviceSimulator {
    * @returns Promise resolving to success status
    * @throws {DeviceResponse} When device is not paired, locked, or records invalid
    */
-  async addKvRecords(records: Record<string, string>): Promise<DeviceResponse<void>> {
+  async addKvRecords(
+    records: Record<string, string>,
+    sessionId?: number,
+  ): Promise<DeviceResponse<void>> {
     await simulateDelay(200, 100)
 
-    if (!this.isPaired) {
+    if (!this.isPairedForSession(sessionId)) {
       return createDeviceResponse(false, LatticeResponseCode.pairFailed, undefined)
     }
 
@@ -2491,10 +2698,14 @@ export class DeviceSimulator {
    * @returns Promise resolving to success status
    * @throws {DeviceResponse} When device is not paired, locked, or feature unsupported
    */
-  async removeKvRecords(type: number, ids: number[]): Promise<DeviceResponse<void>> {
+  async removeKvRecords(
+    type: number,
+    ids: number[],
+    sessionId?: number,
+  ): Promise<DeviceResponse<void>> {
     await simulateDelay(150, 75)
 
-    if (!this.isPaired) {
+    if (!this.isPairedForSession(sessionId)) {
       return createDeviceResponse(false, LatticeResponseCode.pairFailed)
     }
 
@@ -2706,51 +2917,38 @@ export class DeviceSimulator {
   /**
    * Gets the current ephemeral key pair used for encrypted messaging
    */
-  getEphemeralKeyPair(): { publicKey: Buffer; privateKey: Buffer } | undefined {
-    return this.ephemeralKeyPair
+  getEphemeralKeyPair(ephemeralId?: number): SessionKeyPair | undefined {
+    return this.resolveSession(ephemeralId)?.session.ephemeralKeyPair
   }
 
   /**
    * Gets the shared secret for encrypted communication
    *
-   * Derives the shared secret from the ephemeral key pair established
-   * during the connect phase using ECDH key agreement.
-   *
-   * @returns The 32-byte shared secret, or null if no connection established
+   * Returns the shared secret for a specific session (or the most recent session).
    */
-  getSharedSecret(): Buffer | null {
-    if (!this.ephemeralKeyPair || !this.clientPublicKey) {
-      return null
+  getSharedSecret(ephemeralId?: number): Buffer | null {
+    return this.resolveSession(ephemeralId)?.session.sharedSecret ?? null
+  }
+
+  /**
+   * Gets shared secret candidates for decrypting secure requests.
+   */
+  getSharedSecretCandidates(ephemeralId?: number): Array<{ id: number; secret: Buffer }> {
+    const candidates: Array<{ id: number; secret: Buffer }> = []
+
+    if (ephemeralId !== undefined) {
+      const session = this.sessions.get(ephemeralId)
+      if (session) {
+        candidates.push({ id: ephemeralId, secret: session.sharedSecret })
+      }
     }
 
-    try {
-      // Use proper ECDH: our_private_key.derive(client_public_key)
-      const ec = new elliptic.ec('p256')
-
-      // Create KeyPair from our private key
-      const ourKeyPair = ec.keyFromPrivate(this.ephemeralKeyPair.privateKey)
-      // Create KeyPair from client's public key
-      const clientKeyPair = ec.keyFromPublic(this.clientPublicKey)
-
-      // Derive shared secret
-      const sharedSecret = ourKeyPair.derive(clientKeyPair.getPublic())
-
-      // Convert to 32-byte buffer (big endian)
-      const sharedSecretBuffer = Buffer.from(sharedSecret.toArray('be', 32))
-
-      return sharedSecretBuffer
-    } catch (error) {
-      console.error('[Simulator] ECDH shared secret generation failed:', error)
-
-      // Fallback to deterministic approach for debugging
-      const hash = createHash('sha256')
-        .update(this.ephemeralKeyPair.publicKey)
-        .update(this.clientPublicKey)
-        .update(Buffer.from('lattice-simulator-shared-secret'))
-        .digest()
-
-      return hash
+    for (const [id, session] of this.sessions.entries()) {
+      if (id === ephemeralId) continue
+      candidates.push({ id, secret: session.sharedSecret })
     }
+
+    return candidates
   }
 
   /**
@@ -2761,8 +2959,27 @@ export class DeviceSimulator {
    *
    * @param newKeyPair - The new ephemeral key pair to use
    */
-  updateEphemeralKeyPair(newKeyPair: { publicKey: Buffer; privateKey: Buffer }): void {
-    this.ephemeralKeyPair = newKeyPair
+  updateEphemeralKeyPair(newKeyPair: SessionKeyPair, ephemeralId?: number): void {
+    const resolved = this.resolveSession(ephemeralId)
+    if (!resolved) {
+      console.warn('[Simulator] No session available to update ephemeral key pair')
+      return
+    }
+
+    const updatedSecret = this.deriveSharedSecret(newKeyPair, resolved.session.clientPublicKey)
+    const newEphemeralId = this.computeEphemeralId(updatedSecret)
+    const updatedSession: PairingSession = {
+      ...resolved.session,
+      sharedSecret: updatedSecret,
+      ephemeralKeyPair: newKeyPair,
+    }
+
+    this.sessions.delete(resolved.id)
+    if (this.sessions.has(newEphemeralId)) {
+      console.warn('[Simulator] EphemeralId collision detected during rotation; overwriting.')
+    }
+    this.sessions.set(newEphemeralId, updatedSession)
+    this.lastSessionId = newEphemeralId
     console.log('[Simulator] Updated ephemeral key pair for next request')
   }
 
@@ -2772,7 +2989,7 @@ export class DeviceSimulator {
    * @returns True if device is paired with a client
    */
   getIsPaired(): boolean {
-    return this.isPaired
+    return this.pairings.size > 0
   }
 
   /**
@@ -2781,8 +2998,27 @@ export class DeviceSimulator {
    * @param paired - Whether the device is paired
    */
   setIsPaired(paired: boolean): void {
-    this.isPaired = paired
-    console.log('[Simulator] Set isPaired to:', paired)
+    if (!paired) {
+      this.unpairAll()
+      return
+    }
+
+    this.autoPairingEnabled = true
+    console.log('[Simulator] Enabled auto-pairing via setIsPaired(true)')
+  }
+
+  /**
+   * Returns the total number of paired clients.
+   */
+  getPairedClientsCount(): number {
+    return this.pairings.size
+  }
+
+  /**
+   * Returns pairing records for debugging/UI.
+   */
+  getPairings(): PairingRecord[] {
+    return Array.from(this.pairings.values())
   }
 
   /**
@@ -2920,8 +3156,37 @@ export class DeviceSimulator {
    * Clears pairing status, secrets, and ephemeral keys.
    */
   unpair(): void {
-    this.isPaired = false
-    this.ephemeralKeyPair = undefined
+    this.unpairAll()
+  }
+
+  /**
+   * Clears all pairing records and active sessions.
+   */
+  unpairAll(): void {
+    this.pairings.clear()
+    this.sessions.clear()
+    this.lastSessionId = undefined
+    this.autoPairingEnabled = false
+  }
+
+  /**
+   * Removes a specific pairing by id.
+   */
+  removePairing(pairingId: string): boolean {
+    const existed = this.pairings.delete(pairingId)
+    if (!existed) {
+      return false
+    }
+
+    for (const session of this.sessions.values()) {
+      const sessionPairingId = this.getPairingId(session.clientPublicKey)
+      if (sessionPairingId === pairingId) {
+        session.isPaired = false
+        session.pairingId = undefined
+      }
+    }
+
+    return true
   }
 
   /**
@@ -2931,9 +3196,11 @@ export class DeviceSimulator {
    * to initial conditions.
    */
   reset(): void {
-    this.isPaired = false
+    this.pairings.clear()
+    this.sessions.clear()
+    this.lastSessionId = undefined
+    this.autoPairingEnabled = false
     this.isLocked = false
-    this.ephemeralKeyPair = undefined
     this.isPairingMode = false
     this.pairingCode = '12345678'
     this.pairingStartTime = undefined

@@ -407,6 +407,8 @@ export function useServerRequestHandler(deviceId: string) {
 
       // Get current store state to check for conflicts
       const currentState = useDeviceStore.getState()
+      const isPairedForClient = data.isPairedForClient ?? data.isPaired
+      const pairedClientsCount = data.pairedClientsCount
 
       // Prevent overwriting client state with older server state
       if (currentState.isConnected && !data.isConnected) {
@@ -416,13 +418,13 @@ export function useServerRequestHandler(deviceId: string) {
         return
       }
 
-      if (currentState.isPaired && !data.isPaired) {
+      if (currentState.isPaired && !isPairedForClient) {
         console.log('[ClientWebSocketHandler] Ignoring unpaired event - client is already paired')
         return
       }
 
       // Update connection state
-      setConnectionState(data.isConnected, data.isPaired)
+      setConnectionState(data.isConnected, isPairedForClient, pairedClientsCount)
 
       // Handle pairing mode state
       if (data.isPairingMode && data.pairingCode) {
@@ -460,16 +462,17 @@ export function useServerRequestHandler(deviceId: string) {
     (data: any) => {
       console.log('[ClientWebSocketHandler] Connection changed:', data.isConnected)
       const currentState = useDeviceStore.getState()
-      setConnectionState(data.isConnected, currentState.isPaired)
+      setConnectionState(data.isConnected, currentState.isPaired, data.pairedClientsCount)
     },
     [setConnectionState],
   )
 
   const handlePairingChanged = useCallback(
     (data: any) => {
-      console.log('[ClientWebSocketHandler] Pairing changed:', data.isPaired)
+      const isPairedForClient = data.isPairedForClient ?? data.isPaired
+      console.log('[ClientWebSocketHandler] Pairing changed:', isPairedForClient)
       const currentState = useDeviceStore.getState()
-      setConnectionState(currentState.isConnected, data.isPaired)
+      setConnectionState(currentState.isConnected, isPairedForClient, data.pairedClientsCount)
     },
     [setConnectionState],
   )

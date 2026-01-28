@@ -27,6 +27,14 @@ export interface DeviceInfo {
   pairingTimeoutMs?: number
 }
 
+export interface PairingRecord {
+  id: string
+  appName: string
+  clientPublicKey: string
+  createdAt: number
+  lastUsedAt?: number
+}
+
 export interface PendingRequest {
   id: string
   type: string
@@ -154,6 +162,8 @@ export interface DeviceState {
   // Connection & Pairing
   isConnected: boolean
   isPaired: boolean
+  pairedClientsCount?: number
+  pairings?: PairingRecord[]
   ephemeralPub?: Buffer
   sharedSecret?: Buffer
 

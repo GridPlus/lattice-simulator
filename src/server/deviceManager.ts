@@ -101,10 +101,10 @@ export class DeviceManager {
       kvRecordsCount: Object.keys(clientState.kvRecords || {}).length,
     })
 
-    // Restore paired state
     if (clientState.isPaired) {
-      this.simulator.setIsPaired(true)
-      console.log('[DeviceManager] Restored isPaired to true from client state')
+      console.log(
+        '[DeviceManager] Ignoring client isPaired flag; pairing is tracked per client session',
+      )
     }
 
     // Restore device info

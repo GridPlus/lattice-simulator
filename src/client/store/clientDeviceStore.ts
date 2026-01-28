@@ -64,6 +64,7 @@ const INITIAL_STATE: DeviceState = {
   // Connection & Pairing
   isConnected: false,
   isPaired: false,
+  pairedClientsCount: 0,
 
   // Device Info
   deviceInfo: DEFAULT_DEVICE_INFO,
@@ -133,7 +134,7 @@ interface DeviceStore extends DeviceState {
   setDeviceInfo: (info: Partial<DeviceInfo>) => void
   setLocked: (locked: boolean) => void
   setBusy: (busy: boolean) => void
-  setConnectionState: (isConnected: boolean, isPaired: boolean) => void
+  setConnectionState: (isConnected: boolean, isPaired: boolean, pairedClientsCount?: number) => void
 
   // Request Management
   addPendingRequest: (request: AnyPendingRequest) => void
@@ -224,11 +225,16 @@ const createStore = () => {
           },
 
           // Connection & Pairing
-          setConnectionState: (isConnected: boolean, isPaired: boolean) => {
+          setConnectionState: (
+            isConnected: boolean,
+            isPaired: boolean,
+            pairedClientsCount?: number,
+          ) => {
             set(state => ({
               ...state,
               isConnected,
               isPaired,
+              ...(pairedClientsCount !== undefined ? { pairedClientsCount } : {}),
             }))
 
             const state = get()
@@ -260,6 +266,7 @@ const createStore = () => {
               ...prevState,
               isConnected: false,
               isPaired: false,
+              pairedClientsCount: 0,
               isPairingMode: false,
               pairingCode: undefined,
               pairingStartTime: undefined,
@@ -450,6 +457,7 @@ const createStore = () => {
                 ...state,
                 isConnected: false,
                 isPaired: false,
+                pairedClientsCount: 0,
                 isPairingMode: false,
                 pairingCode: undefined,
                 pairingStartTime: undefined,
@@ -620,6 +628,7 @@ export const useDeviceConnection = () => {
     isConnected: state.isConnected,
     isPaired: state.isPaired,
     isPairingMode: state.isPairingMode,
+    pairedClientsCount: state.pairedClientsCount,
     deviceId: state.deviceInfo.deviceId,
   }))
 

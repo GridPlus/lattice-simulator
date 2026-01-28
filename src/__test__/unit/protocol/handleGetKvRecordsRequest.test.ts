@@ -54,7 +54,7 @@ describe('ProtocolHandler - handleGetKvRecordsRequest', () => {
 
     // Assert
     expect(mockSimulator.getKvRecords).toHaveBeenCalledTimes(1)
-    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 2, start: 10 })
+    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 2, start: 10 }, undefined)
     expect(result.code).toBe(LatticeResponseCode.success)
     expect(result.data).toBeDefined()
     expect(result.error).toBeUndefined()
@@ -90,7 +90,7 @@ describe('ProtocolHandler - handleGetKvRecordsRequest', () => {
 
     // Assert
     expect(mockSimulator.getKvRecords).toHaveBeenCalledTimes(1)
-    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 1, start: 0 })
+    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 1, start: 0 }, undefined)
     expect(result.code).toBe(LatticeResponseCode.invalidMsg)
     expect(result.data).toBeUndefined()
     expect(result.error).toBe('Invalid request parameters')
@@ -116,7 +116,7 @@ describe('ProtocolHandler - handleGetKvRecordsRequest', () => {
 
     // Assert
     expect(mockSimulator.getKvRecords).toHaveBeenCalledTimes(1)
-    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 0, start: 0 })
+    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 0, start: 0 }, undefined)
     expect(result.code).toBe(LatticeResponseCode.success)
     expect(result.data).toBeUndefined()
     expect(result.error).toBeUndefined()
@@ -234,7 +234,7 @@ describe('ProtocolHandler - handleGetKvRecordsRequest', () => {
     const result = await protocolHandler['handleGetKvRecordsRequest'](mockRequestData)
 
     // Assert
-    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 1, n: 2, start: 5 })
+    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 1, n: 2, start: 5 }, undefined)
     expect(result.code).toBe(LatticeResponseCode.success)
     expect(result.data).toBeDefined()
   })
@@ -265,11 +265,14 @@ describe('ProtocolHandler - handleGetKvRecordsRequest', () => {
     const result = await protocolHandler['handleGetKvRecordsRequest'](mockRequestData)
 
     // Assert
-    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({
-      type: 0xffffffff,
-      n: 0xff,
-      start: 0xffffffff,
-    })
+    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith(
+      {
+        type: 0xffffffff,
+        n: 0xff,
+        start: 0xffffffff,
+      },
+      undefined,
+    )
     expect(result.code).toBe(LatticeResponseCode.success)
     expect(result.data).toBeDefined()
   })
@@ -304,7 +307,7 @@ describe('ProtocolHandler - handleGetKvRecordsRequest', () => {
     const result = await protocolHandler['handleGetKvRecordsRequest'](mockRequestData)
 
     // Assert
-    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 10, start: 0 })
+    expect(mockSimulator.getKvRecords).toHaveBeenCalledWith({ type: 0, n: 10, start: 0 }, undefined)
     expect(result.code).toBe(LatticeResponseCode.success)
     expect(result.data).toBeDefined()
 

@@ -151,10 +151,19 @@ export const emitConnectionChanged = (deviceId: string, isConnected: boolean) =>
   })
 }
 
-export const emitPairingChanged = (deviceId: string, isPaired: boolean) => {
-  deviceEvents.emit(deviceId, 'pairing_changed', {
-    isPaired,
-  })
+export const emitPairingChanged = (
+  deviceId: string,
+  data: { isPairedForClient?: boolean; pairedClientsCount?: number; isPaired?: boolean } | boolean,
+) => {
+  const payload =
+    typeof data === 'boolean'
+      ? { isPaired: data }
+      : {
+          ...data,
+          isPaired: data.isPaired ?? data.isPairedForClient,
+        }
+
+  deviceEvents.emit(deviceId, 'pairing_changed', payload)
 }
 
 // KV Records Event Helpers
