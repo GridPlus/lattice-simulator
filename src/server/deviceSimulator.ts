@@ -2141,6 +2141,10 @@ export class DeviceSimulator {
       if (!responsePrehash) {
         if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
           responsePrehash = Buffer.from(createHash('sha256').update(sanitizedData).digest())
+        } else if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA512HALF) {
+          responsePrehash = Buffer.from(
+            createHash('sha512').update(sanitizedData).digest().subarray(0, 32),
+          )
         } else if (request.hashType === EXTERNAL.SIGNING.HASHES.KECCAK256) {
           responsePrehash = Buffer.from(Hash.keccak256(sanitizedData))
         }
