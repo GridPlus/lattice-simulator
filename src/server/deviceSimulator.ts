@@ -3367,6 +3367,13 @@ export class DeviceSimulator {
         schema: request.schema,
         coinType: coinType as any,
         transactionType,
+        isPrehashed: request.isPrehashed,
+        messagePrehash:
+          request.messagePrehash && request.messagePrehash.length >= 32
+            ? Buffer.from(request.messagePrehash.slice(0, 32))
+            : request.isPrehashed && request.data.length >= 32
+              ? Buffer.from(request.data.slice(0, 32))
+              : undefined,
         bitcoin: request.bitcoin,
       },
       metadata,
@@ -3499,6 +3506,8 @@ export class DeviceSimulator {
         hashType: signingRequest.data.hashType,
         schema: signingRequest.data.schema,
         isTransaction: signingRequest.data.transactionType === 'transaction',
+        isPrehashed: signingRequest.data.isPrehashed,
+        messagePrehash: signingRequest.data.messagePrehash,
         bitcoin: signingRequest.data.bitcoin,
       }
 
@@ -3531,6 +3540,31 @@ export class DeviceSimulator {
         recovery: signatureResult.recovery,
       })
 
+      const sanitizedData =
+        signingRequest.data.schema === SignRequestSchema.ETHEREUM_MESSAGE &&
+        signingRequest.data.isPrehashed
+          ? Buffer.from(signingRequest.data.data.slice(0, 32))
+          : Buffer.from(signingRequest.data.data)
+
+      let responsePrehash =
+        signingRequest.data.messagePrehash && signingRequest.data.messagePrehash.length >= 32
+          ? Buffer.from(signingRequest.data.messagePrehash.slice(0, 32))
+          : signingRequest.data.isPrehashed && sanitizedData.length >= 32
+            ? Buffer.from(sanitizedData.slice(0, 32))
+            : undefined
+
+      if (!responsePrehash) {
+        if (signingRequest.data.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
+          responsePrehash = Buffer.from(createHash('sha256').update(sanitizedData).digest())
+        } else if (signingRequest.data.hashType === EXTERNAL.SIGNING.HASHES.SHA512HALF) {
+          responsePrehash = Buffer.from(
+            createHash('sha512').update(sanitizedData).digest().subarray(0, 32),
+          )
+        } else if (signingRequest.data.hashType === EXTERNAL.SIGNING.HASHES.KECCAK256) {
+          responsePrehash = Buffer.from(Hash.keccak256(sanitizedData))
+        }
+      }
+
       // Remove from pending requests
       this.pendingSigningRequests.delete(requestId)
 
@@ -3539,6 +3573,10 @@ export class DeviceSimulator {
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
         bitcoin: signatureResult.bitcoin,
+        messagePrehash:
+          responsePrehash && responsePrehash.length >= 32
+            ? Buffer.from(responsePrehash.slice(0, 32))
+            : undefined,
       }
 
       const deviceResponse = createDeviceResponse(true, LatticeResponseCode.success, response)

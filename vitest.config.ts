@@ -22,6 +22,7 @@ export default defineConfig({
       ['**/bitcoinWallet.test.ts', 'node'],
       ['**/signingService.bitcoin.test.ts', 'node'],
       ['**/deviceSimulator.xpub.test.ts', 'node'],
+      ['**/deviceSimulator.signing-approval.xrp.test.ts', 'node'],
     ],
   },
   resolve: {

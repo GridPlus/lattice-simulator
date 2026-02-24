@@ -67,6 +67,10 @@ export interface SigningRequest extends PendingRequest {
     transactionType: 'transaction' | 'message'
     /** Parsed Bitcoin transaction data */
     bitcoin?: ParsedBitcoinSignPayload
+    /** Whether the request data is already prehashed */
+    isPrehashed?: boolean
+    /** Optional prehash digest supplied by the caller */
+    messagePrehash?: Buffer
   }
   /** Additional transaction metadata for display */
   metadata?: {
