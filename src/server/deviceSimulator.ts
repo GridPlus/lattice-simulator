@@ -32,6 +32,7 @@ import {
   decodeEthereumTxPayload,
   type DecodedEthereumTxPayload,
 } from './utils/ethereumTx'
+import { decodeXrpSignPayload } from './utils/xrpDecoder'
 import { wsManager } from './websocket/manager'
 import { signatureEngine } from '../core/signing/SignatureEngine'
 import {
@@ -3466,7 +3467,30 @@ export class DeviceSimulator {
 
     if (coinType === 'XRP') {
       metadata.tokenSymbol = 'XRP'
-      metadata.description = 'Sign XRP transaction'
+      const payload = Buffer.isBuffer(request.data) ? request.data : Buffer.from(request.data)
+      const isPrehashed = request.isPrehashed === true
+      const hasFullPayload =
+        request.messageLength !== undefined ? payload.length >= request.messageLength : true
+
+      if (!isPrehashed && hasFullPayload && payload.length > 0) {
+        const decoded = decodeXrpSignPayload(payload)
+        if (decoded) {
+          metadata.description = decoded.transactionType
+            ? `XRP ${decoded.transactionType}`
+            : 'Sign XRP transaction'
+          metadata.from = decoded.account
+          metadata.to = decoded.destination
+          metadata.value = decoded.amount
+          metadata.decodedDetails = decoded.details
+          return metadata
+        }
+      }
+
+      metadata.description = isPrehashed
+        ? 'XRP transaction (prehashed)'
+        : hasFullPayload
+          ? 'Sign XRP transaction'
+          : 'XRP transaction (partial payload)'
     }
 
     return metadata
