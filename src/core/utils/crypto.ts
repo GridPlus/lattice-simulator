@@ -10,7 +10,7 @@ import { keccak256 } from 'viem/utils'
 import { HARDENED_OFFSET } from '../constants'
 import { ProtocolConstants } from '../types'
 
-const XRP_BASE58_ALPHABET = 'rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdefghijklmnoqtuvAxyz'
+const XRP_BASE58_ALPHABET = 'rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz'
 
 const encodeXrpBase58 = (bytes: Uint8Array): string => {
   if (bytes.length === 0) {
@@ -44,6 +44,25 @@ const encodeXrpBase58 = (bytes: Uint8Array): string => {
   }
 
   return encoded || XRP_BASE58_ALPHABET[0]
+}
+
+/**
+ * Compresses a secp256k1 public key when provided in uncompressed form.
+ *
+ * @param publicKey - 33-byte compressed or 65-byte uncompressed secp256k1 key
+ * @returns Compressed 33-byte public key when conversion is possible
+ */
+export function compressSecp256k1PublicKey(publicKey: Buffer): Buffer {
+  if (publicKey.length === 33 && (publicKey[0] === 0x02 || publicKey[0] === 0x03)) {
+    return Buffer.from(publicKey)
+  }
+
+  if (publicKey.length === 65 && publicKey[0] === 0x04) {
+    const prefix = publicKey[64] % 2 === 0 ? 0x02 : 0x03
+    return Buffer.concat([Buffer.from([prefix]), publicKey.subarray(1, 33)])
+  }
+
+  return Buffer.from(publicKey)
 }
 
 /**
@@ -272,13 +291,7 @@ export function generateCosmosAddress(publicKey: Buffer, prefix: string): string
  * version byte (0x00) + RIPEMD160(SHA256(pubkey)) + checksum.
  */
 export function generateXrpAddress(publicKey: Buffer): string {
-  const publicKeyBuffer =
-    publicKey.length === 65 && publicKey[0] === 0x04
-      ? Buffer.concat([
-          Buffer.from([publicKey[64] % 2 === 0 ? 0x02 : 0x03]),
-          publicKey.subarray(1, 33),
-        ])
-      : Buffer.from(publicKey)
+  const publicKeyBuffer = compressSecp256k1PublicKey(publicKey)
 
   const accountId = createHash('ripemd160')
     .update(createHash('sha256').update(publicKeyBuffer).digest())

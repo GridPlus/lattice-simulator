@@ -211,7 +211,8 @@ export class SignatureEngine {
     if (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM) {
       coinType = 'ETH'
     }
-    // XRP uses secp256k1 generic signing. We reuse the Ethereum secp256k1 signer path.
+    // XRP and ETH both sign with secp256k1. We route XRP through the ETH signer path,
+    // while preserving request.hashType/request.encoding so SHA512HALF + XRP still apply.
     if (
       coinType === 'XRP' ||
       (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.XRP)

@@ -3,7 +3,7 @@
  * Implements XRP classic address derivation from secp256k1 keys
  */
 
-import { generateXrpAddress } from '../utils/crypto'
+import { compressSecp256k1PublicKey, generateXrpAddress } from '../utils/crypto'
 import { deriveMultipleKeys, getDerivationInfo } from '../utils/hdWallet'
 import type {
   CreateAccountParams,
@@ -16,19 +16,6 @@ import type { HDKey } from '@scure/bip32'
 interface AccountGenerationOptions {
   seed?: Uint8Array
   idPrefix?: string
-}
-
-function compressSecp256k1Pubkey(pubkey: Buffer): Buffer {
-  if (pubkey.length === 33 && (pubkey[0] === 0x02 || pubkey[0] === 0x03)) {
-    return pubkey
-  }
-
-  if (pubkey.length === 65 && pubkey[0] === 0x04) {
-    const prefix = pubkey[64] % 2 === 0 ? 0x02 : 0x03
-    return Buffer.concat([Buffer.from([prefix]), pubkey.subarray(1, 33)])
-  }
-
-  return pubkey
 }
 
 /**
@@ -46,7 +33,7 @@ export function createXrpAccountFromHDKey(
   }
 
   const derivationInfo = getDerivationInfo('XRP', accountIndex, type === 'internal', addressIndex)
-  const compressedPubkey = compressSecp256k1Pubkey(Buffer.from(hdKey.publicKey))
+  const compressedPubkey = compressSecp256k1PublicKey(Buffer.from(hdKey.publicKey))
   const address = generateXrpAddress(compressedPubkey)
 
   return {
