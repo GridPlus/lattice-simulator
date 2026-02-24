@@ -27,6 +27,7 @@ export const EXTERNAL = {
       NONE: LatticeSignHash.none,
       KECCAK256: LatticeSignHash.keccak256,
       SHA256: LatticeSignHash.sha256,
+      SHA512HALF: LatticeSignHash.sha512half,
     },
     CURVES: {
       SECP256K1: LatticeSignCurve.secp256k1,
@@ -40,6 +41,7 @@ export const EXTERNAL = {
       ETH_DEPOSIT: LatticeSignEncoding.eth_deposit,
       EIP7702_AUTH: LatticeSignEncoding.eip7702_auth,
       EIP7702_AUTH_LIST: LatticeSignEncoding.eip7702_auth_list,
+      XRP: LatticeSignEncoding.xrp,
     },
     BLS_DST: {
       BLS_DST_NUL: LatticeSignBlsDst.NUL,
@@ -67,6 +69,7 @@ export const BIP_CONSTANTS = {
     BTC_TESTNET: HARDENED_OFFSET + 1,
     SOLANA: HARDENED_OFFSET + 501,
     COSMOS: HARDENED_OFFSET + 118,
+    XRP: HARDENED_OFFSET + 144,
   },
 } as const
 
@@ -78,6 +81,7 @@ export const DERIVATION_PATHS = {
   BTC_WRAPPED_SEGWIT: [HARDENED_OFFSET + 49, HARDENED_OFFSET + 0, HARDENED_OFFSET, 0, 0],
   SOLANA: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 501, HARDENED_OFFSET, HARDENED_OFFSET],
   COSMOS: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 118, HARDENED_OFFSET, 0, 0],
+  XRP: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 144, HARDENED_OFFSET, 0, 0],
   LEDGER_LIVE: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0, 0],
   LEDGER_LEGACY: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 60, HARDENED_OFFSET, 0],
 } as const
@@ -100,6 +104,7 @@ export const CURRENCIES = {
   ETH_MSG: 'ETH_MSG',
   SOLANA: 'SOL',
   COSMOS: 'COSMOS',
+  XRP: 'XRP',
 } as const
 
 // Signing schemas

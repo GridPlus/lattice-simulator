@@ -31,6 +31,7 @@ import {
   aes256_decrypt,
   aes256_encrypt,
   generateCosmosAddress,
+  generateXrpAddress,
   generateKeyPair,
 } from '../core/utils/crypto'
 import { resolveTinySecp } from '../core/utils/ecc'
@@ -1433,6 +1434,10 @@ export class ProtocolHandler {
       const coinTypeValue = path.length > 1 ? path[1] : HARDENED_OFFSET + 118
       const config = getCosmosChainConfigByCoinType(coinTypeValue)
       return { address: generateCosmosAddress(publicKey, config.bech32Prefix), publicKey }
+    }
+
+    if (coinType === 'XRP') {
+      return { address: generateXrpAddress(publicKey), publicKey }
     }
 
     // Default to Ethereum-style derivation for ETH and other EVM chains

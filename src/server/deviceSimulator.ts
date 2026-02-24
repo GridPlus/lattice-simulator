@@ -32,6 +32,7 @@ import {
   decodeEthereumTxPayload,
   type DecodedEthereumTxPayload,
 } from './utils/ethereumTx'
+import { decodeXrpSignPayload } from './utils/xrpDecoder'
 import { wsManager } from './websocket/manager'
 import { signatureEngine } from '../core/signing/SignatureEngine'
 import {
@@ -55,6 +56,7 @@ import {
   generateKeyPair,
   detectCoinTypeFromPath,
   generateCosmosAddress,
+  generateXrpAddress,
   simulateDelay,
   createDeviceResponse,
   supportsFeature,
@@ -1018,7 +1020,7 @@ export class DeviceSimulator {
   private async deriveAddressesFallback(
     startPath: WalletPath,
     count: number,
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
@@ -1341,7 +1343,7 @@ export class DeviceSimulator {
   private async deriveAddressesManually(
     startPath: WalletPath,
     count: number,
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
@@ -1391,7 +1393,11 @@ export class DeviceSimulator {
         let uncompressedPubKey: Buffer | null = null
 
         // Derive uncompressed public key if needed for ETH or SECP256K1_PUB export
-        if (coinType === 'ETH' || flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+        if (
+          coinType === 'ETH' ||
+          coinType === 'XRP' ||
+          flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB
+        ) {
           if (!derivedKey.privateKey) {
             throw new Error('Derived key missing private key')
           }
@@ -1406,6 +1412,8 @@ export class DeviceSimulator {
           const pubKeyWithoutPrefix = uncompressedPubKey!.slice(1)
           const hash = keccak256(pubKeyWithoutPrefix)
           address = '0x' + hash.slice(-40)
+        } else if (coinType === 'XRP') {
+          address = generateXrpAddress(compressedPubkey)
         } else if (coinType === 'COSMOS') {
           const coinTypeValue = path.length > 1 ? path[1] : HARDENED_OFFSET + 118
           const chainConfig = getCosmosChainConfigByCoinType(coinTypeValue)
@@ -2141,6 +2149,10 @@ export class DeviceSimulator {
       if (!responsePrehash) {
         if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
           responsePrehash = Buffer.from(createHash('sha256').update(sanitizedData).digest())
+        } else if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA512HALF) {
+          responsePrehash = Buffer.from(
+            createHash('sha512').update(sanitizedData).digest().subarray(0, 32),
+          )
         } else if (request.hashType === EXTERNAL.SIGNING.HASHES.KECCAK256) {
           responsePrehash = Buffer.from(Hash.keccak256(sanitizedData))
         }
@@ -2825,6 +2837,13 @@ export class DeviceSimulator {
           address = generateCosmosAddress(pubkey, config.bech32Prefix)
           break
         }
+        case 'XRP': {
+          const pubkey = Buffer.alloc(33)
+          pubkey[0] = 0x02
+          pubkey.writeUInt32BE(this.simpleHash(seed + 'xrp'), 1)
+          address = generateXrpAddress(pubkey)
+          break
+        }
         default:
           address = `mock_${coinType.toLowerCase()}_${index}_${this.deviceId.substring(0, 8)}`
       }
@@ -3349,6 +3368,13 @@ export class DeviceSimulator {
         schema: request.schema,
         coinType: coinType as any,
         transactionType,
+        isPrehashed: request.isPrehashed,
+        messagePrehash:
+          request.messagePrehash && request.messagePrehash.length >= 32
+            ? Buffer.from(request.messagePrehash.slice(0, 32))
+            : request.isPrehashed && request.data.length >= 32
+              ? Buffer.from(request.data.slice(0, 32))
+              : undefined,
         bitcoin: request.bitcoin,
       },
       metadata,
@@ -3383,7 +3409,7 @@ export class DeviceSimulator {
    */
   private async extractTransactionMetadata(
     request: SignRequest,
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
   ): Promise<SigningRequest['metadata']> {
     // This is a simplified implementation
     // In a real implementation, you would parse the transaction data
@@ -3439,6 +3465,34 @@ export class DeviceSimulator {
           : 'Cosmos transaction (partial payload)'
     }
 
+    if (coinType === 'XRP') {
+      metadata.tokenSymbol = 'XRP'
+      const payload = Buffer.isBuffer(request.data) ? request.data : Buffer.from(request.data)
+      const isPrehashed = request.isPrehashed === true
+      const hasFullPayload =
+        request.messageLength !== undefined ? payload.length >= request.messageLength : true
+
+      if (!isPrehashed && hasFullPayload && payload.length > 0) {
+        const decoded = decodeXrpSignPayload(payload)
+        if (decoded) {
+          metadata.description = decoded.transactionType
+            ? `XRP ${decoded.transactionType}`
+            : 'Sign XRP transaction'
+          metadata.from = decoded.account
+          metadata.to = decoded.destination
+          metadata.value = decoded.amount
+          metadata.decodedDetails = decoded.details
+          return metadata
+        }
+      }
+
+      metadata.description = isPrehashed
+        ? 'XRP transaction (prehashed)'
+        : hasFullPayload
+          ? 'Sign XRP transaction'
+          : 'XRP transaction (partial payload)'
+    }
+
     return metadata
   }
 
@@ -3476,6 +3530,8 @@ export class DeviceSimulator {
         hashType: signingRequest.data.hashType,
         schema: signingRequest.data.schema,
         isTransaction: signingRequest.data.transactionType === 'transaction',
+        isPrehashed: signingRequest.data.isPrehashed,
+        messagePrehash: signingRequest.data.messagePrehash,
         bitcoin: signingRequest.data.bitcoin,
       }
 
@@ -3508,6 +3564,31 @@ export class DeviceSimulator {
         recovery: signatureResult.recovery,
       })
 
+      const sanitizedData =
+        signingRequest.data.schema === SignRequestSchema.ETHEREUM_MESSAGE &&
+        signingRequest.data.isPrehashed
+          ? Buffer.from(signingRequest.data.data.slice(0, 32))
+          : Buffer.from(signingRequest.data.data)
+
+      let responsePrehash =
+        signingRequest.data.messagePrehash && signingRequest.data.messagePrehash.length >= 32
+          ? Buffer.from(signingRequest.data.messagePrehash.slice(0, 32))
+          : signingRequest.data.isPrehashed && sanitizedData.length >= 32
+            ? Buffer.from(sanitizedData.slice(0, 32))
+            : undefined
+
+      if (!responsePrehash) {
+        if (signingRequest.data.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
+          responsePrehash = Buffer.from(createHash('sha256').update(sanitizedData).digest())
+        } else if (signingRequest.data.hashType === EXTERNAL.SIGNING.HASHES.SHA512HALF) {
+          responsePrehash = Buffer.from(
+            createHash('sha512').update(sanitizedData).digest().subarray(0, 32),
+          )
+        } else if (signingRequest.data.hashType === EXTERNAL.SIGNING.HASHES.KECCAK256) {
+          responsePrehash = Buffer.from(Hash.keccak256(sanitizedData))
+        }
+      }
+
       // Remove from pending requests
       this.pendingSigningRequests.delete(requestId)
 
@@ -3516,6 +3597,10 @@ export class DeviceSimulator {
         recovery: signatureResult.recovery,
         metadata: signatureResult.metadata,
         bitcoin: signatureResult.bitcoin,
+        messagePrehash:
+          responsePrehash && responsePrehash.length >= 32
+            ? Buffer.from(responsePrehash.slice(0, 32))
+            : undefined,
       }
 
       const deviceResponse = createDeviceResponse(true, LatticeResponseCode.success, response)

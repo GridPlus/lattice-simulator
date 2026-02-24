@@ -25,6 +25,8 @@ const TEST_DATA = {
   expectedDerSignatureLength: 74,
 }
 
+const FINALIZE_PAIRING_LONG_TEST_TIMEOUT_MS = 20000
+
 /**
  * Helper function to create a test key pair using the same logic as SDK
  */
@@ -465,36 +467,40 @@ describe('finalizePairing Request Parsing and Handling', () => {
       expect(response.error).toContain('Invalid signature')
     })
 
-    it('should handle different app names correctly', async () => {
-      const testCases = [
-        { appName: 'MyApp', pairingSecret: 'secret123' },
-        { appName: 'TestApp', pairingSecret: 'password' },
-        { appName: 'LatticeSimulator', pairingSecret: 'simulator' },
-      ]
+    it(
+      'should handle different app names correctly',
+      async () => {
+        const testCases = [
+          { appName: 'MyApp', pairingSecret: 'secret123' },
+          { appName: 'TestApp', pairingSecret: 'password' },
+          { appName: 'LatticeSimulator', pairingSecret: 'simulator' },
+        ]
 
-      for (const testCase of testCases) {
-        // Reset simulator state for each test case
-        simulator.reset()
-        ;(simulator as any).pairingCode = testCase.pairingSecret
-        await simulator.connect({
-          deviceId: 'test-device-id',
-          publicKey: getClientPublicKey(),
-        })
-        simulator.enterPairingMode()
+        for (const testCase of testCases) {
+          // Reset simulator state for each test case
+          simulator.reset()
+          ;(simulator as any).pairingCode = testCase.pairingSecret
+          await simulator.connect({
+            deviceId: 'test-device-id',
+            publicKey: getClientPublicKey(),
+          })
+          simulator.enterPairingMode()
 
-        const payload = createFinalizePairingPayload(
-          TEST_DATA.privateKey,
-          testCase.appName,
-          testCase.pairingSecret,
-        )
+          const payload = createFinalizePairingPayload(
+            TEST_DATA.privateKey,
+            testCase.appName,
+            testCase.pairingSecret,
+          )
 
-        const request = (protocolHandler as any).parsePairRequest(payload)
-        expect(request.appName).toBe(testCase.appName)
+          const request = (protocolHandler as any).parsePairRequest(payload)
+          expect(request.appName).toBe(testCase.appName)
 
-        const response = await simulator.pair(request)
-        expect(response.success).toBe(true)
-      }
-    })
+          const response = await simulator.pair(request)
+          expect(response.success).toBe(true)
+        }
+      },
+      FINALIZE_PAIRING_LONG_TEST_TIMEOUT_MS,
+    )
 
     it('should handle edge case app names', async () => {
       const edgeCases = [

@@ -62,11 +62,15 @@ export interface SigningRequest extends PendingRequest {
     /** Schema type (transaction vs message) */
     schema?: number
     /** Cryptocurrency type */
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS'
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP'
     /** Type of data being signed */
     transactionType: 'transaction' | 'message'
     /** Parsed Bitcoin transaction data */
     bitcoin?: ParsedBitcoinSignPayload
+    /** Whether the request data is already prehashed */
+    isPrehashed?: boolean
+    /** Optional prehash digest supplied by the caller */
+    messagePrehash?: Buffer
   }
   /** Additional transaction metadata for display */
   metadata?: {
@@ -122,7 +126,7 @@ export interface TransactionRecord {
   /** Timestamp when transaction was completed */
   timestamp: number
   /** Cryptocurrency type */
-  coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS'
+  coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP'
   /** Type of transaction */
   type: 'transaction' | 'message'
   /** Final status */

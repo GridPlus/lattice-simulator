@@ -44,6 +44,12 @@ export const BIP44_DERIVATION_PATHS = {
     account: 0,
     change: 0,
   },
+  XRP: {
+    purpose: 44,
+    coinType: 144,
+    account: 0,
+    change: 0,
+  },
 } as const
 
 /**

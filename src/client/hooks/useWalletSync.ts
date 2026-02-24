@@ -35,6 +35,8 @@ export function useWalletSync() {
             ...activeWallets.SOL.internal,
             ...activeWallets.COSMOS.external,
             ...activeWallets.COSMOS.internal,
+            ...activeWallets.XRP.external,
+            ...activeWallets.XRP.internal,
           ]
         : []
 
@@ -93,6 +95,8 @@ export function useSyncWalletsToServer() {
           ...activeWallets.SOL.internal,
           ...activeWallets.COSMOS.external,
           ...activeWallets.COSMOS.internal,
+          ...activeWallets.XRP.external,
+          ...activeWallets.XRP.internal,
         ]
       : []
 

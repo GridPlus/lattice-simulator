@@ -49,6 +49,8 @@ export default function PendingRequestsPage() {
         return 'bg-purple-100 text-purple-800 dark:bg-purple-900/20 dark:text-purple-400'
       case 'COSMOS':
         return 'bg-teal-100 text-teal-800 dark:bg-teal-900/20 dark:text-teal-400'
+      case 'XRP':
+        return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/20 dark:text-indigo-400'
       default:
         return 'bg-gray-100 text-gray-800 dark:bg-gray-900/20 dark:text-gray-400'
     }

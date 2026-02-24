@@ -55,7 +55,15 @@ const DEFAULT_SIMULATOR_CONFIG: SimulatorConfig = {
   userDelayMs: 2000,
   enableTimeouts: true,
   supportedCurves: ['secp256k1', 'ed25519', 'bls12_381'],
-  supportedEncodings: ['none', 'solana', 'evm', 'eth_deposit', 'eip7702_auth', 'eip7702_auth_list'],
+  supportedEncodings: [
+    'none',
+    'solana',
+    'evm',
+    'eth_deposit',
+    'eip7702_auth',
+    'eip7702_auth_list',
+    'xrp',
+  ],
   maxAddressesPerRequest: 10,
   simulatedFirmwareVersion: [0, 18, 0],
 }

@@ -145,7 +145,7 @@ export interface SigningRequest {
  * Enhanced Signing Service
  *
  * Provides real cryptographic signing capabilities by integrating with
- * the simulator's wallet services. Supports ETH, BTC, SOL, and COSMOS signing
+ * the simulator's wallet services. Supports ETH, BTC, SOL, COSMOS, and XRP signing
  * with proper key derivation and signature formats.
  */
 export class SignatureEngine {
@@ -209,6 +209,14 @@ export class SignatureEngine {
     // Detect coin type from derivation path
     let coinType = detectCoinTypeFromPath(request.path)
     if (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM) {
+      coinType = 'ETH'
+    }
+    // XRP and ETH both sign with secp256k1. We route XRP through the ETH signer path,
+    // while preserving request.hashType/request.encoding so SHA512HALF + XRP still apply.
+    if (
+      coinType === 'XRP' ||
+      (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.XRP)
+    ) {
       coinType = 'ETH'
     }
 
@@ -548,6 +556,9 @@ export class SignatureEngine {
           if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
             const hash = createHash('sha256').update(request.data).digest()
             txHashBuf = Buffer.from(hash)
+          } else if (request.hashType === EXTERNAL.SIGNING.HASHES.SHA512HALF) {
+            const hash = createHash('sha512').update(request.data).digest()
+            txHashBuf = Buffer.from(hash.subarray(0, 32))
           } else {
             // Default to keccak256 for KECCAK256 and other hash types
             const dataBuffer = Buffer.isBuffer(request.data)
@@ -885,6 +896,9 @@ export class SignatureEngine {
 
     if (hashType === EXTERNAL.SIGNING.HASHES.SHA256) {
       return Buffer.from(createHash('sha256').update(data).digest())
+    }
+    if (hashType === EXTERNAL.SIGNING.HASHES.SHA512HALF) {
+      return Buffer.from(createHash('sha512').update(data).digest().subarray(0, 32))
     }
 
     const buffer = Buffer.isBuffer(data) ? data : Buffer.from(data)

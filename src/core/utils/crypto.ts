@@ -10,6 +10,61 @@ import { keccak256 } from 'viem/utils'
 import { HARDENED_OFFSET } from '../constants'
 import { ProtocolConstants } from '../types'
 
+const XRP_BASE58_ALPHABET = 'rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz'
+
+const encodeXrpBase58 = (bytes: Uint8Array): string => {
+  if (bytes.length === 0) {
+    return ''
+  }
+
+  const digits: number[] = [0]
+
+  for (let i = 0; i < bytes.length; i++) {
+    const byte = bytes[i]
+    let carry = byte
+    for (let j = 0; j < digits.length; j++) {
+      const value = digits[j] * 256 + carry
+      digits[j] = value % 58
+      carry = Math.floor(value / 58)
+    }
+
+    while (carry > 0) {
+      digits.push(carry % 58)
+      carry = Math.floor(carry / 58)
+    }
+  }
+
+  for (let k = 0; k < bytes.length && bytes[k] === 0; k++) {
+    digits.push(0)
+  }
+
+  let encoded = ''
+  for (let i = digits.length - 1; i >= 0; i--) {
+    encoded += XRP_BASE58_ALPHABET[digits[i]]
+  }
+
+  return encoded || XRP_BASE58_ALPHABET[0]
+}
+
+/**
+ * Compresses a secp256k1 public key when provided in uncompressed form.
+ *
+ * @param publicKey - 33-byte compressed or 65-byte uncompressed secp256k1 key
+ * @returns Compressed 33-byte public key when conversion is possible
+ */
+export function compressSecp256k1PublicKey(publicKey: Buffer): Buffer {
+  if (publicKey.length === 33 && (publicKey[0] === 0x02 || publicKey[0] === 0x03)) {
+    return Buffer.from(publicKey)
+  }
+
+  if (publicKey.length === 65 && publicKey[0] === 0x04) {
+    const prefix = publicKey[64] % 2 === 0 ? 0x02 : 0x03
+    return Buffer.concat([Buffer.from([prefix]), publicKey.subarray(1, 33)])
+  }
+
+  return Buffer.from(publicKey)
+}
+
 /**
  * Generates a random device ID
  *
@@ -227,6 +282,28 @@ export function generateCosmosAddress(publicKey: Buffer, prefix: string): string
   const sha256 = createHash('sha256').update(publicKey).digest()
   const ripemd160 = createHash('ripemd160').update(sha256).digest()
   return bech32.encode(prefix, bech32.toWords(ripemd160))
+}
+
+/**
+ * Generates an XRP classic address from a compressed secp256k1 public key
+ *
+ * XRP classic addresses use base58 (Ripple alphabet) encoding over:
+ * version byte (0x00) + RIPEMD160(SHA256(pubkey)) + checksum.
+ */
+export function generateXrpAddress(publicKey: Buffer): string {
+  const publicKeyBuffer = compressSecp256k1PublicKey(publicKey)
+
+  const accountId = createHash('ripemd160')
+    .update(createHash('sha256').update(publicKeyBuffer).digest())
+    .digest()
+
+  const payload = Buffer.concat([Buffer.from([0x00]), accountId])
+  const checksum = createHash('sha256')
+    .update(createHash('sha256').update(payload).digest())
+    .digest()
+    .subarray(0, 4)
+
+  return encodeXrpBase58(Buffer.concat([payload, checksum]))
 }
 
 /**

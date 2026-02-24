@@ -29,6 +29,7 @@ const COIN_TYPES = {
   ETH: { name: 'Ethereum', purpose: 44, coinType: 60 },
   SOL: { name: 'Solana', purpose: 44, coinType: 501 },
   COSMOS: { name: 'Cosmos', purpose: 44, coinType: 118 },
+  XRP: { name: 'XRP', purpose: 44, coinType: 144 },
 }
 
 export default function WalletsPage() {
@@ -228,7 +229,7 @@ export default function WalletsPage() {
           )}
 
           {/* Wallet Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-6">
             <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
               <h3 className="text-sm font-medium text-blue-900 dark:text-blue-100">
                 Total Accounts
@@ -267,6 +268,14 @@ export default function WalletsPage() {
               </h3>
               <p className="text-2xl font-bold text-teal-600 dark:text-teal-300">
                 {walletStats.accountsByType.COSMOS}
+              </p>
+            </div>
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg">
+              <h3 className="text-sm font-medium text-indigo-900 dark:text-indigo-100">
+                XRP Accounts
+              </h3>
+              <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-300">
+                {walletStats.accountsByType.XRP}
               </p>
             </div>
           </div>

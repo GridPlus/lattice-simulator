@@ -210,6 +210,15 @@ export function useServerRequestHandler(deviceId: string) {
             )
             break
           }
+          case 'XRP':
+            accounts = await walletServices.createMultipleXrpAccounts(
+              accountIndex,
+              walletType,
+              count,
+              startIndex,
+              accountOptions,
+            )
+            break
           default:
             throw new Error(`Unsupported coin type: ${coinType}`)
         }

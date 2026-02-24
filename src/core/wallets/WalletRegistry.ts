@@ -8,6 +8,7 @@ import { setWalletMnemonicOverride, normalizeMnemonic, validateMnemonic } from '
 import { createMultipleCosmosAccounts } from './cosmos'
 import { createMultipleEthereumAccounts } from './ethereum'
 import { createMultipleSolanaAccounts } from './solana'
+import { createMultipleXrpAccounts } from './xrp'
 import type { ActiveWallets } from '../types/device'
 import type {
   WalletAccount,
@@ -34,6 +35,7 @@ export class WalletRegistry {
     BTC: undefined,
     SOL: undefined,
     COSMOS: undefined,
+    XRP: undefined,
   }
   private initialized: boolean = false
 
@@ -86,7 +88,7 @@ export class WalletRegistry {
   /**
    * Derives wallet addresses on-demand for the specified coin type and range
    *
-   * @param coinType - The cryptocurrency type ('ETH', 'BTC', 'SOL', 'COSMOS')
+   * @param coinType - The cryptocurrency type ('ETH', 'BTC', 'SOL', 'COSMOS', 'XRP')
    * @param accountIndex - Account index for derivation
    * @param walletType - 'internal' or 'external'
    * @param addressType - Address type (e.g., 'segwit' for Bitcoin)
@@ -96,7 +98,7 @@ export class WalletRegistry {
    * @returns Array of wallet account objects
    */
   async deriveAddressesOnDemand(
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
     accountIndex: number = 0,
     walletType: 'internal' | 'external' = 'internal',
     addressType: 'segwit' | 'legacy' | 'wrapped-segwit' = 'segwit',
@@ -181,6 +183,22 @@ export class WalletRegistry {
           }))
         }
 
+        case 'XRP': {
+          const accounts = await createMultipleXrpAccounts(
+            accountIndex,
+            walletType,
+            count,
+            startIndex,
+            options,
+          )
+          return accounts.map(account => ({
+            id: account.id,
+            address: account.address,
+            publicKey: account.publicKey,
+            coinType: 'XRP',
+          }))
+        }
+
         default:
           throw new Error(`Unsupported coin type: ${coinType}`)
       }
@@ -238,6 +256,15 @@ export class WalletRegistry {
     })
     if (cosmosAccounts.length > 0) {
       this.activeWallets.COSMOS = cosmosAccounts[0]
+    }
+
+    // Create XRP accounts
+    const xrpAccounts = await createMultipleXrpAccounts(0, 'internal', 3, 0)
+    xrpAccounts.forEach(account => {
+      this.walletAccounts.set(account.id, account)
+    })
+    if (xrpAccounts.length > 0) {
+      this.activeWallets.XRP = xrpAccounts[0]
     }
 
     console.log(`[WalletRegistry] Created ${this.walletAccounts.size} wallet accounts`)
@@ -433,6 +460,7 @@ export class WalletRegistry {
       BTC: { external: [], internal: [] },
       SOL: { external: [], internal: [] },
       COSMOS: { external: [], internal: [] },
+      XRP: { external: [], internal: [] },
     }
 
     this.walletAccounts.forEach(account => {
@@ -468,6 +496,9 @@ export class WalletRegistry {
       case 'COSMOS':
         accounts = await createMultipleCosmosAccounts(accountIndex, type, count, 0)
         break
+      case 'XRP':
+        accounts = await createMultipleXrpAccounts(accountIndex, type, count, 0)
+        break
     }
 
     // Add to our collection
@@ -492,6 +523,7 @@ export class WalletRegistry {
       BTC: 0,
       SOL: 0,
       COSMOS: 0,
+      XRP: 0,
     }
 
     this.walletAccounts.forEach(account => {
@@ -508,6 +540,7 @@ export class WalletRegistry {
         BTC: this.activeWallets.BTC?.id,
         SOL: this.activeWallets.SOL?.id,
         COSMOS: this.activeWallets.COSMOS?.id,
+        XRP: this.activeWallets.XRP?.id,
       },
     }
   }
@@ -539,6 +572,7 @@ export class WalletRegistry {
       BTC: undefined,
       SOL: undefined,
       COSMOS: undefined,
+      XRP: undefined,
     }
     this.initialized = false
     console.log('[WalletRegistry] Reset all wallet data')

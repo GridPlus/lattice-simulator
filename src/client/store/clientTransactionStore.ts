@@ -17,7 +17,7 @@ interface TransactionHistoryState {
   transactions: TransactionRecord[]
   /** Current filter settings */
   filters: {
-    coinType?: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'ALL'
+    coinType?: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP' | 'ALL'
     status?: 'approved' | 'rejected' | 'ALL'
     type?: 'transaction' | 'message' | 'ALL'
     dateRange?: {
@@ -64,7 +64,7 @@ interface TransactionHistoryActions {
   getTransaction: (id: string) => TransactionRecord | undefined
 
   /** Get transactions by coin type */
-  getTransactionsByCoin: (coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS') => TransactionRecord[]
+  getTransactionsByCoin: (coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP') => TransactionRecord[]
 
   /** Get recent transactions (last N) */
   getRecentTransactions: (count: number) => TransactionRecord[]
@@ -74,7 +74,7 @@ interface TransactionHistoryActions {
     total: number
     approved: number
     rejected: number
-    byCoin: Record<'ETH' | 'BTC' | 'SOL' | 'COSMOS', number>
+    byCoin: Record<'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP', number>
     byType: Record<'transaction' | 'message', number>
   }
 
@@ -247,7 +247,7 @@ export const useTransactionStore = create<TransactionStore>()(
         return get().transactions.find(tx => tx.id === id)
       },
 
-      getTransactionsByCoin: (coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS') => {
+      getTransactionsByCoin: (coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP') => {
         return get().transactions.filter(tx => tx.coinType === coinType)
       },
 
@@ -264,8 +264,8 @@ export const useTransactionStore = create<TransactionStore>()(
           total: transactions.length,
           approved: 0,
           rejected: 0,
-          byCoin: { ETH: 0, BTC: 0, SOL: 0, COSMOS: 0 } as Record<
-            'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+          byCoin: { ETH: 0, BTC: 0, SOL: 0, COSMOS: 0, XRP: 0 } as Record<
+            'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
             number
           >,
           byType: { transaction: 0, message: 0 } as Record<'transaction' | 'message', number>,
