@@ -3,7 +3,7 @@
  * Defines interfaces for wallet accounts with external/internal distinction
  */
 
-export type WalletCoinType = 'ETH' | 'BTC' | 'SOL' | 'COSMOS'
+export type WalletCoinType = 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP'
 export type WalletAccountType = 'external' | 'internal'
 
 export interface SafeCard {
@@ -98,6 +98,19 @@ export interface CosmosWalletAccount extends BaseWalletAccount {
 }
 
 /**
+ * XRP wallet account
+ */
+export interface XrpWalletAccount extends BaseWalletAccount {
+  coinType: 'XRP'
+  /** XRP classic address (base58, starts with r) */
+  address: string
+  /** Compressed secp256k1 public key (hex string) */
+  publicKey: string
+  /** Private key (hex string) - only stored for internal accounts */
+  privateKey?: string
+}
+
+/**
  * Union type for all wallet accounts
  */
 export type WalletAccount =
@@ -105,6 +118,7 @@ export type WalletAccount =
   | BitcoinWalletAccount
   | SolanaWalletAccount
   | CosmosWalletAccount
+  | XrpWalletAccount
 
 /**
  * Active wallets configuration - one per coin type
@@ -114,6 +128,7 @@ export interface ActiveWallets {
   BTC?: BitcoinWalletAccount
   SOL?: SolanaWalletAccount
   COSMOS?: CosmosWalletAccount
+  XRP?: XrpWalletAccount
 }
 
 /**
@@ -135,6 +150,10 @@ export interface WalletCollection {
   COSMOS: {
     external: CosmosWalletAccount[]
     internal: CosmosWalletAccount[]
+  }
+  XRP: {
+    external: XrpWalletAccount[]
+    internal: XrpWalletAccount[]
   }
 }
 

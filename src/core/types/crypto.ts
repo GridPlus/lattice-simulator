@@ -32,6 +32,7 @@ export enum CoinType {
   Ethereum = 60,
   Solana = 501,
   Cosmos = 118,
+  Xrp = 144,
 }
 
 export enum Purpose {
@@ -59,6 +60,9 @@ export const DerivationPaths = {
 
   // Cosmos
   COSMOS: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 118, HARDENED_OFFSET, 0, 0],
+
+  // XRP
+  XRP: [HARDENED_OFFSET + 44, HARDENED_OFFSET + 144, HARDENED_OFFSET, 0, 0],
 } as const
 
 export interface CryptoOperations {

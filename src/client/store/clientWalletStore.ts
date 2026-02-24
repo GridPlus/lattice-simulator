@@ -34,12 +34,14 @@ export async function getWalletServices() {
   }
 
   try {
-    const [ethereumWallet, bitcoinWallet, solanaWallet, cosmosWallet] = await Promise.all([
-      import('@/shared/wallets/ethereum'),
-      import('@/shared/wallets/bitcoin'),
-      import('@/shared/wallets/solana'),
-      import('@/shared/wallets/cosmos'),
-    ])
+    const [ethereumWallet, bitcoinWallet, solanaWallet, cosmosWallet, xrpWallet] =
+      await Promise.all([
+        import('@/shared/wallets/ethereum'),
+        import('@/shared/wallets/bitcoin'),
+        import('@/shared/wallets/solana'),
+        import('@/shared/wallets/cosmos'),
+        import('@/shared/wallets/xrp'),
+      ])
 
     walletServices = {
       createMultipleEthereumAccounts: ethereumWallet.createMultipleEthereumAccounts,
@@ -50,6 +52,8 @@ export async function getWalletServices() {
       createSolanaAccount: solanaWallet.createSolanaAccount,
       createMultipleCosmosAccounts: cosmosWallet.createMultipleCosmosAccounts,
       createCosmosAccount: cosmosWallet.createCosmosAccount,
+      createMultipleXrpAccounts: xrpWallet.createMultipleXrpAccounts,
+      createXrpAccount: xrpWallet.createXrpAccount,
     }
 
     return walletServices
@@ -79,6 +83,10 @@ const INITIAL_WALLET_COLLECTION: WalletCollection = {
     external: [],
     internal: [],
   },
+  XRP: {
+    external: [],
+    internal: [],
+  },
 }
 
 /**
@@ -89,6 +97,7 @@ const INITIAL_ACTIVE_WALLETS: ActiveWallets = {
   BTC: undefined,
   SOL: undefined,
   COSMOS: undefined,
+  XRP: undefined,
 }
 
 const INITIAL_SAFE_CARDS: SafeCard[] = []
@@ -220,6 +229,7 @@ const ensureWalletCollection = (wallets?: WalletCollection): WalletCollection =>
     BTC: { ...INITIAL_WALLET_COLLECTION.BTC, ...(safeWallets.BTC || {}) },
     SOL: { ...INITIAL_WALLET_COLLECTION.SOL, ...(safeWallets.SOL || {}) },
     COSMOS: { ...INITIAL_WALLET_COLLECTION.COSMOS, ...(safeWallets.COSMOS || {}) },
+    XRP: { ...INITIAL_WALLET_COLLECTION.XRP, ...(safeWallets.XRP || {}) },
   }
 }
 
@@ -228,6 +238,34 @@ const ensureActiveWallets = (activeWallets?: ActiveWallets): ActiveWallets => {
     ...INITIAL_ACTIVE_WALLETS,
     ...(activeWallets || {}),
   }
+}
+
+const ensureWalletsBySafeCard = (
+  walletsBySafeCard?: Record<number, WalletCollection>,
+): Record<number, WalletCollection> => {
+  if (!walletsBySafeCard) {
+    return {}
+  }
+
+  const normalized: Record<number, WalletCollection> = {}
+  for (const [key, wallets] of Object.entries(walletsBySafeCard)) {
+    normalized[Number(key)] = ensureWalletCollection(wallets)
+  }
+  return normalized
+}
+
+const ensureActiveWalletsBySafeCard = (
+  activeWalletsBySafeCard?: Record<number, ActiveWallets>,
+): Record<number, ActiveWallets> => {
+  if (!activeWalletsBySafeCard) {
+    return {}
+  }
+
+  const normalized: Record<number, ActiveWallets> = {}
+  for (const [key, activeWallets] of Object.entries(activeWalletsBySafeCard)) {
+    normalized[Number(key)] = ensureActiveWallets(activeWallets)
+  }
+  return normalized
 }
 
 const resolveSafeCardWallets = (
@@ -316,20 +354,22 @@ export const useWalletStore = create<WalletStore>()(
             const accountOptions = { seed, idPrefix }
 
             // Create initial external accounts for each coin type (first 5 accounts)
-            const [ethAccounts, btcAccounts, solAccounts, cosmosAccounts] = await Promise.all([
-              services.createMultipleEthereumAccounts(0, 'external', 5, 0, accountOptions),
-              services.createMultipleBitcoinAccounts(
-                0,
-                'external',
-                'segwit',
-                5,
-                0,
-                'mainnet',
-                accountOptions,
-              ),
-              services.createMultipleSolanaAccounts(0, 'external', 5, 0, accountOptions),
-              services.createMultipleCosmosAccounts(0, 'external', 5, 0, accountOptions),
-            ])
+            const [ethAccounts, btcAccounts, solAccounts, cosmosAccounts, xrpAccounts] =
+              await Promise.all([
+                services.createMultipleEthereumAccounts(0, 'external', 5, 0, accountOptions),
+                services.createMultipleBitcoinAccounts(
+                  0,
+                  'external',
+                  'segwit',
+                  5,
+                  0,
+                  'mainnet',
+                  accountOptions,
+                ),
+                services.createMultipleSolanaAccounts(0, 'external', 5, 0, accountOptions),
+                services.createMultipleCosmosAccounts(0, 'external', 5, 0, accountOptions),
+                services.createMultipleXrpAccounts(0, 'external', 5, 0, accountOptions),
+              ])
 
             // Create initial internal accounts for each coin type (first 2 accounts)
             const [
@@ -337,6 +377,7 @@ export const useWalletStore = create<WalletStore>()(
               btcInternalAccounts,
               solInternalAccounts,
               cosmosInternalAccounts,
+              xrpInternalAccounts,
             ] = await Promise.all([
               services.createMultipleEthereumAccounts(0, 'internal', 2, 0, accountOptions),
               services.createMultipleBitcoinAccounts(
@@ -350,6 +391,7 @@ export const useWalletStore = create<WalletStore>()(
               ),
               services.createMultipleSolanaAccounts(0, 'internal', 2, 0, accountOptions),
               services.createMultipleCosmosAccounts(0, 'internal', 2, 0, accountOptions),
+              services.createMultipleXrpAccounts(0, 'internal', 2, 0, accountOptions),
             ])
 
             set(state => {
@@ -363,6 +405,7 @@ export const useWalletStore = create<WalletStore>()(
                   BTC: { external: btcAccounts, internal: btcInternalAccounts },
                   SOL: { external: solAccounts, internal: solInternalAccounts },
                   COSMOS: { external: cosmosAccounts, internal: cosmosInternalAccounts },
+                  XRP: { external: xrpAccounts, internal: xrpInternalAccounts },
                 },
               }
 
@@ -372,6 +415,7 @@ export const useWalletStore = create<WalletStore>()(
                 BTC: btcAccounts[0],
                 SOL: solAccounts[0],
                 COSMOS: cosmosAccounts[0],
+                XRP: xrpAccounts[0],
               }
 
               if (ethAccounts.length > 0) {
@@ -385,6 +429,9 @@ export const useWalletStore = create<WalletStore>()(
               }
               if (cosmosAccounts.length > 0) {
                 cosmosAccounts[0].isActive = true
+              }
+              if (xrpAccounts.length > 0) {
+                xrpAccounts[0].isActive = true
               }
 
               state.activeWalletsBySafeCard = {
@@ -411,6 +458,9 @@ export const useWalletStore = create<WalletStore>()(
             )
             console.log(
               `- COSMOS: ${cosmosAccounts.length + cosmosInternalAccounts.length} accounts (${cosmosAccounts.length} external, ${cosmosInternalAccounts.length} internal)`,
+            )
+            console.log(
+              `- XRP: ${xrpAccounts.length + xrpInternalAccounts.length} accounts (${xrpAccounts.length} external, ${xrpInternalAccounts.length} internal)`,
             )
           } catch (error) {
             console.error('[WalletStore] Failed to initialize wallets:', error)
@@ -488,26 +538,29 @@ export const useWalletStore = create<WalletStore>()(
             const accountOptions = { seed, idPrefix }
 
             const services = await getWalletServices()
-            const [ethAccounts, btcAccounts, solAccounts, cosmosAccounts] = await Promise.all([
-              services.createMultipleEthereumAccounts(0, 'external', 5, 0, accountOptions),
-              services.createMultipleBitcoinAccounts(
-                0,
-                'external',
-                'segwit',
-                5,
-                0,
-                'mainnet',
-                accountOptions,
-              ),
-              services.createMultipleSolanaAccounts(0, 'external', 5, 0, accountOptions),
-              services.createMultipleCosmosAccounts(0, 'external', 5, 0, accountOptions),
-            ])
+            const [ethAccounts, btcAccounts, solAccounts, cosmosAccounts, xrpAccounts] =
+              await Promise.all([
+                services.createMultipleEthereumAccounts(0, 'external', 5, 0, accountOptions),
+                services.createMultipleBitcoinAccounts(
+                  0,
+                  'external',
+                  'segwit',
+                  5,
+                  0,
+                  'mainnet',
+                  accountOptions,
+                ),
+                services.createMultipleSolanaAccounts(0, 'external', 5, 0, accountOptions),
+                services.createMultipleCosmosAccounts(0, 'external', 5, 0, accountOptions),
+                services.createMultipleXrpAccounts(0, 'external', 5, 0, accountOptions),
+              ])
 
             const [
               ethInternalAccounts,
               btcInternalAccounts,
               solInternalAccounts,
               cosmosInternalAccounts,
+              xrpInternalAccounts,
             ] = await Promise.all([
               services.createMultipleEthereumAccounts(0, 'internal', 2, 0, accountOptions),
               services.createMultipleBitcoinAccounts(
@@ -521,6 +574,7 @@ export const useWalletStore = create<WalletStore>()(
               ),
               services.createMultipleSolanaAccounts(0, 'internal', 2, 0, accountOptions),
               services.createMultipleCosmosAccounts(0, 'internal', 2, 0, accountOptions),
+              services.createMultipleXrpAccounts(0, 'internal', 2, 0, accountOptions),
             ])
 
             set(state => {
@@ -532,6 +586,7 @@ export const useWalletStore = create<WalletStore>()(
                 BTC: { external: btcAccounts, internal: btcInternalAccounts },
                 SOL: { external: solAccounts, internal: solInternalAccounts },
                 COSMOS: { external: cosmosAccounts, internal: cosmosInternalAccounts },
+                XRP: { external: xrpAccounts, internal: xrpInternalAccounts },
               }
 
               if (ethAccounts.length > 0) {
@@ -546,12 +601,16 @@ export const useWalletStore = create<WalletStore>()(
               if (cosmosAccounts.length > 0) {
                 cosmosAccounts[0].isActive = true
               }
+              if (xrpAccounts.length > 0) {
+                xrpAccounts[0].isActive = true
+              }
 
               state.activeWalletsBySafeCard[safeCard.id] = {
                 ETH: ethAccounts[0],
                 BTC: btcAccounts[0],
                 SOL: solAccounts[0],
                 COSMOS: cosmosAccounts[0],
+                XRP: xrpAccounts[0],
               }
 
               state.wallets = state.walletsBySafeCard[safeCard.id]
@@ -617,7 +676,7 @@ export const useWalletStore = create<WalletStore>()(
 
             const activeWallets = get().activeWalletsBySafeCard[safeCardId]
             if (activeWallets) {
-              ;(['ETH', 'BTC', 'SOL', 'COSMOS'] as WalletCoinType[]).forEach(coinType => {
+              ;(['ETH', 'BTC', 'SOL', 'COSMOS', 'XRP'] as WalletCoinType[]).forEach(coinType => {
                 const account = activeWallets[coinType]
                 if (account?.id) {
                   sendSetActiveWalletCommand(deviceId, coinType, account.id)
@@ -698,6 +757,15 @@ export const useWalletStore = create<WalletStore>()(
                   accountOptions,
                 )
                 break
+              case 'XRP':
+                newAccounts = await services.createMultipleXrpAccounts(
+                  0,
+                  type,
+                  count,
+                  nextAccountIndex,
+                  accountOptions,
+                )
+                break
               default:
                 throw new Error(`Unsupported coin type: ${coinType}`)
             }
@@ -741,6 +809,7 @@ export const useWalletStore = create<WalletStore>()(
             ...state.wallets.BTC[type],
             ...state.wallets.SOL[type],
             ...state.wallets.COSMOS[type],
+            ...state.wallets.XRP[type],
           ]
         },
 
@@ -755,6 +824,8 @@ export const useWalletStore = create<WalletStore>()(
             ...state.wallets.SOL.internal,
             ...state.wallets.COSMOS.external,
             ...state.wallets.COSMOS.internal,
+            ...state.wallets.XRP.external,
+            ...state.wallets.XRP.internal,
           ]
           return allAccounts.find(account => account.id === id)
         },
@@ -879,6 +950,8 @@ export const useWalletStore = create<WalletStore>()(
           ...state,
           wallets: ensureWalletCollection(state.wallets),
           activeWallets: ensureActiveWallets(state.activeWallets),
+          walletsBySafeCard: ensureWalletsBySafeCard(state.walletsBySafeCard),
+          activeWalletsBySafeCard: ensureActiveWalletsBySafeCard(state.activeWalletsBySafeCard),
         }
       },
       // Only persist essential data, not loading states or errors
@@ -904,6 +977,9 @@ export const useWalletStore = create<WalletStore>()(
         if (!state.activeSafeCardId && activeSafeCardId) {
           state.activeSafeCardId = activeSafeCardId
         }
+
+        state.walletsBySafeCard = ensureWalletsBySafeCard(state.walletsBySafeCard)
+        state.activeWalletsBySafeCard = ensureActiveWalletsBySafeCard(state.activeWalletsBySafeCard)
 
         state.wallets = resolveSafeCardWallets(state.walletsBySafeCard, activeSafeCardId)
         state.activeWallets = resolveSafeCardActiveWallets(
@@ -933,14 +1009,17 @@ export const useWalletStats = () => {
     const solCount = state.wallets.SOL.external.length + state.wallets.SOL.internal.length
     const cosmosCount =
       (state.wallets.COSMOS?.external.length || 0) + (state.wallets.COSMOS?.internal.length || 0)
+    const xrpCount =
+      (state.wallets.XRP?.external.length || 0) + (state.wallets.XRP?.internal.length || 0)
 
     return {
-      totalAccounts: ethCount + btcCount + solCount + cosmosCount,
+      totalAccounts: ethCount + btcCount + solCount + cosmosCount + xrpCount,
       accountsByType: {
         ETH: ethCount,
         BTC: btcCount,
         SOL: solCount,
         COSMOS: cosmosCount,
+        XRP: xrpCount,
       },
       activeWallets: state.activeWallets,
       isInitialized: state.isInitialized,

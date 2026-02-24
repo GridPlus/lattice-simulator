@@ -55,6 +55,7 @@ import {
   generateKeyPair,
   detectCoinTypeFromPath,
   generateCosmosAddress,
+  generateXrpAddress,
   simulateDelay,
   createDeviceResponse,
   supportsFeature,
@@ -1018,7 +1019,7 @@ export class DeviceSimulator {
   private async deriveAddressesFallback(
     startPath: WalletPath,
     count: number,
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
@@ -1341,7 +1342,7 @@ export class DeviceSimulator {
   private async deriveAddressesManually(
     startPath: WalletPath,
     count: number,
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
     flag?: number,
     iterIdx?: number,
   ): Promise<GetAddressesResponse> {
@@ -1391,7 +1392,11 @@ export class DeviceSimulator {
         let uncompressedPubKey: Buffer | null = null
 
         // Derive uncompressed public key if needed for ETH or SECP256K1_PUB export
-        if (coinType === 'ETH' || flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB) {
+        if (
+          coinType === 'ETH' ||
+          coinType === 'XRP' ||
+          flag === EXTERNAL.GET_ADDR_FLAGS.SECP256K1_PUB
+        ) {
           if (!derivedKey.privateKey) {
             throw new Error('Derived key missing private key')
           }
@@ -1406,6 +1411,8 @@ export class DeviceSimulator {
           const pubKeyWithoutPrefix = uncompressedPubKey!.slice(1)
           const hash = keccak256(pubKeyWithoutPrefix)
           address = '0x' + hash.slice(-40)
+        } else if (coinType === 'XRP') {
+          address = generateXrpAddress(compressedPubkey)
         } else if (coinType === 'COSMOS') {
           const coinTypeValue = path.length > 1 ? path[1] : HARDENED_OFFSET + 118
           const chainConfig = getCosmosChainConfigByCoinType(coinTypeValue)
@@ -2829,6 +2836,13 @@ export class DeviceSimulator {
           address = generateCosmosAddress(pubkey, config.bech32Prefix)
           break
         }
+        case 'XRP': {
+          const pubkey = Buffer.alloc(33)
+          pubkey[0] = 0x02
+          pubkey.writeUInt32BE(this.simpleHash(seed + 'xrp'), 1)
+          address = generateXrpAddress(pubkey)
+          break
+        }
         default:
           address = `mock_${coinType.toLowerCase()}_${index}_${this.deviceId.substring(0, 8)}`
       }
@@ -3387,7 +3401,7 @@ export class DeviceSimulator {
    */
   private async extractTransactionMetadata(
     request: SignRequest,
-    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS',
+    coinType: 'ETH' | 'BTC' | 'SOL' | 'COSMOS' | 'XRP',
   ): Promise<SigningRequest['metadata']> {
     // This is a simplified implementation
     // In a real implementation, you would parse the transaction data
@@ -3441,6 +3455,11 @@ export class DeviceSimulator {
         : hasFullPayload
           ? 'Cosmos transaction'
           : 'Cosmos transaction (partial payload)'
+    }
+
+    if (coinType === 'XRP') {
+      metadata.tokenSymbol = 'XRP'
+      metadata.description = 'Sign XRP transaction'
     }
 
     return metadata

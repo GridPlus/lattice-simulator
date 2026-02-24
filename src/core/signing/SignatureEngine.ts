@@ -211,9 +211,11 @@ export class SignatureEngine {
     if (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.EVM) {
       coinType = 'ETH'
     }
-    // XRP uses secp256k1 generic signing, but path coin type (144') is not part
-    // of the simulator wallet coin enum. Route via the Ethereum secp256k1 path.
-    if (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.XRP) {
+    // XRP uses secp256k1 generic signing. We reuse the Ethereum secp256k1 signer path.
+    if (
+      coinType === 'XRP' ||
+      (coinType === 'UNKNOWN' && request.encoding === EXTERNAL.SIGNING.ENCODINGS.XRP)
+    ) {
       coinType = 'ETH'
     }
 

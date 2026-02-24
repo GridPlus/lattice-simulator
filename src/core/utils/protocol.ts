@@ -16,6 +16,7 @@ import {
   generateBitcoinAddress,
   generateSolanaAddress,
   generateCosmosAddress,
+  generateXrpAddress,
   deriveChild,
   generateSeedFromMnemonic,
 } from './crypto'
@@ -176,11 +177,11 @@ export function supportsFeature(
  * Generates mock addresses for a given derivation path
  *
  * Creates cryptocurrency addresses using HD wallet derivation.
- * Supports Ethereum, Bitcoin, Solana, and Cosmos address generation.
+ * Supports Ethereum, Bitcoin, Solana, Cosmos, and XRP address generation.
  *
  * @param startPath - Starting derivation path
  * @param count - Number of addresses to generate
- * @param coinType - Cryptocurrency type ('ETH', 'BTC', 'SOL', 'COSMOS')
+ * @param coinType - Cryptocurrency type ('ETH', 'BTC', 'SOL', 'COSMOS', 'XRP')
  * @param seed - Optional seed for deterministic generation
  * @returns Array of address information objects
  */
@@ -230,6 +231,9 @@ export function generateMockAddresses(
         address = generateCosmosAddress(publicKey, cosmosConfig.bech32Prefix)
         break
       }
+      case 'XRP':
+        address = generateXrpAddress(publicKey)
+        break
       default:
         throw new Error(`Unsupported coin type: ${coinType}`)
     }
@@ -269,6 +273,7 @@ export function detectCoinTypeFromPath(path: WalletPath): WalletCoinType | 'UNKN
   )
     return 'BTC'
   if (coinType === 0x80000000 + 501) return 'SOL' // SOL
+  if (coinType === 0x80000000 + 144) return 'XRP' // XRP
   if (isCosmosCoinType(coinType)) return 'COSMOS'
 
   return 'UNKNOWN'
@@ -303,6 +308,8 @@ export function getStandardPath(coinType: WalletCoinType, account: number = 0): 
         0,
       ]
     }
+    case 'XRP':
+      return [HARDENED_OFFSET + 44, HARDENED_OFFSET + 144, HARDENED_OFFSET + account, 0, 0]
     default:
       throw new Error(`Unsupported coin type: ${coinType}`)
   }
